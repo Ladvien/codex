@@ -1,0 +1,35 @@
+[package]
+name = "memory-migration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.41", features = ["full"] }
+async-trait = "0.1"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Memory and system monitoring
+sysinfo = "0.32"
+futures = "0.3"
+dashmap = "6.1"
+parking_lot = "0.12"
+
+# Priority queue
+priority-queue = "2.1"
+
+# Metrics and monitoring
+prometheus = { version = "0.13", features = ["process"] }
+
+# Core memory types
+memory-core = { path = "../memory-core" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"

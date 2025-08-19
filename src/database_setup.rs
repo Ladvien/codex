@@ -441,20 +441,22 @@ impl DatabaseSetup {
         // Test inserting and querying a sample memory
         info!("🧪 Testing vector operations...");
         
-        // Insert a test memory
+        // Insert a test memory using 768-dimensional vector (matching schema)
+        let test_vector = vec![0.1f32; 768].iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",");
         client
             .execute(
-                "INSERT INTO memories (content, embedding) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                &[&"Setup test memory", &vec![0.1f32, 0.2, 0.3]],
+                &format!("INSERT INTO memories (content, embedding) VALUES ($1, '[{}]'::vector) ON CONFLICT DO NOTHING", test_vector),
+                &[&"Setup test memory"],
             )
             .await
             .context("Failed to insert test memory")?;
 
-        // Test vector similarity search
+        // Test vector similarity search using 768-dimensional vector
+        let query_vector = vec![0.1f32; 768].iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",");
         client
             .query(
-                "SELECT content FROM memories ORDER BY embedding <-> $1 LIMIT 1",
-                &[&vec![0.1f32, 0.2, 0.3]],
+                &format!("SELECT content FROM memories ORDER BY embedding <-> '[{}]'::vector LIMIT 1", query_vector),
+                &[],
             )
             .await
             .context("Failed to perform vector similarity search")?;

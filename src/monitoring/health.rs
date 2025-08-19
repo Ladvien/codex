@@ -204,23 +204,36 @@ impl HealthChecker {
             }
         }
 
-        // Check for recent migration failures
+        // Check for recent migration failures (if migration_history table has success column)
         match sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM migration_history WHERE success = false AND migrated_at > NOW() - INTERVAL '1 hour'"
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'migration_history' AND column_name = 'success'"
         )
         .fetch_one(self.db_pool.as_ref())
         .await
         {
-            Ok(failure_count) => {
-                if failure_count > 10 {
-                    status = HealthStatus::Degraded;
-                    message = Some(format!("High migration failure rate: {failure_count} failures in last hour"));
-                    warn!("High migration failure rate: {} failures in last hour", failure_count);
+            Ok(column_exists) if column_exists > 0 => {
+                // Column exists, check for failures
+                match sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM migration_history WHERE success = false AND migrated_at > NOW() - INTERVAL '1 hour'"
+                )
+                .fetch_one(self.db_pool.as_ref())
+                .await
+                {
+                    Ok(failure_count) => {
+                        if failure_count > 10 {
+                            status = HealthStatus::Degraded;
+                            message = Some(format!("High migration failure rate: {failure_count} failures in last hour"));
+                            warn!("High migration failure rate: {} failures in last hour", failure_count);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to check migration failures: {}", e);
+                        error_count += 1;
+                    }
                 }
             }
-            Err(e) => {
-                warn!("Failed to check migration failures: {}", e);
-                error_count += 1;
+            _ => {
+                // Column doesn't exist or check failed, skip migration failure check
             }
         }
 

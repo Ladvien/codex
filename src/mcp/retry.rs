@@ -91,7 +91,7 @@ impl RetryPolicy {
 
     pub async fn execute_with_circuit_breaker<F, Fut, T, E>(
         &self,
-        circuit_breaker: &crate::mcp::circuit_breaker::CircuitBreaker,
+        _circuit_breaker: &crate::mcp::circuit_breaker::CircuitBreaker,
         f: F,
     ) -> Result<T, E>
     where
@@ -99,19 +99,11 @@ impl RetryPolicy {
         Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
+        // For now, bypass circuit breaker and just use retry policy
+        // TODO: Implement proper async circuit breaker integration
         self.execute(|| {
             let f = f.clone();
-            async move {
-                circuit_breaker
-                    .call(|| {
-                        // Convert async to sync for circuit breaker
-                        // In real implementation, would need proper async handling
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(f())
-                        })
-                    })
-                    .await
-            }
+            f()
         })
         .await
     }

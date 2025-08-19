@@ -70,7 +70,16 @@ impl MCPServer {
             .map_err(|e| anyhow::anyhow!("Failed to start MCP server: {}", e))?;
 
         info!("MCP server listening on {}", addr);
-        server.wait();
+
+        // Use tokio::spawn to handle the blocking wait call
+        let server_handle = tokio::task::spawn_blocking(move || {
+            server.wait();
+        });
+
+        // Wait for the server to finish
+        server_handle
+            .await
+            .map_err(|e| anyhow::anyhow!("Server task failed: {}", e))?;
         Ok(())
     }
 

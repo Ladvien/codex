@@ -11,7 +11,9 @@
 mod test_helpers;
 
 use anyhow::Result;
-use codex_memory::memory::models::{CreateMemoryRequest, MemoryTier, SearchRequest, UpdateMemoryRequest};
+use codex_memory::memory::models::{
+    CreateMemoryRequest, MemoryTier, SearchRequest, UpdateMemoryRequest,
+};
 use serde_json::json;
 use std::sync::Arc;
 use test_helpers::{ConcurrentTester, TestConfigBuilder, TestDataGenerator, TestEnvironment};
@@ -27,7 +29,10 @@ async fn test_invalid_input_handling() -> Result<()> {
 
     // Test 1: Invalid UUID handling
     let invalid_uuid = "not-a-valid-uuid";
-    let result = env.repository.get_memory(Uuid::parse_str(invalid_uuid).unwrap_or(Uuid::new_v4())).await;
+    let result = env
+        .repository
+        .get_memory(Uuid::parse_str(invalid_uuid).unwrap_or(Uuid::new_v4()))
+        .await;
     // Should either handle gracefully or return appropriate error
 
     // Test 2: Empty content handling
@@ -64,7 +69,10 @@ async fn test_invalid_input_handling() -> Result<()> {
         expires_at: None,
     };
 
-    let invalid_importance_result = env.repository.create_memory(invalid_importance_request).await;
+    let invalid_importance_result = env
+        .repository
+        .create_memory(invalid_importance_request)
+        .await;
     match invalid_importance_result {
         Ok(memory) => {
             // Should clamp or normalize invalid values
@@ -161,15 +169,11 @@ async fn test_large_input_handling() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Test different content sizes to find limits
-    let size_tests = vec![
-        ("1MB", 1024),
-        ("5MB", 5 * 1024),
-        ("10MB", 10 * 1024),
-    ];
+    let size_tests = vec![("1MB", 1024), ("5MB", 5 * 1024), ("10MB", 10 * 1024)];
 
     for (size_name, size_kb) in size_tests {
         println!("Testing {} content handling", size_name);
-        
+
         let large_content = TestDataGenerator::large_content(size_kb);
         let large_request = CreateMemoryRequest {
             content: large_content.clone(),
@@ -182,18 +186,27 @@ async fn test_large_input_handling() -> Result<()> {
         };
 
         // Use timeout to prevent hanging on very large content
-        let result = timeout(Duration::from_secs(60), env.repository.create_memory(large_request)).await;
-        
+        let result = timeout(
+            Duration::from_secs(60),
+            env.repository.create_memory(large_request),
+        )
+        .await;
+
         match result {
             Ok(Ok(memory)) => {
-                println!("{} content accepted: {} bytes", size_name, memory.content.len());
-                
+                println!(
+                    "{} content accepted: {} bytes",
+                    size_name,
+                    memory.content.len()
+                );
+
                 // Test retrieval of large content
                 let retrieval_result = timeout(
                     Duration::from_secs(30),
-                    env.repository.get_memory(memory.id)
-                ).await;
-                
+                    env.repository.get_memory(memory.id),
+                )
+                .await;
+
                 match retrieval_result {
                     Ok(Ok(retrieved)) => {
                         assert_eq!(retrieved.content.len(), large_content.len());
@@ -255,19 +268,21 @@ async fn test_concurrent_access_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Create a shared memory for concurrent modification testing
-    let shared_memory = env.create_test_memory(
-        "Shared memory for concurrent access testing",
-        MemoryTier::Working,
-        0.7,
-    ).await?;
+    let shared_memory = env
+        .create_test_memory(
+            "Shared memory for concurrent access testing",
+            MemoryTier::Working,
+            0.7,
+        )
+        .await?;
 
     // Test 1: Concurrent updates to the same memory
     println!("Testing concurrent updates to same memory");
-    
+
     let shared_memory_id = shared_memory.id;
     let repository = Arc::clone(&env.repository);
     let test_id = env.test_id.clone();
-    
+
     let update_operations = ConcurrentTester::run_parallel(
         move |i| {
             let repo = Arc::clone(&repository);
@@ -291,59 +306,71 @@ async fn test_concurrent_access_errors() -> Result<()> {
             }
         },
         10, // 10 concurrent updates
-    ).await?;
+    )
+    .await?;
 
     // Some updates may succeed, some may fail due to conflicts
     let successful_updates = update_operations.iter().filter(|r| r.is_ok()).count();
     let failed_updates = update_operations.iter().filter(|r| r.is_err()).count();
-    
-    println!("Concurrent updates: {} succeeded, {} failed", successful_updates, failed_updates);
-    
+
+    println!(
+        "Concurrent updates: {} succeeded, {} failed",
+        successful_updates, failed_updates
+    );
+
     // At least one update should succeed
-    assert!(successful_updates > 0, "At least one concurrent update should succeed");
+    assert!(
+        successful_updates > 0,
+        "At least one concurrent update should succeed"
+    );
 
     // Test 2: Concurrent deletion attempts
-    let deletion_memory = env.create_test_memory(
-        "Memory for concurrent deletion test",
-        MemoryTier::Working,
-        0.5,
-    ).await?;
+    let deletion_memory = env
+        .create_test_memory(
+            "Memory for concurrent deletion test",
+            MemoryTier::Working,
+            0.5,
+        )
+        .await?;
 
     let deletion_memory_id = deletion_memory.id;
     let repository2 = Arc::clone(&env.repository);
-    
+
     let deletion_operations = ConcurrentTester::run_parallel(
         move |_| {
             let repo = Arc::clone(&repository2);
             let memory_id = deletion_memory_id;
-            async move {
-                repo.delete_memory(memory_id).await
-            }
+            async move { repo.delete_memory(memory_id).await }
         },
         5, // 5 concurrent deletion attempts
-    ).await?;
+    )
+    .await?;
 
     // Only one deletion should succeed, others should fail
     let successful_deletions = deletion_operations.iter().filter(|r| r.is_ok()).count();
     let failed_deletions = deletion_operations.iter().filter(|r| r.is_err()).count();
-    
-    println!("Concurrent deletions: {} succeeded, {} failed", successful_deletions, failed_deletions);
-    
+
+    println!(
+        "Concurrent deletions: {} succeeded, {} failed",
+        successful_deletions, failed_deletions
+    );
+
     // Exactly one deletion should succeed
-    assert!(successful_deletions <= 1, "At most one deletion should succeed");
+    assert!(
+        successful_deletions <= 1,
+        "At most one deletion should succeed"
+    );
     assert!(failed_deletions >= 4, "Most deletions should fail");
 
     // Test 3: Concurrent access with one modifier and multiple readers
-    let reader_memory = env.create_test_memory(
-        "Memory for reader/writer test",
-        MemoryTier::Working,
-        0.6,
-    ).await?;
+    let reader_memory = env
+        .create_test_memory("Memory for reader/writer test", MemoryTier::Working, 0.6)
+        .await?;
 
     let reader_memory_id = reader_memory.id;
     let repository3 = Arc::clone(&env.repository);
     let test_id3 = env.test_id.clone();
-    
+
     let mixed_operations = ConcurrentTester::run_parallel(
         move |i| {
             let repo = Arc::clone(&repository3);
@@ -363,7 +390,9 @@ async fn test_concurrent_access_errors() -> Result<()> {
                         })),
                         expires_at: None,
                     };
-                    repo.update_memory(memory_id, update_request).await.map(|_| "write".to_string())
+                    repo.update_memory(memory_id, update_request)
+                        .await
+                        .map(|_| "write".to_string())
                 } else {
                     // Readers
                     repo.get_memory(memory_id).await.map(|_| "read".to_string())
@@ -371,13 +400,20 @@ async fn test_concurrent_access_errors() -> Result<()> {
             }
         },
         10, // 1 writer, 9 readers
-    ).await?;
+    )
+    .await?;
 
     // All operations should handle concurrency gracefully
     let successful_ops = mixed_operations.iter().filter(|r| r.is_ok()).count();
-    println!("Reader/writer test: {} operations succeeded out of 10", successful_ops);
-    
-    assert!(successful_ops >= 9, "Most reader/writer operations should succeed");
+    println!(
+        "Reader/writer test: {} operations succeeded out of 10",
+        successful_ops
+    );
+
+    assert!(
+        successful_ops >= 9,
+        "Most reader/writer operations should succeed"
+    );
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -393,16 +429,17 @@ async fn test_external_service_failures() -> Result<()> {
         .build();
 
     let env = TestEnvironment::new_with_config(Some(config)).await;
-    
+
     // If environment creation fails due to unreachable service, that's expected
     let env = match env {
         Ok(env) => env,
         Err(e) => {
-            println!("Environment creation failed with unreachable embedding service (expected): {}", e);
+            println!(
+                "Environment creation failed with unreachable embedding service (expected): {}",
+                e
+            );
             // Test with mock embedder instead
-            let mock_config = TestConfigBuilder::new()
-                .with_mock_embedder()
-                .build();
+            let mock_config = TestConfigBuilder::new().with_mock_embedder().build();
             TestEnvironment::new_with_config(Some(mock_config)).await?
         }
     };
@@ -421,8 +458,9 @@ async fn test_external_service_failures() -> Result<()> {
 
     let embedding_result = timeout(
         Duration::from_secs(10),
-        env.repository.create_memory(request_with_embedding)
-    ).await;
+        env.repository.create_memory(request_with_embedding),
+    )
+    .await;
 
     match embedding_result {
         Ok(Ok(memory)) => {
@@ -451,11 +489,17 @@ async fn test_external_service_failures() -> Result<()> {
         expires_at: None,
     };
 
-    let provided_embedding_result = env.repository.create_memory(request_with_provided_embedding).await;
+    let provided_embedding_result = env
+        .repository
+        .create_memory(request_with_provided_embedding)
+        .await;
     match provided_embedding_result {
         Ok(memory) => {
             println!("Memory with provided embedding created successfully");
-            assert_eq!(memory.embedding.as_ref().unwrap().as_slice(), fake_embedding.as_slice());
+            assert_eq!(
+                memory.embedding.as_ref().unwrap().as_slice(),
+                fake_embedding.as_slice()
+            );
         }
         Err(e) => {
             println!("Memory creation with provided embedding failed: {}", e);
@@ -485,8 +529,9 @@ async fn test_external_service_failures() -> Result<()> {
 
     let search_result = timeout(
         Duration::from_secs(10),
-        env.repository.search_memories(search_request)
-    ).await;
+        env.repository.search_memories(search_request),
+    )
+    .await;
 
     match search_result {
         Ok(Ok(response)) => {
@@ -513,13 +558,13 @@ async fn test_database_error_handling() -> Result<()> {
 
     // Test 1: Operations with invalid SQL (should be handled by query builder)
     // This is more of a defensive test since the repository uses proper query builders
-    
+
     // Test 2: Very rapid database operations to potentially trigger connection issues
     println!("Testing rapid database operations");
-    
+
     let repository4 = Arc::clone(&env.repository);
     let test_id4 = env.test_id.clone();
-    
+
     let rapid_operations = ConcurrentTester::run_parallel(
         move |i| {
             let repo = Arc::clone(&repository4);
@@ -543,7 +588,7 @@ async fn test_database_error_handling() -> Result<()> {
                     };
 
                     match repo.create_memory(request).await {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => {
                             println!("Rapid operation failed: {}", e);
                             return Err(e);
@@ -557,23 +602,29 @@ async fn test_database_error_handling() -> Result<()> {
             }
         },
         20, // 20 workers doing 10 operations each
-    ).await?;
+    )
+    .await?;
 
     let successful_workers = rapid_operations.iter().filter(|r| r.is_ok()).count();
     let failed_workers = rapid_operations.iter().filter(|r| r.is_err()).count();
-    
-    println!("Rapid operations: {} workers succeeded, {} failed", successful_workers, failed_workers);
-    
+
+    println!(
+        "Rapid operations: {} workers succeeded, {} failed",
+        successful_workers, failed_workers
+    );
+
     // Most operations should succeed despite stress
-    assert!(successful_workers >= rapid_operations.len() / 2, 
-        "At least half of rapid operations should succeed");
+    assert!(
+        successful_workers >= rapid_operations.len() / 2,
+        "At least half of rapid operations should succeed"
+    );
 
     // Test 3: Long-running transaction simulation
     println!("Testing long-running operations");
-    
+
     let long_content = TestDataGenerator::large_content(50); // 50KB content
     let long_operation_start = std::time::Instant::now();
-    
+
     let long_request = CreateMemoryRequest {
         content: long_content,
         embedding: None,
@@ -586,8 +637,9 @@ async fn test_database_error_handling() -> Result<()> {
 
     let long_result = timeout(
         Duration::from_secs(30),
-        env.repository.create_memory(long_request)
-    ).await;
+        env.repository.create_memory(long_request),
+    )
+    .await;
 
     let long_duration = long_operation_start.elapsed();
     println!("Long operation took: {:?}", long_duration);
@@ -607,7 +659,7 @@ async fn test_database_error_handling() -> Result<()> {
     // Test 4: Statistics consistency after errors
     let final_stats = env.repository.get_statistics().await?;
     println!("Final statistics: {:?}", final_stats);
-    
+
     // Statistics should be retrievable even after various error conditions
     assert!(final_stats.total_active.is_some());
 
@@ -628,7 +680,7 @@ async fn test_data_integrity_after_errors() -> Result<()> {
     // Test 1: Verify data integrity after failed operations
     let repository5 = Arc::clone(&env.repository);
     let test_id5 = env.test_id.clone();
-    
+
     let mixed_operations = ConcurrentTester::run_parallel(
         move |i| {
             let repo = Arc::clone(&repository5);
@@ -656,7 +708,9 @@ async fn test_data_integrity_after_errors() -> Result<()> {
                             embedding: None,
                             tier: Some(MemoryTier::Working),
                             importance_score: Some(0.5),
-                            metadata: Some(serde_json::json!({"test_id": test_id, "edge_case": true})),
+                            metadata: Some(
+                                serde_json::json!({"test_id": test_id, "edge_case": true}),
+                            ),
                             parent_id: None,
                             expires_at: None,
                         };
@@ -677,13 +731,16 @@ async fn test_data_integrity_after_errors() -> Result<()> {
                             metadata: None,
                             expires_at: None,
                         };
-                        repo.update_memory(fake_id, update_request).await.map(|_| "update")
+                        repo.update_memory(fake_id, update_request)
+                            .await
+                            .map(|_| "update")
                     }
                 }
             }
         },
         20,
-    ).await?;
+    )
+    .await?;
 
     let successful_mixed = mixed_operations.iter().filter(|r| r.is_ok()).count();
     println!("Mixed operations: {} out of 20 succeeded", successful_mixed);
@@ -697,32 +754,44 @@ async fn test_data_integrity_after_errors() -> Result<()> {
             Ok(memory) => {
                 assert_eq!(memory.id, baseline_memory.id);
                 assert_eq!(memory.content, baseline_memory.content);
-                println!("Baseline memory {} intact after error operations", memory.id);
+                println!(
+                    "Baseline memory {} intact after error operations",
+                    memory.id
+                );
             }
             Err(e) => {
-                panic!("Baseline memory {} corrupted after error operations: {}", baseline_memory.id, e);
+                panic!(
+                    "Baseline memory {} corrupted after error operations: {}",
+                    baseline_memory.id, e
+                );
             }
         }
     }
 
     // Test 3: Verify search still works correctly
     let post_error_search = env.test_search("test memory", Some(20)).await?;
-    println!("Post-error search found {} results", post_error_search.len());
-    
+    println!(
+        "Post-error search found {} results",
+        post_error_search.len()
+    );
+
     // Should still find our baseline memories
     assert!(post_error_search.len() >= baseline_memories.len());
 
     // Test 4: Verify statistics are consistent
     let post_error_stats = env.repository.get_statistics().await?;
     println!("Post-error statistics: {:?}", post_error_stats);
-    
+
     assert!(post_error_stats.total_active.unwrap_or(0) >= baseline_memories.len() as i64);
 
     // Test 5: Create a few more memories to ensure system is still functional
     let post_error_memories = env.create_test_memories(5).await?;
     assert_eq!(post_error_memories.len(), 5);
-    
-    println!("Successfully created {} new memories after error scenarios", post_error_memories.len());
+
+    println!(
+        "Successfully created {} new memories after error scenarios",
+        post_error_memories.len()
+    );
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -736,11 +805,11 @@ async fn test_graceful_degradation() -> Result<()> {
 
     // Test 1: High memory pressure simulation
     println!("Testing behavior under simulated memory pressure");
-    
+
     // Create many large memories to simulate memory pressure
     let repository6 = Arc::clone(&env.repository);
     let test_id6 = env.test_id.clone();
-    
+
     let large_memory_operations = ConcurrentTester::run_parallel(
         move |i| {
             let repo = Arc::clone(&repository6);
@@ -766,34 +835,41 @@ async fn test_graceful_degradation() -> Result<()> {
             }
         },
         50, // Try to create 50 large memories
-    ).await?;
+    )
+    .await?;
 
-    let successful_large = large_memory_operations.iter()
+    let successful_large = large_memory_operations
+        .iter()
         .filter(|r| matches!(r, Ok(Ok(_))))
         .count();
     let failed_large = large_memory_operations.len() - successful_large;
-    
-    println!("Under memory pressure: {} large memories created, {} failed/timed out", 
-        successful_large, failed_large);
+
+    println!(
+        "Under memory pressure: {} large memories created, {} failed/timed out",
+        successful_large, failed_large
+    );
 
     // System should either succeed or fail gracefully
-    assert!(successful_large > 0 || failed_large == large_memory_operations.len(),
-        "System should either create memories or fail consistently");
+    assert!(
+        successful_large > 0 || failed_large == large_memory_operations.len(),
+        "System should either create memories or fail consistently"
+    );
 
     // Test 2: Ensure basic operations still work under pressure
-    let basic_operation = env.create_test_memory(
-        "Basic operation under pressure",
-        MemoryTier::Working,
-        0.8,
-    ).await;
+    let basic_operation = env
+        .create_test_memory("Basic operation under pressure", MemoryTier::Working, 0.8)
+        .await;
 
     match basic_operation {
         Ok(memory) => {
             println!("Basic operation successful under pressure");
-            
+
             // Try to retrieve it
             let retrieved = env.repository.get_memory(memory.id).await;
-            assert!(retrieved.is_ok(), "Should be able to retrieve memory even under pressure");
+            assert!(
+                retrieved.is_ok(),
+                "Should be able to retrieve memory even under pressure"
+            );
         }
         Err(e) => {
             println!("Basic operation failed under pressure: {}", e);
@@ -804,14 +880,18 @@ async fn test_graceful_degradation() -> Result<()> {
     let search_start = std::time::Instant::now();
     let search_result = timeout(
         Duration::from_secs(10),
-        env.test_search("memory pressure test", Some(10))
-    ).await;
+        env.test_search("memory pressure test", Some(10)),
+    )
+    .await;
     let search_duration = search_start.elapsed();
 
     match search_result {
         Ok(Ok(results)) => {
-            println!("Search under pressure completed in {:?}, found {} results", 
-                search_duration, results.len());
+            println!(
+                "Search under pressure completed in {:?}, found {} results",
+                search_duration,
+                results.len()
+            );
         }
         Ok(Err(e)) => {
             println!("Search failed under pressure: {}", e);
@@ -823,16 +903,14 @@ async fn test_graceful_degradation() -> Result<()> {
 
     // Test 4: Verify system can recover
     println!("Testing recovery after pressure");
-    
+
     // Wait a bit for potential cleanup/GC
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Try a simple operation
-    let recovery_test = env.create_test_memory(
-        "Recovery test memory",
-        MemoryTier::Working,
-        0.7,
-    ).await;
+    let recovery_test = env
+        .create_test_memory("Recovery test memory", MemoryTier::Working, 0.7)
+        .await;
 
     match recovery_test {
         Ok(memory) => {

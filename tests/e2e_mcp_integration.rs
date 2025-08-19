@@ -26,18 +26,24 @@ async fn test_mcp_server_initialization() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Test 1: Create MCP server instance
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Verify server is properly initialized
-    assert!(mcp_server.is_ready(), "MCP server should be ready after initialization");
+    assert!(
+        mcp_server.is_ready(),
+        "MCP server should be ready after initialization"
+    );
 
     // Test 2: Test server capabilities
     let capabilities = mcp_server.get_capabilities().await?;
-    assert!(capabilities.contains_key("tools"), "Server should expose tool capabilities");
-    assert!(capabilities.contains_key("resources"), "Server should expose resource capabilities");
+    assert!(
+        capabilities.contains_key("tools"),
+        "Server should expose tool capabilities"
+    );
+    assert!(
+        capabilities.contains_key("resources"),
+        "Server should expose resource capabilities"
+    );
 
     // Test 3: Verify tool definitions
     let tools = capabilities["tools"].as_array().unwrap();
@@ -62,10 +68,7 @@ async fn test_mcp_server_initialization() -> Result<()> {
 #[traced_test]
 async fn test_mcp_create_memory_tool() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Test 1: Create memory via MCP tool
     let create_request = json!({
@@ -80,7 +83,7 @@ async fn test_mcp_create_memory_tool() -> Result<()> {
 
     let create_response = mcp_server.execute_tool(create_request).await?;
     assert!(create_response["success"].as_bool().unwrap_or(false));
-    
+
     let memory_data = &create_response["result"];
     assert!(memory_data["id"].is_string());
     assert_eq!(memory_data["content"], "Test memory created via MCP tool");
@@ -97,7 +100,7 @@ async fn test_mcp_create_memory_tool() -> Result<()> {
 
     let minimal_response = mcp_server.execute_tool(minimal_request).await?;
     assert!(minimal_response["success"].as_bool().unwrap_or(false));
-    
+
     // Should use default values
     let minimal_data = &minimal_response["result"];
     assert_eq!(minimal_data["content"], "Minimal memory via MCP");
@@ -125,10 +128,7 @@ async fn test_mcp_create_memory_tool() -> Result<()> {
 #[traced_test]
 async fn test_mcp_search_memories_tool() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Setup: Create test memories
     let test_memories = vec![
@@ -164,14 +164,17 @@ async fn test_mcp_search_memories_tool() -> Result<()> {
 
     let search_response = mcp_server.execute_tool(search_request).await?;
     assert!(search_response["success"].as_bool().unwrap_or(false));
-    
+
     let results = search_response["result"]["results"].as_array().unwrap();
     assert!(!results.is_empty());
-    
+
     // Should find the Rust-related memory
-    let has_rust_content = results.iter().any(|r| 
-        r["memory"]["content"].as_str().unwrap_or("").contains("Rust")
-    );
+    let has_rust_content = results.iter().any(|r| {
+        r["memory"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Rust")
+    });
     assert!(has_rust_content);
 
     // Test 2: Search with filters via MCP
@@ -189,7 +192,7 @@ async fn test_mcp_search_memories_tool() -> Result<()> {
 
     let filtered_response = mcp_server.execute_tool(filtered_search).await?;
     assert!(filtered_response["success"].as_bool().unwrap_or(false));
-    
+
     let filtered_results = filtered_response["result"]["results"].as_array().unwrap();
     // Verify filtering worked
     for result in filtered_results {
@@ -209,7 +212,7 @@ async fn test_mcp_search_memories_tool() -> Result<()> {
 
     let empty_response = mcp_server.execute_tool(empty_search).await?;
     assert!(empty_response["success"].as_bool().unwrap_or(false));
-    
+
     let empty_results = empty_response["result"]["results"].as_array().unwrap();
     // May be empty or have very low similarity scores
     assert!(empty_results.len() <= 5);
@@ -223,10 +226,7 @@ async fn test_mcp_search_memories_tool() -> Result<()> {
 #[traced_test]
 async fn test_mcp_memory_crud_tools() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Setup: Create a test memory
     let create_request = json!({
@@ -252,10 +252,13 @@ async fn test_mcp_memory_crud_tools() -> Result<()> {
 
     let get_response = mcp_server.execute_tool(get_request).await?;
     assert!(get_response["success"].as_bool().unwrap_or(false));
-    
+
     let retrieved_memory = &get_response["result"];
     assert_eq!(retrieved_memory["id"], memory_id);
-    assert_eq!(retrieved_memory["content"], "Original content for CRUD testing");
+    assert_eq!(
+        retrieved_memory["content"],
+        "Original content for CRUD testing"
+    );
     assert_eq!(retrieved_memory["tier"], "working");
 
     // Test 2: Update memory via MCP tool
@@ -271,7 +274,7 @@ async fn test_mcp_memory_crud_tools() -> Result<()> {
 
     let update_response = mcp_server.execute_tool(update_request).await?;
     assert!(update_response["success"].as_bool().unwrap_or(false));
-    
+
     let updated_memory = &update_response["result"];
     assert_eq!(updated_memory["content"], "Updated content via MCP tool");
     assert_eq!(updated_memory["tier"], "warm");
@@ -310,7 +313,10 @@ async fn test_mcp_memory_crud_tools() -> Result<()> {
 
     let deleted_response = mcp_server.execute_tool(get_deleted).await?;
     assert!(!deleted_response["success"].as_bool().unwrap_or(true));
-    assert!(deleted_response["error"].as_str().unwrap().contains("not found"));
+    assert!(deleted_response["error"]
+        .as_str()
+        .unwrap()
+        .contains("not found"));
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -321,10 +327,7 @@ async fn test_mcp_memory_crud_tools() -> Result<()> {
 #[traced_test]
 async fn test_mcp_error_handling() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Test 1: Invalid tool name
     let invalid_tool = json!({
@@ -334,7 +337,10 @@ async fn test_mcp_error_handling() -> Result<()> {
 
     let invalid_response = mcp_server.execute_tool(invalid_tool).await?;
     assert!(!invalid_response["success"].as_bool().unwrap_or(true));
-    assert!(invalid_response["error"].as_str().unwrap().contains("Unknown tool"));
+    assert!(invalid_response["error"]
+        .as_str()
+        .unwrap()
+        .contains("Unknown tool"));
 
     // Test 2: Missing required arguments
     let missing_args = json!({
@@ -380,8 +386,9 @@ async fn test_mcp_error_handling() -> Result<()> {
 
     let large_response = timeout(
         Duration::from_secs(30),
-        mcp_server.execute_tool(large_request)
-    ).await;
+        mcp_server.execute_tool(large_request),
+    )
+    .await;
 
     match large_response {
         Ok(response) => {
@@ -389,8 +396,10 @@ async fn test_mcp_error_handling() -> Result<()> {
             if response?["success"].as_bool().unwrap_or(false) {
                 println!("Large content accepted by MCP server");
             } else {
-                println!("Large content rejected (acceptable): {}", 
-                    response["error"].as_str().unwrap_or("Unknown error"));
+                println!(
+                    "Large content rejected (acceptable): {}",
+                    response["error"].as_str().unwrap_or("Unknown error")
+                );
             }
         }
         Err(_) => {
@@ -408,15 +417,12 @@ async fn test_mcp_error_handling() -> Result<()> {
 #[traced_test]
 async fn test_mcp_resource_management() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Test 1: List available resources
     let resources = mcp_server.list_resources().await?;
     assert!(resources.is_array());
-    
+
     // Should have memory-related resources
     let resource_names: Vec<String> = resources
         .as_array()
@@ -432,14 +438,14 @@ async fn test_mcp_resource_management() -> Result<()> {
     // Test 2: Get memory statistics resource
     let stats_resource = mcp_server.get_resource("memory_statistics").await?;
     assert!(stats_resource["success"].as_bool().unwrap_or(false));
-    
+
     let stats_data = &stats_resource["result"];
     assert!(stats_data["total_memories"].is_number());
 
     // Test 3: Get memory schema resource
     let schema_resource = mcp_server.get_resource("memory_schema").await?;
     assert!(schema_resource["success"].as_bool().unwrap_or(false));
-    
+
     let schema_data = &schema_resource["result"];
     assert!(schema_data["memory_fields"].is_array());
 
@@ -467,7 +473,7 @@ async fn test_mcp_concurrent_operations() -> Result<()> {
     for i in 0..10 {
         let server = Arc::clone(&mcp_server);
         let test_id = env.test_id.clone();
-        
+
         let handle = tokio::spawn(async move {
             // Each "connection" creates a memory
             let create_request = json!({
@@ -484,7 +490,7 @@ async fn test_mcp_concurrent_operations() -> Result<()> {
 
             let create_response = server.execute_tool(create_request).await?;
             assert!(create_response["success"].as_bool().unwrap_or(false));
-            
+
             let memory_id = create_response["result"]["id"].as_str().unwrap();
 
             // Then searches for it
@@ -537,13 +543,10 @@ async fn test_mcp_concurrent_operations() -> Result<()> {
 #[traced_test]
 async fn test_claude_code_workflow_simulation() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Simulate a typical Claude Code session workflow
-    
+
     // Step 1: User asks a question about their codebase
     let question_memory = json!({
         "name": "create_memory",
@@ -642,9 +645,14 @@ async fn test_claude_code_workflow_simulation() -> Result<()> {
     });
 
     let conversation_response = mcp_server.execute_tool(conversation_search).await?;
-    let conversation_results = conversation_response["result"]["results"].as_array().unwrap();
-    
-    assert!(conversation_results.len() >= 4, "Should find all session memories");
+    let conversation_results = conversation_response["result"]["results"]
+        .as_array()
+        .unwrap();
+
+    assert!(
+        conversation_results.len() >= 4,
+        "Should find all session memories"
+    );
 
     // Verify we have all the expected memory types
     let memory_types: Vec<String> = conversation_results
@@ -667,14 +675,11 @@ async fn test_claude_code_workflow_simulation() -> Result<()> {
 #[traced_test]
 async fn test_mcp_performance_characteristics() -> Result<()> {
     let env = TestEnvironment::new().await?;
-    let mcp_server = MCPServer::new(
-        Arc::clone(&env.repository),
-        Arc::clone(&env.embedder),
-    )?;
+    let mcp_server = MCPServer::new(Arc::clone(&env.repository), Arc::clone(&env.embedder))?;
 
     // Test 1: Tool execution timing
     let start = std::time::Instant::now();
-    
+
     let create_request = json!({
         "name": "create_memory",
         "arguments": {
@@ -687,15 +692,18 @@ async fn test_mcp_performance_characteristics() -> Result<()> {
 
     let create_response = mcp_server.execute_tool(create_request).await?;
     let create_duration = start.elapsed();
-    
+
     assert!(create_response["success"].as_bool().unwrap_or(false));
-    assert!(create_duration < Duration::from_secs(5), "Memory creation should be fast");
+    assert!(
+        create_duration < Duration::from_secs(5),
+        "Memory creation should be fast"
+    );
 
     println!("MCP memory creation took: {:?}", create_duration);
 
     // Test 2: Search performance
     let search_start = std::time::Instant::now();
-    
+
     let search_request = json!({
         "name": "search_memories",
         "arguments": {
@@ -706,9 +714,12 @@ async fn test_mcp_performance_characteristics() -> Result<()> {
 
     let search_response = mcp_server.execute_tool(search_request).await?;
     let search_duration = search_start.elapsed();
-    
+
     assert!(search_response["success"].as_bool().unwrap_or(false));
-    assert!(search_duration < Duration::from_secs(3), "Search should be fast");
+    assert!(
+        search_duration < Duration::from_secs(3),
+        "Search should be fast"
+    );
 
     println!("MCP search took: {:?}", search_duration);
 
@@ -724,19 +735,22 @@ async fn test_mcp_performance_characteristics() -> Result<()> {
                 "metadata": env.get_test_metadata(Some(json!({"batch_test": true, "index": i})))
             }
         });
-        
+
         batch_operations.push(mcp_server.execute_tool(request));
     }
 
     let batch_results = futures::future::join_all(batch_operations).await;
     let batch_duration = batch_start.elapsed();
-    
+
     // All should succeed
     for result in batch_results {
         assert!(result?["success"].as_bool().unwrap_or(false));
     }
 
-    assert!(batch_duration < Duration::from_secs(15), "Batch operations should complete reasonably fast");
+    assert!(
+        batch_duration < Duration::from_secs(15),
+        "Batch operations should complete reasonably fast"
+    );
     println!("MCP batch operations took: {:?}", batch_duration);
 
     let ops_per_second = 10.0 / batch_duration.as_secs_f64();

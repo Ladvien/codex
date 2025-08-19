@@ -17,7 +17,7 @@ impl Default for ManagerPaths {
         let config_dir = dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("codex-memory");
-        
+
         Self {
             pid_file: config_dir.join("codex-memory.pid"),
             log_file: config_dir.join("codex-memory.log"),
@@ -34,25 +34,25 @@ pub struct ServerManager {
 impl ServerManager {
     pub fn new() -> Self {
         let paths = ManagerPaths::default();
-        
+
         // Ensure config directory exists
         if !paths.config_dir.exists() {
             fs::create_dir_all(&paths.config_dir).ok();
         }
-        
+
         Self { paths }
     }
 
     pub fn with_paths(pid_file: Option<String>, log_file: Option<String>) -> Self {
         let mut paths = ManagerPaths::default();
-        
+
         if let Some(pid) = pid_file {
             paths.pid_file = PathBuf::from(pid);
         }
         if let Some(log) = log_file {
             paths.log_file = PathBuf::from(log);
         }
-        
+
         Self { paths }
     }
 
@@ -80,8 +80,7 @@ impl ServerManager {
 
     /// Start server in background
     async fn start_background_process(&self) -> Result<()> {
-        let exe = std::env::current_exe()
-            .context("Failed to get current executable path")?;
+        let exe = std::env::current_exe().context("Failed to get current executable path")?;
 
         let log_file = fs::OpenOptions::new()
             .create(true)
@@ -98,10 +97,9 @@ impl ServerManager {
             .context("Failed to spawn server process")?;
 
         let pid = cmd.id();
-        
+
         // Write PID file
-        fs::write(&self.paths.pid_file, pid.to_string())
-            .context("Failed to write PID file")?;
+        fs::write(&self.paths.pid_file, pid.to_string()).context("Failed to write PID file")?;
 
         info!("Server started with PID: {}", pid);
         info!("Log file: {}", self.paths.log_file.display());
@@ -111,7 +109,8 @@ impl ServerManager {
 
     /// Stop the running server
     pub async fn stop(&self) -> Result<()> {
-        let pid = self.get_running_pid()?
+        let pid = self
+            .get_running_pid()?
             .ok_or_else(|| anyhow::anyhow!("Server is not running"))?;
 
         info!("Stopping server with PID: {}", pid);
@@ -164,7 +163,7 @@ impl ServerManager {
     /// Restart the server
     pub async fn restart(&self) -> Result<()> {
         info!("Restarting server...");
-        
+
         // Stop if running
         if self.get_running_pid()?.is_some() {
             self.stop().await?;
@@ -173,7 +172,7 @@ impl ServerManager {
 
         // Start again
         self.start_daemon(true).await?;
-        
+
         Ok(())
     }
 
@@ -183,11 +182,11 @@ impl ServerManager {
             Some(pid) => {
                 println!("● Server is running");
                 println!("  PID: {}", pid);
-                
+
                 if detailed {
                     println!("  PID file: {}", self.paths.pid_file.display());
                     println!("  Log file: {}", self.paths.log_file.display());
-                    
+
                     // Show recent logs
                     if self.paths.log_file.exists() {
                         println!("\nRecent logs:");
@@ -197,14 +196,14 @@ impl ServerManager {
             }
             None => {
                 println!("○ Server is not running");
-                
+
                 if detailed {
                     println!("  PID file: {}", self.paths.pid_file.display());
                     println!("  Log file: {}", self.paths.log_file.display());
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -218,7 +217,7 @@ impl ServerManager {
             // Follow logs (like tail -f)
             let file = fs::File::open(&self.paths.log_file)?;
             let reader = BufReader::new(file);
-            
+
             println!("Following logs (Ctrl+C to stop)...");
             for line in reader.lines() {
                 println!("{}", line?);
@@ -227,8 +226,12 @@ impl ServerManager {
             // Show last N lines
             let content = fs::read_to_string(&self.paths.log_file)?;
             let all_lines: Vec<&str> = content.lines().collect();
-            let start = if all_lines.len() > lines { all_lines.len() - lines } else { 0 };
-            
+            let start = if all_lines.len() > lines {
+                all_lines.len() - lines
+            } else {
+                0
+            };
+
             for line in &all_lines[start..] {
                 println!("{}", line);
             }
@@ -254,7 +257,10 @@ impl ServerManager {
             "systemd" => self.install_systemd_service().await,
             "launchd" => self.install_launchd_service().await,
             "windows" => self.install_windows_service().await,
-            _ => Err(anyhow::anyhow!("Unsupported service type: {}", service_type)),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported service type: {}",
+                service_type
+            )),
         }
     }
 
@@ -286,7 +292,7 @@ WantedBy=multi-user.target
             );
 
             let service_path = PathBuf::from("/etc/systemd/system/codex-memory.service");
-            
+
             // Write service file (requires sudo)
             fs::write(&service_path, service_content)
                 .context("Failed to write service file (need sudo?)")?;
@@ -352,8 +358,7 @@ WantedBy=multi-user.target
                 .join("Library/LaunchAgents/com.codex.memory.plist");
 
             // Write plist file
-            fs::write(&plist_path, plist_content)
-                .context("Failed to write plist file")?;
+            fs::write(&plist_path, plist_content).context("Failed to write plist file")?;
 
             // Load the service
             Command::new("launchctl")
@@ -376,7 +381,7 @@ WantedBy=multi-user.target
         {
             // Windows service installation using sc.exe
             let exe_path = std::env::current_exe()?;
-            
+
             Command::new("sc")
                 .args(&[
                     "create",
@@ -394,7 +399,9 @@ WantedBy=multi-user.target
         }
 
         #[cfg(not(target_os = "windows"))]
-        Err(anyhow::anyhow!("Windows service is only available on Windows"))
+        Err(anyhow::anyhow!(
+            "Windows service is only available on Windows"
+        ))
     }
 
     /// Uninstall system service
@@ -404,13 +411,13 @@ WantedBy=multi-user.target
             Command::new("systemctl")
                 .args(&["disable", "codex-memory.service"])
                 .status()?;
-            
+
             fs::remove_file("/etc/systemd/system/codex-memory.service")?;
-            
+
             Command::new("systemctl")
                 .args(&["daemon-reload"])
                 .status()?;
-                
+
             info!("Systemd service uninstalled");
         }
 
@@ -423,9 +430,9 @@ WantedBy=multi-user.target
             Command::new("launchctl")
                 .args(&["unload", plist_path.to_str().unwrap()])
                 .status()?;
-                
+
             fs::remove_file(plist_path)?;
-            
+
             info!("Launchd service uninstalled");
         }
 
@@ -434,7 +441,7 @@ WantedBy=multi-user.target
             Command::new("sc")
                 .args(&["delete", "CodexMemory"])
                 .status()?;
-                
+
             info!("Windows service uninstalled");
         }
 
@@ -448,8 +455,7 @@ WantedBy=multi-user.target
         }
 
         let pid_str = fs::read_to_string(&self.paths.pid_file)?;
-        let pid: u32 = pid_str.trim().parse()
-            .context("Invalid PID in file")?;
+        let pid: u32 = pid_str.trim().parse().context("Invalid PID in file")?;
 
         // Check if process is actually running
         if self.is_process_running(pid)? {
@@ -467,7 +473,7 @@ WantedBy=multi-user.target
         {
             use nix::sys::signal::{self, Signal};
             use nix::unistd::Pid;
-            
+
             // Send signal 0 to check if process exists
             match signal::kill(Pid::from_raw(pid as i32), Signal::SIGCONT) {
                 Ok(_) => Ok(true),
@@ -479,11 +485,11 @@ WantedBy=multi-user.target
         #[cfg(windows)]
         {
             use std::process::Command;
-            
+
             let output = Command::new("tasklist")
                 .args(&["/FI", &format!("PID eq {}", pid)])
                 .output()?;
-                
+
             Ok(String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
         }
     }

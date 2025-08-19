@@ -13,11 +13,12 @@ mod test_helpers;
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use codex_memory::memory::models::{
-    CreateMemoryRequest, MemoryStatus, MemoryTier, RangeFilter, SearchRequest, SearchType, UpdateMemoryRequest,
+    CreateMemoryRequest, MemoryStatus, MemoryTier, RangeFilter, SearchRequest, SearchType,
+    UpdateMemoryRequest,
 };
 use std::sync::Arc;
 use test_helpers::{ConcurrentTester, PerformanceMeter, TestDataGenerator, TestEnvironment};
-use tokio::time::{Duration as TokioDuration};
+use tokio::time::Duration as TokioDuration;
 use tracing_test::traced_test;
 use uuid::Uuid;
 
@@ -61,7 +62,10 @@ async fn test_basic_memory_crud_with_embeddings() -> Result<()> {
         expires_at: Some(Utc::now() + Duration::hours(24)),
     };
 
-    let updated = env.repository.update_memory(memory.id, update_request).await?;
+    let updated = env
+        .repository
+        .update_memory(memory.id, update_request)
+        .await?;
     assert_eq!(updated.content, "Updated content with new embedding");
     assert_eq!(updated.tier, MemoryTier::Warm);
     assert_eq!(updated.importance_score, 0.9);
@@ -71,7 +75,10 @@ async fn test_basic_memory_crud_with_embeddings() -> Result<()> {
     // Test 4: Delete memory
     env.repository.delete_memory(memory.id).await?;
     let result = env.repository.get_memory(memory.id).await;
-    assert!(result.is_err(), "Memory should be deleted and not retrievable");
+    assert!(
+        result.is_err(),
+        "Memory should be deleted and not retrievable"
+    );
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -85,7 +92,11 @@ async fn test_semantic_search_functionality() -> Result<()> {
 
     // Create diverse test memories with different content types
     let test_memories = vec![
-        ("How to implement a binary search tree in Rust", "coding", 0.9),
+        (
+            "How to implement a binary search tree in Rust",
+            "coding",
+            0.9,
+        ),
         ("Recipe for chocolate chip cookies", "cooking", 0.7),
         ("Meeting notes from standup on Monday", "meeting", 0.6),
         ("Error: cannot borrow x as mutable", "error", 0.8),
@@ -97,7 +108,9 @@ async fn test_semantic_search_functionality() -> Result<()> {
 
     let mut created_memories = Vec::new();
     for (content, category, importance) in test_memories {
-        let memory = env.create_test_memory(content, MemoryTier::Working, importance).await?;
+        let memory = env
+            .create_test_memory(content, MemoryTier::Working, importance)
+            .await?;
         created_memories.push((memory, category));
     }
 
@@ -105,21 +118,31 @@ async fn test_semantic_search_functionality() -> Result<()> {
     env.wait_for_consistency().await;
 
     // Test 1: Semantic search for programming content
-    let programming_results = env.test_search("Rust programming and coding", Some(5)).await?;
-    assert!(!programming_results.is_empty(), "Should find programming-related memories");
-    
-    // Verify results are relevant (should contain Rust or coding related content)
-    let has_rust_content = programming_results.iter().any(|r| 
-        r.memory.content.to_lowercase().contains("rust") || 
-        r.memory.content.to_lowercase().contains("coding")
+    let programming_results = env
+        .test_search("Rust programming and coding", Some(5))
+        .await?;
+    assert!(
+        !programming_results.is_empty(),
+        "Should find programming-related memories"
     );
-    assert!(has_rust_content, "Search results should contain Rust/coding content");
+
+    // Verify results are relevant (should contain Rust or coding related content)
+    let has_rust_content = programming_results.iter().any(|r| {
+        r.memory.content.to_lowercase().contains("rust")
+            || r.memory.content.to_lowercase().contains("coding")
+    });
+    assert!(
+        has_rust_content,
+        "Search results should contain Rust/coding content"
+    );
 
     // Test 2: Search for error-related content
-    let error_results = env.test_search("error messages and debugging", Some(3)).await?;
-    let has_error_content = error_results.iter().any(|r| 
-        r.memory.content.to_lowercase().contains("error")
-    );
+    let error_results = env
+        .test_search("error messages and debugging", Some(3))
+        .await?;
+    let has_error_content = error_results
+        .iter()
+        .any(|r| r.memory.content.to_lowercase().contains("error"));
     assert!(has_error_content, "Should find error-related content");
 
     // Test 3: Search with importance filtering
@@ -148,11 +171,13 @@ async fn test_semantic_search_functionality() -> Result<()> {
 
     let filtered_results = env.repository.search_memories(search_request).await?;
     assert!(!filtered_results.results.is_empty());
-    
+
     // All results should have importance >= 0.7
     for result in &filtered_results.results {
-        assert!(result.memory.importance_score >= 0.7, 
-            "All results should meet importance threshold");
+        assert!(
+            result.memory.importance_score >= 0.7,
+            "All results should meet importance threshold"
+        );
     }
 
     // Test 4: Search with tier filtering
@@ -192,23 +217,17 @@ async fn test_memory_tier_management() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Test 1: Create memories in different tiers
-    let working_memory = env.create_test_memory(
-        "High importance working memory", 
-        MemoryTier::Working, 
-        0.9
-    ).await?;
+    let working_memory = env
+        .create_test_memory("High importance working memory", MemoryTier::Working, 0.9)
+        .await?;
 
-    let warm_memory = env.create_test_memory(
-        "Medium importance warm memory", 
-        MemoryTier::Warm, 
-        0.6
-    ).await?;
+    let warm_memory = env
+        .create_test_memory("Medium importance warm memory", MemoryTier::Warm, 0.6)
+        .await?;
 
-    let cold_memory = env.create_test_memory(
-        "Low importance cold memory", 
-        MemoryTier::Cold, 
-        0.3
-    ).await?;
+    let cold_memory = env
+        .create_test_memory("Low importance cold memory", MemoryTier::Cold, 0.3)
+        .await?;
 
     // Test 2: Verify tier-based retrieval
     assert_eq!(working_memory.tier, MemoryTier::Working);
@@ -220,18 +239,24 @@ async fn test_memory_tier_management() -> Result<()> {
     let migration_request = UpdateMemoryRequest {
         content: None,
         embedding: None,
-        tier: None, // Keep current tier for now
+        tier: None,                  // Keep current tier for now
         importance_score: Some(0.1), // Very low importance
         metadata: Some(env.get_test_metadata(Some(serde_json::json!({"migration_test": true})))),
         expires_at: None,
     };
 
-    let updated_memory = env.repository.update_memory(working_memory.id, migration_request).await?;
+    let updated_memory = env
+        .repository
+        .update_memory(working_memory.id, migration_request)
+        .await?;
     assert_eq!(updated_memory.importance_score, 0.1);
 
     // Check migration logic
-    assert!(updated_memory.should_migrate(), "Low importance memory should be migration candidate");
-    
+    assert!(
+        updated_memory.should_migrate(),
+        "Low importance memory should be migration candidate"
+    );
+
     if let Some(next_tier) = updated_memory.next_tier() {
         assert_eq!(next_tier, MemoryTier::Warm);
     }
@@ -292,9 +317,7 @@ async fn test_concurrent_memory_operations() -> Result<()> {
         .map(|_| {
             let repo = Arc::clone(&env.repository);
             let memory_id = shared_memory.id;
-            move || async move {
-                repo.get_memory(memory_id).await
-            }
+            move || async move { repo.get_memory(memory_id).await }
         })
         .collect();
 
@@ -388,7 +411,10 @@ async fn test_performance_under_load() -> Result<()> {
 
     let create_ops_per_sec = create_result.operations_per_second(num_memories);
     println!("Memory creation: {:.1} ops/sec", create_ops_per_sec);
-    assert!(create_ops_per_sec >= 1.0, "Should achieve at least 1 creation/sec");
+    assert!(
+        create_ops_per_sec >= 1.0,
+        "Should achieve at least 1 creation/sec"
+    );
 
     // Test 2: Search performance
     let search_meter = PerformanceMeter::new("concurrent_searches");
@@ -422,18 +448,22 @@ async fn test_performance_under_load() -> Result<()> {
             }
         },
         num_searches,
-    ).await?;
+    )
+    .await?;
 
     let search_result = search_meter.finish();
     search_result.assert_under(TokioDuration::from_secs(15)); // Should complete in under 15 seconds
 
     let search_ops_per_sec = search_result.operations_per_second(num_searches);
     println!("Search operations: {:.1} ops/sec", search_ops_per_sec);
-    assert!(search_ops_per_sec >= 2.0, "Should achieve at least 2 searches/sec");
+    assert!(
+        search_ops_per_sec >= 2.0,
+        "Should achieve at least 2 searches/sec"
+    );
 
     // Test 3: Mixed workload performance
     let mixed_meter = PerformanceMeter::new("mixed_workload");
-    
+
     let mixed_operations = ConcurrentTester::run_parallel(
         |i| {
             let repo = Arc::clone(&env.repository);
@@ -484,7 +514,8 @@ async fn test_performance_under_load() -> Result<()> {
             }
         },
         30, // 30 mixed operations
-    ).await?;
+    )
+    .await?;
 
     let mixed_result = mixed_meter.finish();
     mixed_result.assert_under(TokioDuration::from_secs(20));
@@ -505,7 +536,10 @@ async fn test_error_handling_and_resilience() -> Result<()> {
     // Test 1: Invalid memory ID handling
     let invalid_id = Uuid::new_v4();
     let result = env.repository.get_memory(invalid_id).await;
-    assert!(result.is_err(), "Should return error for non-existent memory");
+    assert!(
+        result.is_err(),
+        "Should return error for non-existent memory"
+    );
 
     // Test 2: Invalid search parameters
     let invalid_search = SearchRequest {
@@ -531,7 +565,10 @@ async fn test_error_handling_and_resilience() -> Result<()> {
     // Should handle gracefully
     let search_result = env.repository.search_memories(invalid_search).await;
     match search_result {
-        Ok(response) => assert!(response.results.is_empty(), "Invalid search should return empty results"),
+        Ok(response) => assert!(
+            response.results.is_empty(),
+            "Invalid search should return empty results"
+        ),
         Err(_) => {} // Proper error is also acceptable
     }
 
@@ -577,7 +614,10 @@ async fn test_error_handling_and_resilience() -> Result<()> {
 
     let metadata_memory = env.repository.create_memory(metadata_request).await?;
     // Metadata should be stored safely without execution
-    assert_eq!(metadata_memory.metadata["script"], "<script>alert('xss')</script>");
+    assert_eq!(
+        metadata_memory.metadata["script"],
+        "<script>alert('xss')</script>"
+    );
 
     // Test 5: Concurrent stress test (should not cause deadlocks or corruption)
     let stress_operations = ConcurrentTester::run_parallel(
@@ -604,7 +644,8 @@ async fn test_error_handling_and_resilience() -> Result<()> {
             }
         },
         20,
-    ).await?;
+    )
+    .await?;
 
     // Should complete without panics or deadlocks
     assert_eq!(stress_operations.len(), 20);
@@ -621,7 +662,8 @@ async fn test_data_persistence_and_consistency() -> Result<()> {
 
     // Test 1: Create memory with all fields populated
     let comprehensive_request = CreateMemoryRequest {
-        content: "Comprehensive test memory with all fields populated for persistence testing".to_string(),
+        content: "Comprehensive test memory with all fields populated for persistence testing"
+            .to_string(),
         embedding: None, // Will be generated
         tier: Some(MemoryTier::Working),
         importance_score: Some(0.85),
@@ -638,7 +680,10 @@ async fn test_data_persistence_and_consistency() -> Result<()> {
     let created = env.repository.create_memory(comprehensive_request).await?;
 
     // Verify all fields are correctly persisted
-    assert_eq!(created.content, "Comprehensive test memory with all fields populated for persistence testing");
+    assert_eq!(
+        created.content,
+        "Comprehensive test memory with all fields populated for persistence testing"
+    );
     assert_eq!(created.tier, MemoryTier::Working);
     assert_eq!(created.importance_score, 0.85);
     assert!(!created.metadata.is_null());
@@ -666,7 +711,10 @@ async fn test_data_persistence_and_consistency() -> Result<()> {
         expires_at: None, // Remove expiration
     };
 
-    let updated = env.repository.update_memory(created.id, update_request).await?;
+    let updated = env
+        .repository
+        .update_memory(created.id, update_request)
+        .await?;
     assert_eq!(updated.content, "Updated content for persistence test");
     assert_eq!(updated.tier, MemoryTier::Warm);
     assert_eq!(updated.importance_score, 0.95);
@@ -682,9 +730,14 @@ async fn test_data_persistence_and_consistency() -> Result<()> {
     assert_eq!(final_retrieval.importance_score, updated.importance_score);
 
     // Test 5: Verify search can find the updated content
-    let search_results = env.test_search("Updated content persistence", Some(5)).await?;
+    let search_results = env
+        .test_search("Updated content persistence", Some(5))
+        .await?;
     let found_memory = search_results.iter().find(|r| r.memory.id == created.id);
-    assert!(found_memory.is_some(), "Updated memory should be findable via search");
+    assert!(
+        found_memory.is_some(),
+        "Updated memory should be findable via search"
+    );
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -701,11 +754,13 @@ async fn test_diverse_content_handling() -> Result<()> {
     let mut code_memories = Vec::new();
 
     for (code, description) in code_samples.iter() {
-        let memory = env.create_test_memory(
-            &format!("Code sample: {} - {}", code, description),
-            MemoryTier::Working,
-            0.8,
-        ).await?;
+        let memory = env
+            .create_test_memory(
+                &format!("Code sample: {} - {}", code, description),
+                MemoryTier::Working,
+                0.8,
+            )
+            .await?;
         code_memories.push(memory);
     }
 
@@ -714,7 +769,9 @@ async fn test_diverse_content_handling() -> Result<()> {
     let mut conversation_memories = Vec::new();
 
     for content in conversation_samples.iter() {
-        let memory = env.create_test_memory(content, MemoryTier::Working, 0.6).await?;
+        let memory = env
+            .create_test_memory(content, MemoryTier::Working, 0.6)
+            .await?;
         conversation_memories.push(memory);
     }
 
@@ -722,7 +779,9 @@ async fn test_diverse_content_handling() -> Result<()> {
     env.wait_for_consistency().await;
 
     // Search for coding content
-    let code_results = env.test_search("programming and software development", Some(10)).await?;
+    let code_results = env
+        .test_search("programming and software development", Some(10))
+        .await?;
     assert!(!code_results.is_empty(), "Should find code-related content");
 
     // Search for conversational content
@@ -738,14 +797,24 @@ async fn test_diverse_content_handling() -> Result<()> {
     ];
 
     for content in special_content {
-        let memory = env.create_test_memory(content, MemoryTier::Working, 0.5).await?;
-        assert_eq!(memory.content, content, "Special characters should be preserved");
+        let memory = env
+            .create_test_memory(content, MemoryTier::Working, 0.5)
+            .await?;
+        assert_eq!(
+            memory.content, content,
+            "Special characters should be preserved"
+        );
     }
 
     // Test 5: Large content
     let large_content = TestDataGenerator::large_content(10); // 10KB
-    let large_memory = env.create_test_memory(&large_content, MemoryTier::Cold, 0.3).await?;
-    assert!(large_memory.content.len() >= 10000, "Large content should be preserved");
+    let large_memory = env
+        .create_test_memory(&large_content, MemoryTier::Cold, 0.3)
+        .await?;
+    assert!(
+        large_memory.content.len() >= 10000,
+        "Large content should be preserved"
+    );
 
     env.cleanup_test_data().await?;
     Ok(())
@@ -753,7 +822,7 @@ async fn test_diverse_content_handling() -> Result<()> {
 
 /// Test statistics and monitoring functionality
 #[tokio::test]
-#[traced_test] 
+#[traced_test]
 async fn test_statistics_and_monitoring() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
@@ -789,7 +858,10 @@ async fn test_statistics_and_monitoring() -> Result<()> {
     // Verify access counts increased
     for memory in &memories[0..5] {
         let updated = env.repository.get_memory(memory.id).await?;
-        assert!(updated.access_count >= 3, "Access count should reflect multiple reads");
+        assert!(
+            updated.access_count >= 3,
+            "Access count should reflect multiple reads"
+        );
     }
 
     // Test 4: Search result statistics
@@ -816,7 +888,7 @@ async fn test_statistics_and_monitoring() -> Result<()> {
     let search_response = env.repository.search_memories(search_request).await?;
     assert!(!search_response.results.is_empty());
     assert!(search_response.execution_time_ms > 0);
-    
+
     if let Some(facets) = search_response.facets {
         assert!(!facets.tiers.is_empty());
     }
@@ -824,7 +896,7 @@ async fn test_statistics_and_monitoring() -> Result<()> {
     for result in search_response.results {
         assert!(result.similarity_score >= 0.0);
         assert!(result.combined_score >= 0.0);
-        
+
         if let Some(explanation) = result.score_explanation {
             assert!(explanation.total_score >= 0.0);
         }

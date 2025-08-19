@@ -77,7 +77,7 @@ impl SetupManager {
         // 3. Update configuration with selected model
         let mut updated_config = self.config.clone();
         updated_config.embedding.model = selected_model.name.clone();
-        
+
         // 4. Test embedding generation
         self.test_embedding_generation(&updated_config).await?;
 
@@ -88,14 +88,20 @@ impl SetupManager {
         self.run_health_checks(&updated_config).await?;
 
         info!("✅ Setup completed successfully!");
-        info!("Selected embedding model: {} ({}D)", selected_model.name, selected_model.dimensions);
-        
+        info!(
+            "Selected embedding model: {} ({}D)",
+            selected_model.name, selected_model.dimensions
+        );
+
         Ok(())
     }
 
     /// Check if Ollama is running and accessible
     async fn check_ollama_connectivity(&self) -> Result<()> {
-        info!("🔍 Checking Ollama connectivity at {}", self.config.embedding.base_url);
+        info!(
+            "🔍 Checking Ollama connectivity at {}",
+            self.config.embedding.base_url
+        );
 
         let response = self
             .client
@@ -126,9 +132,9 @@ impl SetupManager {
             .await?;
 
         let models_response: OllamaModelsResponse = response.json().await?;
-        
+
         let mut embedding_models = Vec::new();
-        
+
         for model in models_response.models {
             if let Some(model_info) = self.classify_embedding_model(&model.name) {
                 embedding_models.push(model_info);
@@ -140,10 +146,15 @@ impl SetupManager {
         } else {
             info!("Found {} embedding models:", embedding_models.len());
             for model in &embedding_models {
-                info!("  - {} ({}D) {}", 
-                    model.name, 
+                info!(
+                    "  - {} ({}D) {}",
+                    model.name,
                     model.dimensions,
-                    if model.preferred { "⭐ RECOMMENDED" } else { "" }
+                    if model.preferred {
+                        "⭐ RECOMMENDED"
+                    } else {
+                        ""
+                    }
                 );
             }
         }
@@ -154,13 +165,28 @@ impl SetupManager {
     /// Classify a model name as an embedding model and return its info
     fn classify_embedding_model(&self, model_name: &str) -> Option<EmbeddingModelInfo> {
         let name_lower = model_name.to_lowercase();
-        
+
         // Define known embedding models with their properties
         let known_models = [
-            ("nomic-embed-text", 768, "High-quality text embeddings", true),
-            ("mxbai-embed-large", 1024, "Large multilingual embeddings", true),
+            (
+                "nomic-embed-text",
+                768,
+                "High-quality text embeddings",
+                true,
+            ),
+            (
+                "mxbai-embed-large",
+                1024,
+                "Large multilingual embeddings",
+                true,
+            ),
             ("all-minilm", 384, "Compact sentence embeddings", false),
-            ("all-mpnet-base-v2", 768, "Sentence transformer embeddings", false),
+            (
+                "all-mpnet-base-v2",
+                768,
+                "Sentence transformer embeddings",
+                false,
+            ),
             ("bge-small-en", 384, "BGE small English embeddings", false),
             ("bge-base-en", 768, "BGE base English embeddings", false),
             ("bge-large-en", 1024, "BGE large English embeddings", false),
@@ -181,9 +207,10 @@ impl SetupManager {
         }
 
         // Check if it's likely an embedding model based on common patterns
-        if name_lower.contains("embed") || 
-           name_lower.contains("sentence") || 
-           name_lower.contains("vector") {
+        if name_lower.contains("embed")
+            || name_lower.contains("sentence")
+            || name_lower.contains("vector")
+        {
             return Some(EmbeddingModelInfo {
                 name: model_name.to_string(),
                 dimensions: 768, // Default assumption
@@ -196,7 +223,10 @@ impl SetupManager {
     }
 
     /// Ensure a suitable embedding model is available, pulling if necessary
-    async fn ensure_embedding_model(&self, available_models: Vec<EmbeddingModelInfo>) -> Result<EmbeddingModelInfo> {
+    async fn ensure_embedding_model(
+        &self,
+        available_models: Vec<EmbeddingModelInfo>,
+    ) -> Result<EmbeddingModelInfo> {
         info!("🎯 Selecting embedding model...");
 
         // If we have a preferred model available, use it
@@ -223,7 +253,7 @@ impl SetupManager {
 
         for (model_name, dimensions, description) in recommended_models {
             info!("📥 Attempting to pull model: {}", model_name);
-            
+
             match self.pull_model(model_name).await {
                 Ok(_) => {
                     info!("✅ Successfully pulled model: {}", model_name);
@@ -263,7 +293,10 @@ impl SetupManager {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(anyhow::anyhow!(
                 "Failed to pull model {}: HTTP {} - {}",
                 model_name,
@@ -274,34 +307,37 @@ impl SetupManager {
 
         // Stream the response to show progress
         let lines = response.text().await?;
-        
+
         // Ollama returns JSONL (JSON Lines) for streaming responses
         for line in lines.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            
+
             match serde_json::from_str::<OllamaPullResponse>(line) {
-                Ok(pull_response) => {
-                    match pull_response.status.as_str() {
-                        "downloading" => {
-                            if let (Some(completed), Some(total)) = (pull_response.completed, pull_response.total) {
-                                let progress = (completed as f64 / total as f64) * 100.0;
-                                info!("  📊 Downloading: {:.1}% ({}/{})", progress, completed, total);
-                            }
-                        }
-                        "verifying sha256" => {
-                            info!("  🔍 Verifying checksum...");
-                        }
-                        "success" => {
-                            info!("  ✅ Pull completed successfully");
-                            return Ok(());
-                        }
-                        status => {
-                            info!("  📦 Status: {}", status);
+                Ok(pull_response) => match pull_response.status.as_str() {
+                    "downloading" => {
+                        if let (Some(completed), Some(total)) =
+                            (pull_response.completed, pull_response.total)
+                        {
+                            let progress = (completed as f64 / total as f64) * 100.0;
+                            info!(
+                                "  📊 Downloading: {:.1}% ({}/{})",
+                                progress, completed, total
+                            );
                         }
                     }
-                }
+                    "verifying sha256" => {
+                        info!("  🔍 Verifying checksum...");
+                    }
+                    "success" => {
+                        info!("  ✅ Pull completed successfully");
+                        return Ok(());
+                    }
+                    status => {
+                        info!("  📦 Status: {}", status);
+                    }
+                },
                 Err(_) => {
                     // Sometimes Ollama sends non-JSON status lines
                     if line.contains("success") {
@@ -326,12 +362,13 @@ impl SetupManager {
         );
 
         let test_text = "This is a test sentence for embedding generation.";
-        
+
         match embedder.generate_embedding(test_text).await {
             Ok(embedding) => {
                 info!("✅ Embedding generation successful!");
                 info!("  📊 Embedding dimensions: {}", embedding.len());
-                info!("  📊 Sample values: [{:.4}, {:.4}, {:.4}, ...]", 
+                info!(
+                    "  📊 Sample values: [{:.4}, {:.4}, {:.4}, ...]",
                     embedding.get(0).unwrap_or(&0.0),
                     embedding.get(1).unwrap_or(&0.0),
                     embedding.get(2).unwrap_or(&0.0)
@@ -350,11 +387,16 @@ impl SetupManager {
         info!("🗄️  Setting up database...");
 
         // Parse the database URL
-        let db_config: PgConfig = self.config.database_url.parse()
+        let db_config: PgConfig = self
+            .config
+            .database_url
+            .parse()
             .context("Invalid database URL")?;
 
         // Connect to the database
-        let (client, connection) = db_config.connect(NoTls).await
+        let (client, connection) = db_config
+            .connect(NoTls)
+            .await
             .context("Failed to connect to database")?;
 
         // Spawn the connection
@@ -366,9 +408,12 @@ impl SetupManager {
 
         // Check if pgvector extension is available
         info!("🔍 Checking for pgvector extension...");
-        
+
         let extension_check = client
-            .query("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'", &[])
+            .query(
+                "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'",
+                &[],
+            )
             .await?;
 
         if extension_check.is_empty() {
@@ -466,7 +511,10 @@ impl SetupManager {
         }
 
         // Summary
-        info!("📊 Health check summary: {}/{} checks passed", checks_passed, total_checks);
+        info!(
+            "📊 Health check summary: {}/{} checks passed",
+            checks_passed, total_checks
+        );
 
         if checks_passed == total_checks {
             info!("🎉 All health checks passed! System is ready.");
@@ -529,7 +577,10 @@ impl SetupManager {
         } else {
             for model in available_models {
                 let icon = if model.preferred { "⭐" } else { "  " };
-                info!("{} {} ({}D) - {}", icon, model.name, model.dimensions, model.description);
+                info!(
+                    "{} {} ({}D) - {}",
+                    icon, model.name, model.dimensions, model.description
+                );
             }
         }
 
@@ -597,12 +648,11 @@ REQUEST_TIMEOUT_SECONDS=30
 ENABLE_METRICS=true
 "#;
 
-    std::fs::write(".env.example", env_content)
-        .context("Failed to create .env.example file")?;
+    std::fs::write(".env.example", env_content).context("Failed to create .env.example file")?;
 
     info!("📋 Created .env.example file with default configuration");
     info!("   Copy this to .env and modify as needed");
-    
+
     Ok(())
 }
 
@@ -624,7 +674,9 @@ mod tests {
         assert!(mxbai.preferred);
 
         // Unknown embedding model
-        let unknown = setup.classify_embedding_model("custom-embed-model").unwrap();
+        let unknown = setup
+            .classify_embedding_model("custom-embed-model")
+            .unwrap();
         assert_eq!(unknown.dimensions, 768); // Default
         assert!(!unknown.preferred);
 
@@ -646,8 +698,12 @@ mod tests {
 
         for (model_name, expected_preferred, expected_dims) in test_cases {
             let result = setup.classify_embedding_model(model_name);
-            assert!(result.is_some(), "Should classify {} as embedding model", model_name);
-            
+            assert!(
+                result.is_some(),
+                "Should classify {} as embedding model",
+                model_name
+            );
+
             let info = result.unwrap();
             assert_eq!(info.preferred, expected_preferred);
             assert_eq!(info.dimensions, expected_dims);

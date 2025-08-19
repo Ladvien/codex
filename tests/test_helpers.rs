@@ -46,7 +46,7 @@ impl TestEnvironment {
     /// Create a new test environment with custom configuration
     pub async fn new_with_config(custom_config: Option<Config>) -> Result<Self> {
         let test_id = Uuid::new_v4().to_string()[..8].to_string();
-        
+
         // Load configuration - use custom or environment
         let config = match custom_config {
             Some(config) => config,
@@ -55,10 +55,14 @@ impl TestEnvironment {
                 let mut config = Config::default();
                 config.database_url = std::env::var("TEST_DATABASE_URL")
                     .or_else(|_| std::env::var("DATABASE_URL"))
-                    .unwrap_or_else(|_| "postgresql://postgres:password@localhost:5432/postgres".to_string());
-                
+                    .unwrap_or_else(|_| {
+                        "postgresql://postgres:password@localhost:5432/postgres".to_string()
+                    });
+
                 // Use mock embedder by default for tests unless explicitly configured
-                if std::env::var("USE_REAL_EMBEDDINGS").unwrap_or_else(|_| "false".to_string()) == "true" {
+                if std::env::var("USE_REAL_EMBEDDINGS").unwrap_or_else(|_| "false".to_string())
+                    == "true"
+                {
                     // Keep Ollama configuration for real embedding tests
                     config.embedding.provider = "ollama".to_string();
                     config.embedding.model = "nomic-embed-text".to_string();
@@ -77,17 +81,8 @@ impl TestEnvironment {
         let pool = create_pool(&config.database_url, config.operational.max_db_connections).await
             .map_err(|e| anyhow::anyhow!("Failed to create database pool for tests. Ensure test database is available: {}", e))?;
 
-        // Run migrations
-        let migration_dir = std::env::var("MIGRATION_DIR")
-            .unwrap_or_else(|_| "./migration/migrations".to_string());
-        
-        let migration_runner = migration::MigrationRunner::new(pool.clone(), migration_dir);
-        if migration_runner.initialize().await.is_ok() {
-            if let Err(e) = migration_runner.migrate().await {
-                tracing::warn!("Migration failed in test setup: {}", e);
-                // Continue anyway for tests that don't need migrations
-            }
-        }
+        // Set up database schema for tests (migration functionality not available in crates.io version)
+        Self::setup_test_schema(&pool).await?;
 
         // Create repository
         let repository = Arc::new(MemoryRepository::new(pool.clone()));
@@ -115,8 +110,86 @@ impl TestEnvironment {
                 config.embedding.model.clone(),
             )),
             "mock" => Ok(SimpleEmbedder::new_mock()),
-            _ => Err(anyhow::anyhow!("Unsupported embedding provider for tests: {}", config.embedding.provider)),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported embedding provider for tests: {}",
+                config.embedding.provider
+            )),
         }
+    }
+
+    /// Set up the required database schema for tests
+    async fn setup_test_schema(pool: &PgPool) -> Result<()> {
+        // Enable pgvector extension
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+            .execute(pool)
+            .await
+            .context("Failed to create vector extension")?;
+
+        // Create memories table if it doesn't exist
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memories (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                content TEXT NOT NULL,
+                embedding vector(768),
+                tier VARCHAR(20) NOT NULL DEFAULT 'working',
+                importance REAL NOT NULL DEFAULT 0.5,
+                access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed TIMESTAMPTZ DEFAULT NOW(),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                tags TEXT[],
+                metadata JSONB,
+                parent_id UUID REFERENCES memories(id),
+                summary TEXT,
+                expires_at TIMESTAMPTZ
+            )
+        "#,
+        )
+        .execute(pool)
+        .await
+        .context("Failed to create memories table")?;
+
+        // Create indexes for performance
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(tier)")
+            .execute(pool)
+            .await
+            .ok();
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)")
+            .execute(pool)
+            .await
+            .ok();
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_memories_created_at ON memories(created_at)")
+            .execute(pool)
+            .await
+            .ok();
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_memories_embedding_cosine ON memories USING ivfflat (embedding vector_cosine_ops)")
+            .execute(pool)
+            .await
+            .ok(); // Index creation might fail if ivfflat is not available
+
+        // Create migration_history table if it doesn't exist (for health checks)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS migration_history (
+                id SERIAL PRIMARY KEY,
+                memory_id UUID REFERENCES memories(id),
+                from_tier VARCHAR(20),
+                to_tier VARCHAR(20),
+                migration_reason TEXT,
+                migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                success BOOLEAN NOT NULL DEFAULT TRUE
+            )
+        "#,
+        )
+        .execute(pool)
+        .await
+        .context("Failed to create migration_history table")?;
+
+        Ok(())
     }
 
     /// Get test-specific metadata that includes the test ID for cleanup
@@ -147,7 +220,7 @@ impl TestEnvironment {
             DELETE FROM memories 
             WHERE metadata->>'test_id' = $1
         "#;
-        
+
         sqlx::query(cleanup_query)
             .bind(&self.test_id)
             .execute(&self.pool)
@@ -159,7 +232,12 @@ impl TestEnvironment {
     }
 
     /// Create a test memory with standard test metadata
-    pub async fn create_test_memory(&self, content: &str, tier: MemoryTier, importance: f32) -> Result<codex_memory::Memory> {
+    pub async fn create_test_memory(
+        &self,
+        content: &str,
+        tier: MemoryTier,
+        importance: f32,
+    ) -> Result<codex_memory::Memory> {
         let request = CreateMemoryRequest {
             content: content.to_string(),
             embedding: None, // Will be generated
@@ -174,13 +252,16 @@ impl TestEnvironment {
             expires_at: None,
         };
 
-        self.repository.create_memory(request).await.map_err(|e| anyhow::anyhow!("{}", e))
+        self.repository
+            .create_memory(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     /// Create multiple test memories with different characteristics
     pub async fn create_test_memories(&self, count: usize) -> Result<Vec<codex_memory::Memory>> {
         let mut memories = Vec::new();
-        
+
         for i in 0..count {
             let content = format!("Test memory {} - {}", i, self.test_id);
             let tier = match i % 3 {
@@ -189,16 +270,20 @@ impl TestEnvironment {
                 _ => MemoryTier::Cold,
             };
             let importance = 0.1 + (i as f32 * 0.1) % 1.0;
-            
+
             let memory = self.create_test_memory(&content, tier, importance).await?;
             memories.push(memory);
         }
-        
+
         Ok(memories)
     }
 
     /// Perform a test search with common parameters
-    pub async fn test_search(&self, query: &str, limit: Option<i32>) -> Result<Vec<codex_memory::memory::models::SearchResult>> {
+    pub async fn test_search(
+        &self,
+        query: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<codex_memory::memory::models::SearchResult>> {
         let request = SearchRequest {
             query_text: Some(query.to_string()),
             query_embedding: None,
@@ -219,7 +304,9 @@ impl TestEnvironment {
             explain_score: None,
         };
 
-        self.repository.search_memories(request).await
+        self.repository
+            .search_memories(request)
+            .await
             .map(|response| response.results)
             .map_err(|e| anyhow::anyhow!("{}", e))
     }
@@ -313,7 +400,7 @@ impl TestDataGenerator {
         let base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ";
         let target_size = size_kb * 1024;
         let repeat_count = (target_size / base.len()) + 1;
-        
+
         base.repeat(repeat_count)[..target_size].to_string()
     }
 
@@ -349,8 +436,12 @@ impl PerformanceMeter {
 
     pub fn finish(self) -> PerformanceResult {
         let duration = self.elapsed();
-        tracing::info!("Operation '{}' completed in {:?}", self.operation_name, duration);
-        
+        tracing::info!(
+            "Operation '{}' completed in {:?}",
+            self.operation_name,
+            duration
+        );
+
         PerformanceResult {
             operation_name: self.operation_name,
             duration,
@@ -386,9 +477,7 @@ pub struct ConcurrentTester;
 impl ConcurrentTester {
     /// Run multiple async operations concurrently and collect results
     /// Returns all results (both successes and failures)
-    pub async fn run_concurrent<F, Fut, T, E>(
-        operations: Vec<F>,
-    ) -> Result<Vec<Result<T, E>>>
+    pub async fn run_concurrent<F, Fut, T, E>(operations: Vec<F>) -> Result<Vec<Result<T, E>>>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<T, E>> + Send + 'static,
@@ -411,10 +500,7 @@ impl ConcurrentTester {
 
     /// Run the same operation multiple times concurrently
     /// Returns all results (both successes and failures)
-    pub async fn run_parallel<F, Fut, T, E>(
-        operation: F,
-        count: usize,
-    ) -> Result<Vec<Result<T, E>>>
+    pub async fn run_parallel<F, Fut, T, E>(operation: F, count: usize) -> Result<Vec<Result<T, E>>>
     where
         F: Fn(usize) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = Result<T, E>> + Send + 'static,
@@ -439,9 +525,7 @@ impl ConcurrentTester {
     }
 
     /// Run operations concurrently and only return successful results
-    pub async fn run_concurrent_success_only<F, Fut, T, E>(
-        operations: Vec<F>,
-    ) -> Result<Vec<T>>
+    pub async fn run_concurrent_success_only<F, Fut, T, E>(operations: Vec<F>) -> Result<Vec<T>>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<T, E>> + Send + 'static,

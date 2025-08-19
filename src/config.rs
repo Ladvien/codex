@@ -340,11 +340,14 @@ impl Config {
         ) {
             let password = env::var("DB_PASSWORD").unwrap_or_default();
             let port = env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
-            
+
             if password.is_empty() {
                 return Ok(format!("postgresql://{}@{}:{}/{}", user, host, port, db));
             } else {
-                return Ok(format!("postgresql://{}:{}@{}:{}/{}", user, password, host, port, db));
+                return Ok(format!(
+                    "postgresql://{}:{}@{}:{}/{}",
+                    user, password, host, port, db
+                ));
             }
         }
 
@@ -379,8 +382,13 @@ impl Config {
             }
         }
         // If we can't parse it, just show the prefix
-        format!("postgresql://[credentials-hidden]{}", 
-                self.database_url.split_once('@').map(|(_, rest)| rest).unwrap_or(""))
+        format!(
+            "postgresql://[credentials-hidden]{}",
+            self.database_url
+                .split_once('@')
+                .map(|(_, rest)| rest)
+                .unwrap_or("")
+        )
     }
 
     /// Validate MCP environment configuration
@@ -390,7 +398,9 @@ impl Config {
 
         // MCP-specific validations
         if self.embedding.provider == "openai" && self.embedding.api_key.len() < 20 {
-            return Err(anyhow::anyhow!("OpenAI API key appears to be invalid (too short)"));
+            return Err(anyhow::anyhow!(
+                "OpenAI API key appears to be invalid (too short)"
+            ));
         }
 
         // Check for reasonable port configuration
@@ -404,7 +414,7 @@ impl Config {
         if let Some(mcp_port) = self.mcp_port {
             if mcp_port == self.http_port {
                 return Err(anyhow::anyhow!(
-                    "MCP port and HTTP port cannot be the same ({})", 
+                    "MCP port and HTTP port cannot be the same ({})",
                     mcp_port
                 ));
             }
@@ -421,30 +431,50 @@ impl Config {
         // Database configuration
         report.push_str("Database Configuration:\n");
         report.push_str(&format!("  Connection: {}\n", self.safe_database_url()));
-        
+
         // Embedding configuration
         report.push_str("\nEmbedding Configuration:\n");
         report.push_str(&format!("  Provider: {}\n", self.embedding.provider));
         report.push_str(&format!("  Model: {}\n", self.embedding.model));
         report.push_str(&format!("  Base URL: {}\n", self.embedding.base_url));
         report.push_str(&format!("  Timeout: {}s\n", self.embedding.timeout_seconds));
-        report.push_str(&format!("  API Key: {}\n", 
-            if self.embedding.api_key.is_empty() { "Not set" } else { "***configured***" }
+        report.push_str(&format!(
+            "  API Key: {}\n",
+            if self.embedding.api_key.is_empty() {
+                "Not set"
+            } else {
+                "***configured***"
+            }
         ));
 
         // Server configuration
         report.push_str("\nServer Configuration:\n");
         report.push_str(&format!("  HTTP Port: {}\n", self.http_port));
-        report.push_str(&format!("  MCP Port: {}\n", 
-            self.mcp_port.map(|p| p.to_string()).unwrap_or_else(|| "Not set".to_string())
+        report.push_str(&format!(
+            "  MCP Port: {}\n",
+            self.mcp_port
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "Not set".to_string())
         ));
 
         // Memory tier configuration
         report.push_str("\nMemory Tier Configuration:\n");
-        report.push_str(&format!("  Working Tier Limit: {}\n", self.tier_config.working_tier_limit));
-        report.push_str(&format!("  Warm Tier Limit: {}\n", self.tier_config.warm_tier_limit));
-        report.push_str(&format!("  Working->Warm: {} days\n", self.tier_config.working_to_warm_days));
-        report.push_str(&format!("  Warm->Cold: {} days\n", self.tier_config.warm_to_cold_days));
+        report.push_str(&format!(
+            "  Working Tier Limit: {}\n",
+            self.tier_config.working_tier_limit
+        ));
+        report.push_str(&format!(
+            "  Warm Tier Limit: {}\n",
+            self.tier_config.warm_tier_limit
+        ));
+        report.push_str(&format!(
+            "  Working->Warm: {} days\n",
+            self.tier_config.working_to_warm_days
+        ));
+        report.push_str(&format!(
+            "  Warm->Cold: {} days\n",
+            self.tier_config.warm_to_cold_days
+        ));
 
         // Validation results
         report.push_str("\nValidation Results:\n");
@@ -545,7 +575,6 @@ impl Default for SecurityConfiguration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
     #[test]
     fn test_default_config() {
@@ -575,7 +604,7 @@ mod tests {
     #[test]
     fn test_embedding_config_validation() {
         let mut config = Config::default();
-        
+
         // Invalid provider should fail
         config.embedding.provider = "invalid".to_string();
         assert!(config.validate().is_err());

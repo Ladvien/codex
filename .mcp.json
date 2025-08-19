@@ -1,17 +1,14 @@
 {
-  "servers": {
+  "mcpServers": {
     "codex-memory": {
-      "command": "/Users/ladvien/.cargo/bin/codex-memory",
+      "command": "codex-memory",
       "args": ["mcp-stdio", "--skip-setup"],
       "env": {
         "DATABASE_URL": "postgresql://codex_user:MZSfXiLr5uR3QYbRwv2vTzi22SvFkj4a@192.168.1.104:5432/codex_db",
         "EMBEDDING_PROVIDER": "ollama",
         "EMBEDDING_BASE_URL": "http://192.168.1.110:11434",
         "EMBEDDING_MODEL": "nomic-embed-text",
-        "HTTP_PORT": "8080",
-        "MCP_PORT": "8081",
-        "LOG_LEVEL": "debug",
-        "AUTO_MIGRATE": "false"
+        "LOG_LEVEL": "info"
       }
     }
   }

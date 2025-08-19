@@ -320,7 +320,7 @@ impl SimpleEmbedder {
             EmbeddingProvider::Ollama => {
                 // Ollama models vary in dimensions, but many common ones use these sizes
                 match self.model.as_str() {
-                    "gpt-oss:20b" => 4096,  // Assuming this model has 4096 dimensions
+                    "gpt-oss:20b" => 4096, // Assuming this model has 4096 dimensions
                     "nomic-embed-text" => 768,
                     "mxbai-embed-large" => 1024,
                     "all-minilm" => 384,
@@ -347,18 +347,24 @@ impl SimpleEmbedder {
 
         // Try to get available models from Ollama
         let available_models = Self::detect_ollama_models(&client, &base_url).await?;
-        
+
         if available_models.is_empty() {
-            return Err(anyhow::anyhow!("No embedding models found on Ollama server"));
+            return Err(anyhow::anyhow!(
+                "No embedding models found on Ollama server"
+            ));
         }
 
         // Select the best available model
         let selected_model = Self::select_best_model(&available_models)?;
-        
-        info!("✅ Selected model: {} ({}D)", selected_model.name, selected_model.dimensions);
-        
+
+        info!(
+            "✅ Selected model: {} ({}D)",
+            selected_model.name, selected_model.dimensions
+        );
+
         let mut embedder = Self::new_ollama(base_url, selected_model.name.clone());
-        embedder.fallback_models = available_models.into_iter()
+        embedder.fallback_models = available_models
+            .into_iter()
             .filter(|m| m.name != embedder.model)
             .map(|m| m.name)
             .collect();
@@ -379,10 +385,10 @@ impl SimpleEmbedder {
         // Try fallback models
         for fallback_model in &self.fallback_models {
             info!("🔄 Trying fallback model: {}", fallback_model);
-            
+
             let mut fallback_embedder = self.clone();
             fallback_embedder.model = fallback_model.clone();
-            
+
             match fallback_embedder.generate_embedding(text).await {
                 Ok(embedding) => {
                     info!("✅ Fallback model '{}' succeeded", fallback_model);
@@ -395,13 +401,15 @@ impl SimpleEmbedder {
             }
         }
 
-        Err(anyhow::anyhow!("All embedding models failed, including fallbacks"))
+        Err(anyhow::anyhow!(
+            "All embedding models failed, including fallbacks"
+        ))
     }
 
     /// Health check for the embedding service
     pub async fn health_check(&self) -> Result<EmbeddingHealth> {
         let start_time = std::time::Instant::now();
-        
+
         let test_result = self.generate_embedding("Health check test").await;
         let response_time = start_time.elapsed();
 
@@ -428,7 +436,10 @@ impl SimpleEmbedder {
     }
 
     /// Detect available embedding models on Ollama
-    async fn detect_ollama_models(client: &Client, base_url: &str) -> Result<Vec<EmbeddingModelInfo>> {
+    async fn detect_ollama_models(
+        client: &Client,
+        base_url: &str,
+    ) -> Result<Vec<EmbeddingModelInfo>> {
         let response = client
             .get(&format!("{}/api/tags", base_url))
             .send()
@@ -436,14 +447,19 @@ impl SimpleEmbedder {
             .context("Failed to connect to Ollama API")?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("Ollama API returned error: {}", response.status()));
+            return Err(anyhow::anyhow!(
+                "Ollama API returned error: {}",
+                response.status()
+            ));
         }
 
-        let models_response: OllamaModelsResponse = response.json().await
+        let models_response: OllamaModelsResponse = response
+            .json()
+            .await
             .context("Failed to parse Ollama models response")?;
 
         let mut embedding_models = Vec::new();
-        
+
         for model in models_response.models {
             if let Some(model_info) = Self::classify_embedding_model(&model.name) {
                 embedding_models.push(model_info);
@@ -456,13 +472,28 @@ impl SimpleEmbedder {
     /// Classify a model name as an embedding model
     fn classify_embedding_model(model_name: &str) -> Option<EmbeddingModelInfo> {
         let name_lower = model_name.to_lowercase();
-        
+
         // Define known embedding models with their properties
         let known_models = [
-            ("nomic-embed-text", 768, "High-quality text embeddings", true),
-            ("mxbai-embed-large", 1024, "Large multilingual embeddings", true),
+            (
+                "nomic-embed-text",
+                768,
+                "High-quality text embeddings",
+                true,
+            ),
+            (
+                "mxbai-embed-large",
+                1024,
+                "Large multilingual embeddings",
+                true,
+            ),
             ("all-minilm", 384, "Compact sentence embeddings", false),
-            ("all-mpnet-base-v2", 768, "Sentence transformer embeddings", false),
+            (
+                "all-mpnet-base-v2",
+                768,
+                "Sentence transformer embeddings",
+                false,
+            ),
             ("bge-small-en", 384, "BGE small English embeddings", false),
             ("bge-base-en", 768, "BGE base English embeddings", false),
             ("bge-large-en", 1024, "BGE large English embeddings", false),
@@ -483,9 +514,10 @@ impl SimpleEmbedder {
         }
 
         // Check if it's likely an embedding model based on common patterns
-        if name_lower.contains("embed") || 
-           name_lower.contains("sentence") || 
-           name_lower.contains("vector") {
+        if name_lower.contains("embed")
+            || name_lower.contains("sentence")
+            || name_lower.contains("vector")
+        {
             return Some(EmbeddingModelInfo {
                 name: model_name.to_string(),
                 dimensions: 768, // Default assumption
@@ -505,7 +537,8 @@ impl SimpleEmbedder {
         }
 
         // Fall back to any available model
-        available_models.first()
+        available_models
+            .first()
             .ok_or_else(|| anyhow::anyhow!("No embedding models available"))
     }
 }

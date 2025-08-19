@@ -3,7 +3,7 @@
 //! These tests validate end-to-end functionality including MCP operations,
 //! memory persistence, concurrent access, and Claude Code/Desktop integration.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use codex_memory::{
     mcp::MCPServer,
     memory::{
@@ -16,10 +16,65 @@ use codex_memory::{
     SimpleEmbedder,
 };
 use serde_json::json;
+use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use tracing_test::traced_test;
 use uuid::Uuid;
+
+/// Set up the required database schema for tests
+async fn setup_test_schema(pool: &PgPool) -> Result<()> {
+    // Enable pgvector extension
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS vector")
+        .execute(pool)
+        .await
+        .context("Failed to create vector extension")?;
+
+    // Create memories table if it doesn't exist
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS memories (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            content TEXT NOT NULL,
+            embedding vector(768),
+            tier VARCHAR(20) NOT NULL DEFAULT 'working',
+            importance REAL NOT NULL DEFAULT 0.5,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            last_accessed TIMESTAMPTZ DEFAULT NOW(),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            tags TEXT[],
+            metadata JSONB,
+            parent_id UUID REFERENCES memories(id),
+            summary TEXT,
+            expires_at TIMESTAMPTZ
+        )
+    "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create memories table")?;
+
+    // Create migration_history table if it doesn't exist (for health checks)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS migration_history (
+            id SERIAL PRIMARY KEY,
+            memory_id UUID REFERENCES memories(id),
+            from_tier VARCHAR(20),
+            to_tier VARCHAR(20),
+            migration_reason TEXT,
+            migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            success BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    "#,
+    )
+    .execute(pool)
+    .await
+    .context("Failed to create migration_history table")?;
+
+    Ok(())
+}
 
 /// Test container setup for PostgreSQL with pgvector extension
 /// Note: This is a simplified test setup that would need real testcontainers integration
@@ -64,12 +119,8 @@ impl TestEnvironment {
             }
         };
 
-        // Run migrations (in real tests, this would be on the test container)
-        let migration_runner =
-            migration::MigrationRunner::new(pool.clone(), "migration/migrations");
-        if migration_runner.initialize().await.is_ok() {
-            let _ = migration_runner.migrate().await; // Ignore migration errors in tests
-        }
+        // Set up database schema for tests (migration functionality not available in crates.io version)
+        setup_test_schema(&pool).await?;
 
         // Create repository and embedder
         let repository = Arc::new(MemoryRepository::new(pool));

@@ -47,4 +47,4 @@ pub use security::{
 };
 
 // Re-export manager types
-pub use manager::{ServerManager, ManagerPaths};
+pub use manager::{ManagerPaths, ServerManager};

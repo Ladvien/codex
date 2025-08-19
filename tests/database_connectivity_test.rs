@@ -31,7 +31,9 @@ async fn test_database_connectivity() -> Result<()> {
             println!("❌ Basic connection failed: {}", e);
             println!("\n📋 Troubleshooting suggestions:");
             println!("   - Ensure PostgreSQL is running");
-            println!("   - Check database URL format: postgresql://user:password@host:port/database");
+            println!(
+                "   - Check database URL format: postgresql://user:password@host:port/database"
+            );
             println!("   - Verify credentials and database exists");
             println!("   - Check network connectivity if using remote database");
             return Err(e.into());
@@ -40,10 +42,8 @@ async fn test_database_connectivity() -> Result<()> {
 
     // Test 2: Query execution
     println!("\n2. Testing query execution...");
-    let version_result = sqlx::query("SELECT version()")
-        .fetch_one(&pool)
-        .await;
-    
+    let version_result = sqlx::query("SELECT version()").fetch_one(&pool).await;
+
     match version_result {
         Ok(row) => {
             let version: String = row.get(0);
@@ -58,11 +58,11 @@ async fn test_database_connectivity() -> Result<()> {
 
     // Test 3: Extension availability
     println!("\n3. Checking required extensions...");
-    
+
     // Check if pgvector is available
-    let pgvector_check = sqlx::query(
-        "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"
-    ).fetch_optional(&pool).await?;
+    let pgvector_check = sqlx::query("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+        .fetch_optional(&pool)
+        .await?;
 
     if pgvector_check.is_some() {
         println!("✅ pgvector extension is available");
@@ -78,7 +78,7 @@ async fn test_database_connectivity() -> Result<()> {
 
     // Test 4: Extension creation permissions
     println!("\n4. Testing extension creation permissions...");
-    
+
     let uuid_extension_test = sqlx::query("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
         .execute(&pool)
         .await;
@@ -116,7 +116,7 @@ async fn test_database_connectivity() -> Result<()> {
     }
 
     pool.close().await;
-    
+
     println!("\n🎉 Database connectivity test completed!");
     println!("\n📋 Next steps:");
     println!("   1. If pgvector is missing, install it (see instructions above)");
@@ -131,29 +131,26 @@ async fn test_database_connectivity() -> Result<()> {
 #[tokio::test]
 #[traced_test]
 async fn test_ollama_connectivity() -> Result<()> {
-    let ollama_url = env::var("EMBEDDING_BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:11434".to_string());
+    let ollama_url =
+        env::var("EMBEDDING_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
 
     println!("🔍 Testing Ollama connectivity...");
     println!("Ollama URL: {}", ollama_url);
 
     let client = reqwest::Client::new();
-    
+
     // Test 1: Basic connectivity
     println!("\n1. Testing Ollama connection...");
-    let response = client
-        .get(&format!("{}/api/tags", ollama_url))
-        .send()
-        .await;
+    let response = client.get(&format!("{}/api/tags", ollama_url)).send().await;
 
     match response {
         Ok(resp) if resp.status().is_success() => {
             println!("✅ Ollama is running and accessible");
-            
+
             // Test 2: Check available models
             println!("\n2. Checking available models...");
             let body = resp.text().await?;
-            
+
             if body.contains("nomic-embed-text") || body.contains("mxbai-embed-large") {
                 println!("✅ Embedding models detected");
             } else {
@@ -186,18 +183,18 @@ async fn test_ollama_connectivity() -> Result<()> {
 
 /// Comprehensive setup check
 #[tokio::test]
-#[traced_test] 
+#[traced_test]
 async fn test_comprehensive_setup_check() -> Result<()> {
     println!("🧪 Running comprehensive setup check...");
     println!("=======================================");
-    
+
     // Note: Individual test functions are called separately
     // This is a summary function that can be extended with additional checks
-    
+
     println!("Run the individual tests:");
     println!("  cargo test --test database_connectivity_test test_database_connectivity");
     println!("  cargo test --test database_connectivity_test test_ollama_connectivity");
-    
+
     println!("\n✅ Comprehensive setup check completed!");
     println!("\n🚀 If both checks passed, run:");
     println!("   cargo test --test e2e_simplified");

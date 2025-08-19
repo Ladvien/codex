@@ -19,7 +19,10 @@ impl DatabaseSetup {
 
         // 1. Parse and validate the database URL
         let db_info = self.parse_database_url()?;
-        info!("Database: {} on {}:{}", db_info.database, db_info.host, db_info.port);
+        info!(
+            "Database: {} on {}:{}",
+            db_info.database, db_info.host, db_info.port
+        );
 
         // 2. Check if PostgreSQL is running
         self.check_postgresql_running(&db_info).await?;
@@ -45,14 +48,16 @@ impl DatabaseSetup {
 
     /// Parse database URL and extract connection info
     fn parse_database_url(&self) -> Result<DatabaseInfo> {
-        let url = Url::parse(&self.database_url)
-            .context("Invalid database URL format")?;
+        let url = Url::parse(&self.database_url).context("Invalid database URL format")?;
 
         if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-            return Err(anyhow::anyhow!("Database URL must use postgresql:// or postgres:// scheme"));
+            return Err(anyhow::anyhow!(
+                "Database URL must use postgresql:// or postgres:// scheme"
+            ));
         }
 
-        let host = url.host_str()
+        let host = url
+            .host_str()
             .ok_or_else(|| anyhow::anyhow!("Database URL missing host"))?
             .to_string();
 
@@ -89,7 +94,8 @@ impl DatabaseSetup {
             db_info.username, db_info.password, db_info.host, db_info.port
         );
 
-        let config: PgConfig = system_url.parse()
+        let config: PgConfig = system_url
+            .parse()
             .context("Failed to parse system database URL")?;
 
         match config.connect(NoTls).await {
@@ -101,7 +107,9 @@ impl DatabaseSetup {
                 });
 
                 // Test basic connectivity
-                client.query("SELECT version()", &[]).await
+                client
+                    .query("SELECT version()", &[])
+                    .await
                     .context("Failed to query PostgreSQL version")?;
 
                 info!("✅ PostgreSQL is running and accessible");
@@ -147,11 +155,16 @@ impl DatabaseSetup {
             .await?;
 
         if rows.is_empty() {
-            info!("📋 Database '{}' does not exist, creating...", db_info.database);
-            
+            info!(
+                "📋 Database '{}' does not exist, creating...",
+                db_info.database
+            );
+
             // Create the database
             let create_query = format!("CREATE DATABASE \"{}\"", db_info.database);
-            client.execute(&create_query, &[]).await
+            client
+                .execute(&create_query, &[])
+                .await
                 .context("Failed to create database")?;
 
             info!("✅ Database '{}' created successfully", db_info.database);
@@ -440,9 +453,13 @@ impl DatabaseSetup {
 
         // Test inserting and querying a sample memory
         info!("🧪 Testing vector operations...");
-        
+
         // Insert a test memory using 768-dimensional vector (matching schema)
-        let test_vector = vec![0.1f32; 768].iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",");
+        let test_vector = vec![0.1f32; 768]
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         client
             .execute(
                 &format!("INSERT INTO memories (content, embedding) VALUES ($1, '[{}]'::vector) ON CONFLICT DO NOTHING", test_vector),
@@ -452,10 +469,17 @@ impl DatabaseSetup {
             .context("Failed to insert test memory")?;
 
         // Test vector similarity search using 768-dimensional vector
-        let query_vector = vec![0.1f32; 768].iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",");
+        let query_vector = vec![0.1f32; 768]
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         client
             .query(
-                &format!("SELECT content FROM memories ORDER BY embedding <-> '[{}]'::vector LIMIT 1", query_vector),
+                &format!(
+                    "SELECT content FROM memories ORDER BY embedding <-> '[{}]'::vector LIMIT 1",
+                    query_vector
+                ),
                 &[],
             )
             .await
@@ -496,15 +520,22 @@ impl DatabaseSetup {
         }
 
         // Check pgvector extension
-        match client.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'", &[]).await {
+        match client
+            .query("SELECT 1 FROM pg_extension WHERE extname = 'vector'", &[])
+            .await
+        {
             Ok(rows) => {
                 health.pgvector_installed = !rows.is_empty();
                 if !health.pgvector_installed {
-                    health.issues.push("pgvector extension not installed".to_string());
+                    health
+                        .issues
+                        .push("pgvector extension not installed".to_string());
                 }
             }
             Err(e) => {
-                health.issues.push(format!("Failed to check pgvector: {}", e));
+                health
+                    .issues
+                    .push(format!("Failed to check pgvector: {}", e));
             }
         }
 
@@ -540,7 +571,9 @@ impl DatabaseSetup {
                 health.memory_count = count as usize;
             }
             Err(e) => {
-                health.issues.push(format!("Failed to get memory count: {}", e));
+                health
+                    .issues
+                    .push(format!("Failed to get memory count: {}", e));
             }
         }
 
@@ -588,9 +621,7 @@ mod tests {
 
     #[test]
     fn test_parse_database_url() {
-        let setup = DatabaseSetup::new(
-            "postgresql://user:pass@localhost:5432/testdb".to_string()
-        );
+        let setup = DatabaseSetup::new("postgresql://user:pass@localhost:5432/testdb".to_string());
 
         let info = setup.parse_database_url().unwrap();
         assert_eq!(info.host, "localhost");
@@ -602,9 +633,7 @@ mod tests {
 
     #[test]
     fn test_parse_database_url_default_port() {
-        let setup = DatabaseSetup::new(
-            "postgresql://user:pass@localhost/testdb".to_string()
-        );
+        let setup = DatabaseSetup::new("postgresql://user:pass@localhost/testdb".to_string());
 
         let info = setup.parse_database_url().unwrap();
         assert_eq!(info.port, 5432); // Should default to 5432

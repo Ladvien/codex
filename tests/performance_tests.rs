@@ -11,11 +11,9 @@ mod test_helpers;
 
 use anyhow::Result;
 use codex_memory::memory::models::{CreateMemoryRequest, MemoryTier, SearchRequest};
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::Criterion;
 use std::sync::Arc;
-use test_helpers::{
-    ConcurrentTester, PerformanceMeter, TestConfigBuilder, TestDataGenerator, TestEnvironment,
-};
+use test_helpers::{ConcurrentTester, PerformanceMeter, TestDataGenerator, TestEnvironment};
 use tokio::time::{Duration, Instant};
 use tracing_test::traced_test;
 

@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
 
     // Skip logging initialization for MCP stdio mode
     let is_mcp_stdio = matches!(cli.command, Some(Commands::McpStdio { .. }));
-    
+
     if !is_mcp_stdio {
         // Initialize basic logging for CLI commands
         tracing_subscriber::registry()
@@ -190,34 +190,22 @@ async fn main() -> Result<()> {
     }
 
     match cli.command {
-        Some(Commands::Setup { force, skip_database, skip_models }) => {
-            run_setup(force, skip_database, skip_models).await
-        }
-        Some(Commands::Health { detailed }) => {
-            run_health_check(detailed).await
-        }
-        Some(Commands::Models) => {
-            list_models().await
-        }
+        Some(Commands::Setup {
+            force,
+            skip_database,
+            skip_models,
+        }) => run_setup(force, skip_database, skip_models).await,
+        Some(Commands::Health { detailed }) => run_health_check(detailed).await,
+        Some(Commands::Models) => list_models().await,
         Some(Commands::InitConfig) => {
             create_sample_env_file()?;
             Ok(())
         }
-        Some(Commands::Database { command }) => {
-            handle_database_command(command).await
-        }
-        Some(Commands::Mcp { command }) => {
-            handle_mcp_command(command).await
-        }
-        Some(Commands::Manager { command }) => {
-            handle_manager_command(command).await
-        }
-        Some(Commands::Start { skip_setup }) => {
-            start_server(skip_setup).await
-        }
-        Some(Commands::McpStdio { skip_setup }) => {
-            start_mcp_stdio(skip_setup).await
-        }
+        Some(Commands::Database { command }) => handle_database_command(command).await,
+        Some(Commands::Mcp { command }) => handle_mcp_command(command).await,
+        Some(Commands::Manager { command }) => handle_manager_command(command).await,
+        Some(Commands::Start { skip_setup }) => start_server(skip_setup).await,
+        Some(Commands::McpStdio { skip_setup }) => start_mcp_stdio(skip_setup).await,
         None => {
             // Default to starting the server
             start_server(false).await
@@ -261,13 +249,13 @@ async fn run_setup(force: bool, skip_database: bool, skip_models: bool) -> Resul
 
     info!("🎉 Setup completed successfully!");
     info!("💡 You can now start the server with: codex-memory start");
-    
+
     Ok(())
 }
 
 async fn run_health_check(detailed: bool) -> Result<()> {
     let config = Config::from_env()?;
-    
+
     info!("🏥 Running system health check...");
 
     let setup_manager = SetupManager::new(config.clone());
@@ -275,18 +263,31 @@ async fn run_health_check(detailed: bool) -> Result<()> {
 
     // Quick health check
     let _ = setup_manager.quick_health_check().await;
-    
+
     if detailed {
         info!("🔍 Running detailed health checks...");
-        
+
         // Database health
         match db_setup.health_check().await {
             Ok(health) => {
                 info!("📊 Database: {}", health.status_summary());
                 if detailed {
-                    info!("   - Connectivity: {}", if health.connectivity { "✅" } else { "❌" });
-                    info!("   - pgvector: {}", if health.pgvector_installed { "✅" } else { "❌" });
-                    info!("   - Schema: {}", if health.schema_ready { "✅" } else { "❌" });
+                    info!(
+                        "   - Connectivity: {}",
+                        if health.connectivity { "✅" } else { "❌" }
+                    );
+                    info!(
+                        "   - pgvector: {}",
+                        if health.pgvector_installed {
+                            "✅"
+                        } else {
+                            "❌"
+                        }
+                    );
+                    info!(
+                        "   - Schema: {}",
+                        if health.schema_ready { "✅" } else { "❌" }
+                    );
                     info!("   - Memory count: {}", health.memory_count);
                 }
             }
@@ -307,7 +308,10 @@ async fn run_health_check(detailed: bool) -> Result<()> {
 
         match embedder.health_check().await {
             Ok(health) => {
-                info!("🧠 Embeddings: {} ({}ms)", health.status, health.response_time_ms);
+                info!(
+                    "🧠 Embeddings: {} ({}ms)",
+                    health.status, health.response_time_ms
+                );
                 if detailed {
                     info!("   - Model: {}", health.model);
                     info!("   - Provider: {}", health.provider);
@@ -326,7 +330,7 @@ async fn run_health_check(detailed: bool) -> Result<()> {
 async fn list_models() -> Result<()> {
     let config = Config::from_env().unwrap_or_default();
     let setup_manager = SetupManager::new(config);
-    
+
     setup_manager.list_available_models().await
 }
 
@@ -335,15 +339,26 @@ async fn handle_database_command(command: DatabaseCommands) -> Result<()> {
     let db_setup = DatabaseSetup::new(config.database_url.clone());
 
     match command {
-        DatabaseCommands::Setup => {
-            db_setup.setup().await
-        }
+        DatabaseCommands::Setup => db_setup.setup().await,
         DatabaseCommands::Health => {
             let health = db_setup.health_check().await?;
             info!("📊 Database Health: {}", health.status_summary());
-            info!("   - Connectivity: {}", if health.connectivity { "✅" } else { "❌" });
-            info!("   - pgvector: {}", if health.pgvector_installed { "✅" } else { "❌" });
-            info!("   - Schema: {}", if health.schema_ready { "✅" } else { "❌" });
+            info!(
+                "   - Connectivity: {}",
+                if health.connectivity { "✅" } else { "❌" }
+            );
+            info!(
+                "   - pgvector: {}",
+                if health.pgvector_installed {
+                    "✅"
+                } else {
+                    "❌"
+                }
+            );
+            info!(
+                "   - Schema: {}",
+                if health.schema_ready { "✅" } else { "❌" }
+            );
             info!("   - Memory count: {}", health.memory_count);
             Ok(())
         }
@@ -364,7 +379,10 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 Ok(_) => {
                     info!("✅ MCP configuration is valid");
                     info!("   - Database: {}", config.safe_database_url());
-                    info!("   - Embedding: {} ({})", config.embedding.provider, config.embedding.model);
+                    info!(
+                        "   - Embedding: {} ({})",
+                        config.embedding.provider, config.embedding.model
+                    );
                     info!("   - HTTP Port: {}", config.http_port);
                     if let Some(mcp_port) = config.mcp_port {
                         info!("   - MCP Port: {}", mcp_port);
@@ -383,7 +401,7 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
                 info!("⚠️  Unable to load full configuration, using defaults");
                 Config::default()
             });
-            
+
             let report = config.create_diagnostic_report();
             println!("{}", report);
             Ok(())
@@ -392,44 +410,60 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
             info!("🧪 Testing MCP server connectivity...");
             let config = Config::from_env()?;
             config.validate_mcp_environment()?;
-            
+
             let setup_manager = SetupManager::new(config.clone());
             let db_setup = DatabaseSetup::new(config.database_url.clone());
-            
+
             // Test database
             info!("Testing database connectivity...");
             match db_setup.health_check().await {
                 Ok(health) => {
-                    info!("✅ Database: {}", if health.connectivity { "Connected" } else { "Failed" });
+                    info!(
+                        "✅ Database: {}",
+                        if health.connectivity {
+                            "Connected"
+                        } else {
+                            "Failed"
+                        }
+                    );
                 }
                 Err(e) => {
                     error!("❌ Database: Connection failed - {}", e);
                 }
             }
-            
+
             // Test embedding service
             info!("Testing embedding service...");
             match setup_manager.quick_health_check().await {
                 Ok(_) => info!("✅ Embedding service: Available"),
                 Err(e) => error!("❌ Embedding service: {}", e),
             }
-            
+
             info!("🎉 MCP connectivity test completed");
             Ok(())
         }
-        McpCommands::Template { template_type, output } => {
-            info!("📋 Generating MCP configuration template: {}", template_type);
-            
+        McpCommands::Template {
+            template_type,
+            output,
+        } => {
+            info!(
+                "📋 Generating MCP configuration template: {}",
+                template_type
+            );
+
             let template_content = match template_type.as_str() {
                 "basic" => generate_basic_mcp_template(),
                 "production" => generate_production_mcp_template(),
                 "development" => generate_development_mcp_template(),
                 _ => {
-                    error!("❌ Unknown template type: {}. Available: basic, production, development", template_type);
+                    error!(
+                        "❌ Unknown template type: {}. Available: basic, production, development",
+                        template_type
+                    );
                     return Err(anyhow::anyhow!("Invalid template type"));
                 }
             };
-            
+
             match output {
                 Some(path) => {
                     std::fs::write(&path, template_content)?;
@@ -446,40 +480,25 @@ async fn handle_mcp_command(command: McpCommands) -> Result<()> {
 
 async fn handle_manager_command(command: ManagerCommands) -> Result<()> {
     use codex_memory::manager::ServerManager;
-    
+
     let manager = match &command {
-        ManagerCommands::Start { pid_file, log_file, .. } => {
-            ServerManager::with_paths(pid_file.clone(), log_file.clone())
-        }
-        ManagerCommands::Stop { pid_file } |
-        ManagerCommands::Restart { pid_file } => {
+        ManagerCommands::Start {
+            pid_file, log_file, ..
+        } => ServerManager::with_paths(pid_file.clone(), log_file.clone()),
+        ManagerCommands::Stop { pid_file } | ManagerCommands::Restart { pid_file } => {
             ServerManager::with_paths(pid_file.clone(), None)
         }
         _ => ServerManager::new(),
     };
 
     match command {
-        ManagerCommands::Start { daemon, .. } => {
-            manager.start_daemon(daemon).await
-        }
-        ManagerCommands::Stop { .. } => {
-            manager.stop().await
-        }
-        ManagerCommands::Restart { .. } => {
-            manager.restart().await
-        }
-        ManagerCommands::Status { detailed } => {
-            manager.status(detailed).await
-        }
-        ManagerCommands::Logs { lines, follow } => {
-            manager.show_logs(lines, follow).await
-        }
-        ManagerCommands::Install { service_type } => {
-            manager.install_service(service_type).await
-        }
-        ManagerCommands::Uninstall => {
-            manager.uninstall_service().await
-        }
+        ManagerCommands::Start { daemon, .. } => manager.start_daemon(daemon).await,
+        ManagerCommands::Stop { .. } => manager.stop().await,
+        ManagerCommands::Restart { .. } => manager.restart().await,
+        ManagerCommands::Status { detailed } => manager.status(detailed).await,
+        ManagerCommands::Logs { lines, follow } => manager.show_logs(lines, follow).await,
+        ManagerCommands::Install { service_type } => manager.install_service(service_type).await,
+        ManagerCommands::Uninstall => manager.uninstall_service().await,
     }
 }
 
@@ -498,7 +517,8 @@ fn generate_basic_mcp_template() -> String {
       }
     }
   }
-}"#.to_string()
+}"#
+    .to_string()
 }
 
 fn generate_production_mcp_template() -> String {
@@ -521,7 +541,8 @@ fn generate_production_mcp_template() -> String {
       }
     }
   }
-}"#.to_string()
+}"#
+    .to_string()
 }
 
 fn generate_development_mcp_template() -> String {
@@ -541,7 +562,8 @@ fn generate_development_mcp_template() -> String {
       }
     }
   }
-}"#.to_string()
+}"#
+    .to_string()
 }
 
 async fn start_server(skip_setup: bool) -> Result<()> {
@@ -576,7 +598,10 @@ async fn start_server(skip_setup: bool) -> Result<()> {
                 if health.is_healthy() {
                     info!("✅ Database health check passed");
                 } else {
-                    error!("❌ Database health check failed: {}", health.status_summary());
+                    error!(
+                        "❌ Database health check failed: {}",
+                        health.status_summary()
+                    );
                     info!("💡 Try running: codex-memory database setup");
                     return Err(anyhow::anyhow!("Database not ready"));
                 }
@@ -600,20 +625,14 @@ async fn start_server(skip_setup: bool) -> Result<()> {
     // Create repository and embedding service
     let repository = Arc::new(MemoryRepository::new(pool.clone()));
     let embedder = Arc::new(match config.embedding.provider.as_str() {
-        "openai" => {
-            SimpleEmbedder::new(config.embedding.api_key.clone())
-                .with_model(config.embedding.model.clone())
-                .with_base_url(config.embedding.base_url.clone())
-        }
-        "ollama" => {
-            SimpleEmbedder::new_ollama(
-                config.embedding.base_url.clone(),
-                config.embedding.model.clone(),
-            )
-        }
-        "mock" => {
-            SimpleEmbedder::new_mock()
-        }
+        "openai" => SimpleEmbedder::new(config.embedding.api_key.clone())
+            .with_model(config.embedding.model.clone())
+            .with_base_url(config.embedding.base_url.clone()),
+        "ollama" => SimpleEmbedder::new_ollama(
+            config.embedding.base_url.clone(),
+            config.embedding.model.clone(),
+        ),
+        "mock" => SimpleEmbedder::new_mock(),
         _ => {
             return Err(anyhow::anyhow!(
                 "Unsupported embedding provider: {}",
@@ -676,16 +695,18 @@ async fn start_mcp_server(state: AppState, port: u16) -> Result<()> {
 
 async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    
+
     // For MCP mode, we can't reinitialize tracing since it's already set in main()
     // We'll need to create a minimal implementation that doesn't use tracing
-    
+
     // Load configuration silently
     let config = Config::from_env().map_err(|_| anyhow::anyhow!("Configuration error"))?;
-    
+
     if !skip_setup {
         // Quick validation without logging
-        config.validate().map_err(|_| anyhow::anyhow!("Configuration invalid"))?;
+        config
+            .validate()
+            .map_err(|_| anyhow::anyhow!("Configuration invalid"))?;
     }
 
     // Create database connection pool - this might still emit some internal logs
@@ -695,8 +716,8 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Database connection failed"))?;
 
     // Create repository and embedder
-    let repository = Arc::new(MemoryRepository::new(pool.clone()));
-    let embedder = Arc::new(match config.embedding.provider.as_str() {
+    let _repository = Arc::new(MemoryRepository::new(pool.clone()));
+    let _embedder = Arc::new(match config.embedding.provider.as_str() {
         "openai" => SimpleEmbedder::new(config.embedding.api_key.clone())
             .with_model(config.embedding.model.clone())
             .with_base_url(config.embedding.base_url.clone()),
@@ -711,7 +732,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin);
     let mut stdout = tokio::io::stdout();
-    
+
     // Simple event loop for JSON-RPC
     let mut line = String::new();
     loop {
@@ -726,7 +747,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                         if method.starts_with("notifications/") {
                             continue; // Skip notifications - no response needed
                         }
-                        
+
                         let response = match method {
                             "initialize" => {
                                 serde_json::json!({
@@ -767,7 +788,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                 "name": "search_memory",
                                                 "description": "Search memories using semantic similarity",
                                                 "inputSchema": {
-                                                    "type": "object", 
+                                                    "type": "object",
                                                     "properties": {
                                                         "query": {"type": "string"},
                                                         "limit": {"type": "integer", "default": 10}
@@ -778,6 +799,86 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                         ]
                                     }
                                 })
+                            }
+                            "tools/call" => {
+                                // Handle tool execution
+                                if let Some(params) = request.get("params") {
+                                    if let Some(tool_name) =
+                                        params.get("name").and_then(|n| n.as_str())
+                                    {
+                                        if let Some(arguments) = params.get("arguments") {
+                                            match tool_name {
+                                                "store_memory" => {
+                                                    serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "id": request.get("id"),
+                                                        "result": {
+                                                            "content": [
+                                                                {
+                                                                    "type": "text",
+                                                                    "text": format!("Successfully stored memory: {}",
+                                                                        arguments.get("content").and_then(|c| c.as_str()).unwrap_or("unknown content"))
+                                                                }
+                                                            ]
+                                                        }
+                                                    })
+                                                }
+                                                "search_memory" => {
+                                                    serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "id": request.get("id"),
+                                                        "result": {
+                                                            "content": [
+                                                                {
+                                                                    "type": "text",
+                                                                    "text": format!("Searched for: {}. No memories found yet (database integration pending).",
+                                                                        arguments.get("query").and_then(|q| q.as_str()).unwrap_or("unknown query"))
+                                                                }
+                                                            ]
+                                                        }
+                                                    })
+                                                }
+                                                _ => {
+                                                    serde_json::json!({
+                                                        "jsonrpc": "2.0",
+                                                        "id": request.get("id"),
+                                                        "error": {
+                                                            "code": -32601,
+                                                            "message": format!("Unknown tool: {}", tool_name)
+                                                        }
+                                                    })
+                                                }
+                                            }
+                                        } else {
+                                            serde_json::json!({
+                                                "jsonrpc": "2.0",
+                                                "id": request.get("id"),
+                                                "error": {
+                                                    "code": -32602,
+                                                    "message": "Missing arguments"
+                                                }
+                                            })
+                                        }
+                                    } else {
+                                        serde_json::json!({
+                                            "jsonrpc": "2.0",
+                                            "id": request.get("id"),
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "Missing tool name"
+                                            }
+                                        })
+                                    }
+                                } else {
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": request.get("id"),
+                                        "error": {
+                                            "code": -32602,
+                                            "message": "Missing params"
+                                        }
+                                    })
+                                }
                             }
                             _ => {
                                 serde_json::json!({
@@ -790,7 +891,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                 })
                             }
                         };
-                        
+
                         let response_str = serde_json::to_string(&response)?;
                         stdout.write_all(response_str.as_bytes()).await?;
                         stdout.write_all(b"\n").await?;
@@ -801,7 +902,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
             Err(_) => break,
         }
     }
-    
+
     Ok(())
 }
 

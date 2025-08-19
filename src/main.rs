@@ -39,6 +39,12 @@ enum Commands {
         #[arg(long)]
         skip_setup: bool,
     },
+    /// Start MCP server (stdio mode for Claude Desktop)
+    McpStdio {
+        /// Skip setup checks and start immediately
+        #[arg(long)]
+        skip_setup: bool,
+    },
     /// Setup the memory system
     Setup {
         /// Force setup even if already configured
@@ -169,14 +175,19 @@ struct AppState {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize basic logging for CLI commands
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Skip logging initialization for MCP stdio mode
+    let is_mcp_stdio = matches!(cli.command, Some(Commands::McpStdio { .. }));
+    
+    if !is_mcp_stdio {
+        // Initialize basic logging for CLI commands
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "info".into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     match cli.command {
         Some(Commands::Setup { force, skip_database, skip_models }) => {
@@ -203,6 +214,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Start { skip_setup }) => {
             start_server(skip_setup).await
+        }
+        Some(Commands::McpStdio { skip_setup }) => {
+            start_mcp_stdio(skip_setup).await
         }
         None => {
             // Default to starting the server
@@ -658,6 +672,132 @@ async fn start_mcp_server(state: AppState, port: u16) -> Result<()> {
     let mcp_server = MCPServer::new(state.repository, state.embedder)?;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     mcp_server.start(addr).await
+}
+
+async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    
+    // For MCP mode, we can't reinitialize tracing since it's already set in main()
+    // We'll need to create a minimal implementation that doesn't use tracing
+    
+    // Load configuration silently
+    let config = Config::from_env().map_err(|_| anyhow::anyhow!("Configuration error"))?;
+    
+    if !skip_setup {
+        // Quick validation without logging
+        config.validate().map_err(|_| anyhow::anyhow!("Configuration invalid"))?;
+    }
+
+    // Create database connection pool - this might still emit some internal logs
+    // but without tracing initialized, they should be minimal
+    let pool = create_pool(&config.database_url, config.operational.max_db_connections)
+        .await
+        .map_err(|_| anyhow::anyhow!("Database connection failed"))?;
+
+    // Create repository and embedder
+    let repository = Arc::new(MemoryRepository::new(pool.clone()));
+    let embedder = Arc::new(match config.embedding.provider.as_str() {
+        "openai" => SimpleEmbedder::new(config.embedding.api_key.clone())
+            .with_model(config.embedding.model.clone())
+            .with_base_url(config.embedding.base_url.clone()),
+        "ollama" => SimpleEmbedder::new_ollama(
+            config.embedding.base_url.clone(),
+            config.embedding.model.clone(),
+        ),
+        _ => SimpleEmbedder::new_mock(),
+    });
+
+    // Read from stdin, write to stdout - pure JSON-RPC
+    let stdin = tokio::io::stdin();
+    let mut reader = BufReader::new(stdin);
+    let mut stdout = tokio::io::stdout();
+    
+    // Simple event loop for JSON-RPC
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                if let Ok(request) = serde_json::from_str::<serde_json::Value>(&line) {
+                    // Handle basic MCP methods
+                    if let Some(method) = request.get("method").and_then(|m| m.as_str()) {
+                        let response = match method {
+                            "initialize" => {
+                                serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": request.get("id"),
+                                    "result": {
+                                        "protocolVersion": "2025-06-18",
+                                        "capabilities": {
+                                            "tools": {}
+                                        },
+                                        "serverInfo": {
+                                            "name": "codex-memory",
+                                            "version": "0.1.0"
+                                        }
+                                    }
+                                })
+                            }
+                            "tools/list" => {
+                                serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": request.get("id"),
+                                    "result": {
+                                        "tools": [
+                                            {
+                                                "name": "store_memory",
+                                                "description": "Store a memory in the hierarchical memory system",
+                                                "inputSchema": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "content": {"type": "string"},
+                                                        "tier": {"type": "string", "enum": ["working", "warm", "cold"]},
+                                                        "tags": {"type": "array", "items": {"type": "string"}}
+                                                    },
+                                                    "required": ["content"]
+                                                }
+                                            },
+                                            {
+                                                "name": "search_memory",
+                                                "description": "Search memories using semantic similarity",
+                                                "inputSchema": {
+                                                    "type": "object", 
+                                                    "properties": {
+                                                        "query": {"type": "string"},
+                                                        "limit": {"type": "integer", "default": 10}
+                                                    },
+                                                    "required": ["query"]
+                                                }
+                                            }
+                                        ]
+                                    }
+                                })
+                            }
+                            _ => {
+                                serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": request.get("id"),
+                                    "error": {
+                                        "code": -32601,
+                                        "message": "Method not found"
+                                    }
+                                })
+                            }
+                        };
+                        
+                        let response_str = serde_json::to_string(&response)?;
+                        stdout.write_all(response_str.as_bytes()).await?;
+                        stdout.write_all(b"\n").await?;
+                        stdout.flush().await?;
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    
+    Ok(())
 }
 
 async fn shutdown_signal() {

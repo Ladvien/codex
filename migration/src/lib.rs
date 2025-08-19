@@ -38,7 +38,8 @@ impl MigrationRunner {
     }
 
     pub async fn initialize(&self) -> Result<()> {
-        let query = r#"
+        // Create the migration history table first
+        let create_table_query = r#"
             CREATE TABLE IF NOT EXISTS migration_history (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 migration_id VARCHAR(255) NOT NULL UNIQUE,
@@ -47,16 +48,24 @@ impl MigrationRunner {
                 execution_time_ms BIGINT NOT NULL,
                 rolled_back BOOLEAN NOT NULL DEFAULT FALSE,
                 rolled_back_at TIMESTAMPTZ
-            );
-            
-            CREATE INDEX IF NOT EXISTS idx_migration_history_applied 
-                ON migration_history (applied_at DESC);
+            )
         "#;
 
-        sqlx::query(query)
+        sqlx::query(create_table_query)
             .execute(&self.pool)
             .await
             .context("Failed to create migration history table")?;
+
+        // Create the index separately
+        let create_index_query = r#"
+            CREATE INDEX IF NOT EXISTS idx_migration_history_applied 
+                ON migration_history (applied_at DESC)
+        "#;
+
+        sqlx::query(create_index_query)
+            .execute(&self.pool)
+            .await
+            .context("Failed to create migration history index")?;
 
         info!("Migration history table initialized");
         Ok(())
@@ -65,13 +74,13 @@ impl MigrationRunner {
     pub async fn load_migrations(&self) -> Result<Vec<Migration>> {
         let mut migrations = Vec::new();
 
-        let entries = fs::read_dir(&self.migrations_dir)
-            .context("Failed to read migrations directory")?;
+        let entries =
+            fs::read_dir(&self.migrations_dir).context("Failed to read migrations directory")?;
 
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 continue;
             }
@@ -93,18 +102,20 @@ impl MigrationRunner {
                 .to_string();
 
             let name = filename.trim_end_matches(".sql").to_string();
-            
+
             let up_sql = fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read migration file: {:?}", path))?;
+                .with_context(|| format!("Failed to read migration file: {path:?}"))?;
 
             // Look for corresponding rollback file
-            let rollback_path = path.with_file_name(format!("{}_rollback.sql", name));
-            let down_sql = if rollback_path.exists() {
-                Some(fs::read_to_string(&rollback_path)
-                    .with_context(|| format!("Failed to read rollback file: {:?}", rollback_path))?)
-            } else {
-                None
-            };
+            let rollback_path = path.with_file_name(format!("{name}_rollback.sql"));
+            let down_sql =
+                if rollback_path.exists() {
+                    Some(fs::read_to_string(&rollback_path).with_context(|| {
+                        format!("Failed to read rollback file: {rollback_path:?}")
+                    })?)
+                } else {
+                    None
+                };
 
             let checksum = self.calculate_checksum(&up_sql);
 
@@ -123,7 +134,7 @@ impl MigrationRunner {
 
     pub async fn migrate(&self) -> Result<()> {
         self.initialize().await?;
-        
+
         let migrations = self.load_migrations().await?;
         let applied = self.get_applied_migrations().await?;
 
@@ -137,14 +148,15 @@ impl MigrationRunner {
             let start = std::time::Instant::now();
 
             let mut tx = self.pool.begin().await?;
-            
+
             match self.apply_migration(&mut tx, &migration).await {
                 Ok(_) => {
                     let execution_time_ms = start.elapsed().as_millis() as i64;
-                    
-                    self.record_migration(&mut tx, &migration, execution_time_ms).await?;
+
+                    self.record_migration(&mut tx, &migration, execution_time_ms)
+                        .await?;
                     tx.commit().await?;
-                    
+
                     info!(
                         "Successfully applied migration {} in {}ms",
                         migration.name, execution_time_ms
@@ -176,7 +188,7 @@ impl MigrationRunner {
                 .iter()
                 .position(|m| m == &target_id)
                 .ok_or_else(|| anyhow::anyhow!("Target migration {} not found", target_id))?;
-            
+
             applied[0..=target_index].to_vec()
         } else {
             vec![applied[0].clone()]
@@ -189,7 +201,10 @@ impl MigrationRunner {
                 .ok_or_else(|| anyhow::anyhow!("Migration {} not found", migration_id))?;
 
             if migration.down_sql.is_none() {
-                warn!("No rollback script for migration {}. Skipping.", migration.name);
+                warn!(
+                    "No rollback script for migration {}. Skipping.",
+                    migration.name
+                );
                 continue;
             }
 
@@ -218,10 +233,27 @@ impl MigrationRunner {
         tx: &mut Transaction<'_, Postgres>,
         migration: &Migration,
     ) -> Result<()> {
-        sqlx::query(&migration.up_sql)
-            .execute(&mut **tx)
-            .await
-            .with_context(|| format!("Failed to execute migration: {}", migration.name))?;
+        // Split the SQL by semicolons and execute each statement separately
+        let statements: Vec<&str> = migration
+            .up_sql
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && !s.starts_with("--"))
+            .collect();
+
+        for statement in statements {
+            if !statement.trim().is_empty() {
+                sqlx::query(statement)
+                    .execute(&mut **tx)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to execute migration statement in {}: {}",
+                            migration.name, statement
+                        )
+                    })?;
+            }
+        }
         Ok(())
     }
 
@@ -339,9 +371,10 @@ mod tests {
     use tempfile::TempDir;
 
     async fn setup_test_pool() -> PgPool {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/test_migrations".to_string());
-        
+        let database_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://postgres:postgres@localhost/test_migrations".to_string()
+        });
+
         PgPoolOptions::new()
             .max_connections(5)
             .connect(&database_url)
@@ -364,7 +397,7 @@ mod tests {
     async fn test_load_migrations() {
         let pool = setup_test_pool().await;
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create test migration files
         let migration_content = "CREATE TABLE test_table (id SERIAL PRIMARY KEY);";
         fs::write(

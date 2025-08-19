@@ -22,5 +22,31 @@ target
 
 
 # Added by cargo
-
 /target
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Development artifacts
+*.backup
+*.bak
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

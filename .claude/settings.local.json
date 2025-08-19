@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(cargo build:*)",
+      "Bash(source .env)",
+      "Bash(./target/release/codex-memory mcp:*)",
+      "Bash(chmod:*)",
+      "Bash(./mcp-manager.sh:*)",
+      "Bash(./target/release/codex-memory:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/ladvien/Library",
+      "/Users/ladvien/.config"
+    ]
+  }
+}

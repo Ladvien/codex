@@ -722,6 +722,11 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                 if let Ok(request) = serde_json::from_str::<serde_json::Value>(&line) {
                     // Handle basic MCP methods
                     if let Some(method) = request.get("method").and_then(|m| m.as_str()) {
+                        // Check if this is a notification (no id field) - don't respond to notifications
+                        if method.starts_with("notifications/") {
+                            continue; // Skip notifications - no response needed
+                        }
+                        
                         let response = match method {
                             "initialize" => {
                                 serde_json::json!({

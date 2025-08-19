@@ -76,9 +76,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "/Users/yourusername/codex/target/release/codex-memory",
       "args": ["start"],
       "env": {
-        "DATABASE_URL": "postgresql://codex_user:password@192.168.1.104:5432/codex_db",
+        "DATABASE_URL": "postgresql://codex_user:password@192.168.1.xxx:5432/codex_db",
         "EMBEDDING_PROVIDER": "ollama",
-        "EMBEDDING_BASE_URL": "http://192.168.1.110:11434",
+        "EMBEDDING_BASE_URL": "http://192.168.1.xxx:11434",
         "EMBEDDING_MODEL": "nomic-embed-text",
         "LOG_LEVEL": "info"
       }

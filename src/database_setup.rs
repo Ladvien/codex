@@ -510,6 +510,7 @@ impl DatabaseSetup {
 
         // Check required tables
         let required_tables = ["memories", "memory_tiers"];
+        let mut tables_found = 0;
         for table in &required_tables {
             match client
                 .query(
@@ -520,8 +521,9 @@ impl DatabaseSetup {
             {
                 Ok(rows) => {
                     if rows.is_empty() {
-                        health.schema_ready = false;
                         health.issues.push(format!("Table '{}' missing", table));
+                    } else {
+                        tables_found += 1;
                     }
                 }
                 Err(e) => {
@@ -529,6 +531,7 @@ impl DatabaseSetup {
                 }
             }
         }
+        health.schema_ready = tables_found == required_tables.len();
 
         // Get memory count
         match client.query("SELECT COUNT(*) FROM memories", &[]).await {

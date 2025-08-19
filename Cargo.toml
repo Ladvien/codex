@@ -2,9 +2,17 @@
 name = "codex-memory"
 version = "0.1.0"
 edition = "2021"
+authors = ["Ladvien <your-email@example.com>"]
+description = "An advanced hierarchical memory system for AI agents with MCP integration"
+repository = "https://github.com/Ladvien/codex"
+license = "GPL-3.0"
+keywords = ["memory", "ai", "mcp", "agent", "embedding"]
+categories = ["database", "command-line-utilities", "web-programming"]
+readme = "README.md"
+homepage = "https://github.com/Ladvien/codex"
 
-[workspace]
-members = [".", "migration"]
+# [workspace]
+# members = [".", "migration"]
 
 [dependencies]
 # Core runtime
@@ -17,7 +25,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
 pgvector = { version = "0.4", features = ["sqlx"] }
-migration = { path = "./migration" }
+# migration = { version = "0.1.0", path = "./migration", optional = true }
 
 # Data types
 uuid = { version = "1.11", features = ["v4", "serde"] }
@@ -90,6 +98,10 @@ md5 = "0.8.0"
 
 # Manager dependencies
 dirs = "5.0"
+
+# [features]
+# default = ["migration-support"]
+# migration-support = ["migration"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", features = ["signal", "process"] }

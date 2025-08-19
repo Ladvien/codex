@@ -12,14 +12,14 @@ use codex_memory::{
     setup::create_sample_env_file,
     Config, DatabaseSetup, MCPServer, MemoryRepository, SetupManager, SimpleEmbedder,
 };
-use migration::MigrationRunner;
+// migration functionality removed for crates.io version
 use prometheus::{Encoder, TextEncoder};
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser)]
@@ -334,15 +334,9 @@ async fn handle_database_command(command: DatabaseCommands) -> Result<()> {
             Ok(())
         }
         DatabaseCommands::Migrate => {
-            let pool = create_pool(&config.database_url, config.operational.max_db_connections).await?;
-            let migration_dir = std::env::var("MIGRATION_DIR")
-                .unwrap_or_else(|_| "./migration/migrations".to_string());
-
-            let runner = MigrationRunner::new(pool, migration_dir);
-            runner.migrate().await?;
-            runner.verify_checksums().await?;
-            info!("✅ Migrations completed successfully");
-            Ok(())
+            error!("❌ Migration support not available in this build");
+            info!("💡 Use direct SQL or database tools to run migrations");
+            Err(anyhow::anyhow!("Migration support not compiled in"))
         }
     }
 }
@@ -583,16 +577,10 @@ async fn start_server(skip_setup: bool) -> Result<()> {
     // Create database connection pool
     let pool = create_pool(&config.database_url, config.operational.max_db_connections).await?;
 
-    // Run migrations if enabled
+    // Migration support removed for crates.io version
     if std::env::var("AUTO_MIGRATE").unwrap_or_else(|_| "false".to_string()) == "true" {
-        info!("Running database migrations...");
-        let migration_dir =
-            std::env::var("MIGRATION_DIR").unwrap_or_else(|_| "./migration/migrations".to_string());
-
-        let runner = MigrationRunner::new(pool.clone(), migration_dir);
-        runner.migrate().await?;
-        runner.verify_checksums().await?;
-        info!("Migrations completed successfully");
+        warn!("AUTO_MIGRATE=true but migration support not available in this build");
+        info!("💡 Please set AUTO_MIGRATE=false or run migrations manually");
     }
 
     // Create repository and embedding service

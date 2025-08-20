@@ -756,7 +756,9 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                     "result": {
                                         "protocolVersion": "2025-06-18",
                                         "capabilities": {
-                                            "tools": {}
+                                            "tools": {
+                                                "listChanged": false
+                                            }
                                         },
                                         "serverInfo": {
                                             "name": "codex-memory",

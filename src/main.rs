@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use codex_memory::{
     memory::{
         connection::create_pool,
-        models::{CreateMemoryRequest, SearchRequest, MemoryTier},
+        models::{CreateMemoryRequest, MemoryTier, SearchRequest},
         repository::MemoryStatistics,
     },
     setup::create_sample_env_file,
@@ -20,7 +20,6 @@ use codex_memory::{
 use prometheus::{Encoder, TextEncoder};
 use serde_json::json;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::signal;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -817,10 +816,11 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                             match tool_name {
                                                 "store_memory" => {
                                                     // Extract parameters
-                                                    let content = arguments.get("content")
+                                                    let content = arguments
+                                                        .get("content")
                                                         .and_then(|c| c.as_str())
                                                         .unwrap_or("");
-                                                    
+
                                                     if content.is_empty() {
                                                         serde_json::json!({
                                                             "jsonrpc": "2.0",
@@ -832,37 +832,55 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                         })
                                                     } else {
                                                         // Parse tier if provided
-                                                        let tier = arguments.get("tier")
+                                                        let tier = arguments
+                                                            .get("tier")
                                                             .and_then(|t| t.as_str())
-                                                            .and_then(|t| t.parse::<MemoryTier>().ok());
-                                                        
+                                                            .and_then(|t| {
+                                                                t.parse::<MemoryTier>().ok()
+                                                            });
+
                                                         // Parse tags if provided and store as metadata
-                                                        let tags = arguments.get("tags")
+                                                        let tags = arguments
+                                                            .get("tags")
                                                             .and_then(|t| t.as_array())
-                                                            .map(|arr| arr.iter()
-                                                                .filter_map(|v| v.as_str().map(String::from))
-                                                                .collect::<Vec<String>>());
-                                                        
+                                                            .map(|arr| {
+                                                                arr.iter()
+                                                                    .filter_map(|v| {
+                                                                        v.as_str().map(String::from)
+                                                                    })
+                                                                    .collect::<Vec<String>>()
+                                                            });
+
                                                         let metadata = if let Some(tags) = tags {
-                                                            Some(serde_json::json!({ "tags": tags }))
+                                                            Some(
+                                                                serde_json::json!({ "tags": tags }),
+                                                            )
                                                         } else {
                                                             None
                                                         };
-                                                        
+
                                                         // Generate embedding and store memory
-                                                        match embedder.generate_embedding(content).await {
+                                                        match embedder
+                                                            .generate_embedding(content)
+                                                            .await
+                                                        {
                                                             Ok(embedding) => {
-                                                                let mem_request = CreateMemoryRequest {
-                                                                    content: content.to_string(),
-                                                                    embedding: Some(embedding),
-                                                                    tier,
-                                                                    importance_score: None,
-                                                                    parent_id: None,
-                                                                    metadata,
-                                                                    expires_at: None,
-                                                                };
-                                                                
-                                                                match repository.create_memory(mem_request).await {
+                                                                let mem_request =
+                                                                    CreateMemoryRequest {
+                                                                        content: content
+                                                                            .to_string(),
+                                                                        embedding: Some(embedding),
+                                                                        tier,
+                                                                        importance_score: None,
+                                                                        parent_id: None,
+                                                                        metadata,
+                                                                        expires_at: None,
+                                                                    };
+
+                                                                match repository
+                                                                    .create_memory(mem_request)
+                                                                    .await
+                                                                {
                                                                     Ok(memory) => {
                                                                         serde_json::json!({
                                                                             "jsonrpc": "2.0",
@@ -876,7 +894,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                                 ]
                                                                             }
                                                                         })
-                                                                    },
+                                                                    }
                                                                     Err(e) => {
                                                                         serde_json::json!({
                                                                             "jsonrpc": "2.0",
@@ -888,7 +906,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                         })
                                                                     }
                                                                 }
-                                                            },
+                                                            }
                                                             Err(e) => {
                                                                 serde_json::json!({
                                                                     "jsonrpc": "2.0",
@@ -904,10 +922,11 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                 }
                                                 "search_memory" => {
                                                     // Extract parameters
-                                                    let query = arguments.get("query")
+                                                    let query = arguments
+                                                        .get("query")
                                                         .and_then(|q| q.as_str())
                                                         .unwrap_or("");
-                                                    
+
                                                     if query.is_empty() {
                                                         serde_json::json!({
                                                             "jsonrpc": "2.0",
@@ -918,17 +937,25 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                             }
                                                         })
                                                     } else {
-                                                        let limit = arguments.get("limit")
+                                                        let limit = arguments
+                                                            .get("limit")
                                                             .and_then(|l| l.as_i64())
                                                             .map(|l| l as i32)
                                                             .unwrap_or(10);
-                                                        
+
                                                         // Generate query embedding and search
-                                                        match embedder.generate_embedding(query).await {
+                                                        match embedder
+                                                            .generate_embedding(query)
+                                                            .await
+                                                        {
                                                             Ok(embedding) => {
                                                                 let search_req = SearchRequest {
-                                                                    query_text: Some(query.to_string()),
-                                                                    query_embedding: Some(embedding),
+                                                                    query_text: Some(
+                                                                        query.to_string(),
+                                                                    ),
+                                                                    query_embedding: Some(
+                                                                        embedding,
+                                                                    ),
                                                                     limit: Some(limit),
                                                                     offset: None,
                                                                     tier: None,
@@ -945,8 +972,13 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                     ranking_boost: None,
                                                                     explain_score: None,
                                                                 };
-                                                                
-                                                                match repository.search_memories_simple(search_req).await {
+
+                                                                match repository
+                                                                    .search_memories_simple(
+                                                                        search_req,
+                                                                    )
+                                                                    .await
+                                                                {
                                                                     Ok(results) => {
                                                                         if results.is_empty() {
                                                                             serde_json::json!({
@@ -964,11 +996,11 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                         } else {
                                                                             let formatted_results = results.iter()
                                                                                 .map(|r| format!("[Score: {:.2}] {}", 
-                                                                                    r.similarity_score, 
+                                                                                    r.similarity_score,
                                                                                     r.memory.content.chars().take(200).collect::<String>()))
                                                                                 .collect::<Vec<String>>()
                                                                                 .join("\n\n");
-                                                                            
+
                                                                             serde_json::json!({
                                                                                 "jsonrpc": "2.0",
                                                                                 "id": request.get("id"),
@@ -982,7 +1014,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                                 }
                                                                             })
                                                                         }
-                                                                    },
+                                                                    }
                                                                     Err(e) => {
                                                                         serde_json::json!({
                                                                             "jsonrpc": "2.0",
@@ -994,7 +1026,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                         })
                                                                     }
                                                                 }
-                                                            },
+                                                            }
                                                             Err(e) => {
                                                                 serde_json::json!({
                                                                     "jsonrpc": "2.0",
@@ -1078,17 +1110,21 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = signal::ctrl_c().await {
+            error!("Failed to install Ctrl+C handler: {}", e);
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(e) => {
+                error!("Failed to install terminate signal handler: {}", e);
+            }
+        }
     };
 
     #[cfg(not(unix))]

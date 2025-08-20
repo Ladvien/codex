@@ -155,7 +155,7 @@ impl MCPServer {
                 }
 
                 let memory = result.map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(memory).unwrap())
+                serde_json::to_value(memory).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -168,7 +168,7 @@ impl MCPServer {
                     .get_memory(id)
                     .await
                     .map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(memory).unwrap())
+                serde_json::to_value(memory).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -181,7 +181,7 @@ impl MCPServer {
                     .update_memory(id, request)
                     .await
                     .map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(memory).unwrap())
+                serde_json::to_value(memory).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -233,7 +233,7 @@ impl MCPServer {
                 }
 
                 let results = result.map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(results).unwrap())
+                serde_json::to_value(results).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -247,7 +247,7 @@ impl MCPServer {
                     .migrate_memory(id, tier, reason)
                     .await
                     .map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(memory).unwrap())
+                serde_json::to_value(memory).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -260,7 +260,7 @@ impl MCPServer {
                     .get_statistics()
                     .await
                     .map_err(|_| jsonrpc_core::Error::internal_error())?;
-                Ok(serde_json::to_value(stats).unwrap())
+                serde_json::to_value(stats).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -270,7 +270,8 @@ impl MCPServer {
             let health_checker = health_checker.clone();
             Box::pin(async move {
                 match health_checker.check_system_health().await {
-                    Ok(health) => Ok(serde_json::to_value(health).unwrap()),
+                    Ok(health) => serde_json::to_value(health)
+                        .map_err(|_| jsonrpc_core::Error::internal_error()),
                     Err(_) => Ok(Value::Object(serde_json::Map::from_iter([
                         ("status".to_string(), Value::String("unhealthy".to_string())),
                         (
@@ -298,7 +299,7 @@ impl MCPServer {
             let profiler = profiler.clone();
             Box::pin(async move {
                 let summary = profiler.get_performance_summary();
-                Ok(serde_json::to_value(summary).unwrap())
+                serde_json::to_value(summary).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 
@@ -309,7 +310,7 @@ impl MCPServer {
             Box::pin(async move {
                 let binding = alert_manager.read().await;
                 let alerts = binding.get_active_alerts();
-                Ok(serde_json::to_value(alerts).unwrap())
+                serde_json::to_value(alerts).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 

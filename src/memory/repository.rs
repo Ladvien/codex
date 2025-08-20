@@ -437,7 +437,7 @@ impl MemoryRepository {
                 Some(ScoreExplanation {
                     semantic_contribution: similarity_score * 0.4,
                     temporal_contribution: temporal_score.unwrap_or(0.0) * 0.3,
-                    importance_contribution: importance_score * 0.2,
+                    importance_contribution: (importance_score * 0.2) as f32,
                     access_frequency_contribution: access_frequency_score.unwrap_or(0.0) * 0.1,
                     total_score: combined_score,
                     factors: vec![

@@ -801,6 +801,15 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                     },
                                                     "required": ["query"]
                                                 }
+                                            },
+                                            {
+                                                "name": "get_statistics",
+                                                "description": "Get memory system statistics and metrics",
+                                                "inputSchema": {
+                                                    "type": "object",
+                                                    "properties": {},
+                                                    "required": []
+                                                }
                                             }
                                         ]
                                     }
@@ -1037,6 +1046,56 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                     }
                                                                 })
                                                             }
+                                                        }
+                                                    }
+                                                }
+                                                "get_statistics" => {
+                                                    // Get memory system statistics
+                                                    match repository.get_statistics().await {
+                                                        Ok(stats) => {
+                                                            let stats_text = format!(
+                                                                "Memory System Statistics:\n\n\
+                                                                 📊 Total Active: {}\n\
+                                                                 📊 Total Deleted: {}\n\
+                                                                 🔥 Working Tier: {}\n\
+                                                                 🌡️ Warm Tier: {}\n\
+                                                                 🧊 Cold Tier: {}\n\n\
+                                                                 📈 Access Patterns:\n\
+                                                                 • Average Importance: {:.2}\n\
+                                                                 • Average Access Count: {:.1}\n\
+                                                                 • Max Access Count: {}",
+                                                                stats.total_active.unwrap_or(0),
+                                                                stats.total_deleted.unwrap_or(0),
+                                                                stats.working_count.unwrap_or(0),
+                                                                stats.warm_count.unwrap_or(0),
+                                                                stats.cold_count.unwrap_or(0),
+                                                                stats.avg_importance.unwrap_or(0.0),
+                                                                stats.avg_access_count.unwrap_or(0.0),
+                                                                stats.max_access_count.unwrap_or(0)
+                                                            );
+                                                            
+                                                            serde_json::json!({
+                                                                "jsonrpc": "2.0",
+                                                                "id": request.get("id"),
+                                                                "result": {
+                                                                    "content": [
+                                                                        {
+                                                                            "type": "text",
+                                                                            "text": stats_text
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            })
+                                                        }
+                                                        Err(e) => {
+                                                            serde_json::json!({
+                                                                "jsonrpc": "2.0",
+                                                                "id": request.get("id"),
+                                                                "error": {
+                                                                    "code": -32603,
+                                                                    "message": format!("Failed to get statistics: {}", e)
+                                                                }
+                                                            })
                                                         }
                                                     }
                                                 }

@@ -53,5 +53,8 @@ else
     export RUST_LOG="info"
 fi
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Execute the binary with stdio mode
-exec ./codex-memory mcp-stdio --skip-setup
+exec "${SCRIPT_DIR}/codex-memory" mcp-stdio --skip-setup

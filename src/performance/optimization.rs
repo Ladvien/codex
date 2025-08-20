@@ -546,10 +546,10 @@ pub struct FullOptimizationReport {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_health_score_calculation() {
+    #[tokio::test]
+    async fn test_health_score_calculation() {
         let optimizer = QueryOptimizer {
-            db_pool: Arc::new(PgPool::connect_lazy("").unwrap()),
+            db_pool: Arc::new(PgPool::connect_lazy("postgresql://localhost/test").unwrap()),
         };
 
         let slow_queries = vec![SlowQuery {

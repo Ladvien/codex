@@ -381,11 +381,11 @@ impl MemoryBenchmarks {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_calculate_result() {
+    #[tokio::test]
+    async fn test_calculate_result() {
         let benchmarks = MemoryBenchmarks {
             repository: Arc::new(MemoryRepository::new(
-                sqlx::PgPool::connect_lazy("").unwrap(),
+                sqlx::PgPool::connect_lazy("postgresql://localhost/test").unwrap(),
             )),
             iterations: 100,
         };

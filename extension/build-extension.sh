@@ -54,6 +54,11 @@ else
     cp "$EXTENSION_DIR/icon.png" "$BUILD_DIR/"
 fi
 
+# Set executable permissions
+echo -e "${GREEN}Setting executable permissions...${NC}"
+chmod +x "$BUILD_DIR/codex-memory"
+chmod +x "$BUILD_DIR/run-codex.sh"
+
 # Package the extension
 echo -e "${GREEN}Packaging extension...${NC}"
 cd "$BUILD_DIR"

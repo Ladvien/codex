@@ -1,18 +1,22 @@
 {
-  "id": "codex-memory",
-  "version": "0.1.14",
-  "name": "Codex Memory System",
+  "dxt_version": "0.1",
+  "name": "codex-memory",
+  "version": "0.1.15",
+  "display_name": "Codex Memory System",
   "description": "Advanced hierarchical memory system for AI agents with semantic search, auto-tiering, and PostgreSQL/pgvector backend",
-  "author": "Ladvien",
+  "author": {
+    "name": "Ladvien",
+    "email": "your-email@example.com"
+  },
   "homepage": "https://github.com/Ladvien/codex",
   "license": "GPL-3.0",
   "icon": "icon.png",
   "server": {
     "type": "binary",
-    "binary": {
-      "path": "./run-codex.sh",
-      "args": [],
-      "env": {}
+    "entry_point": "./run-codex.sh",
+    "mcp_config": {
+      "command": "./run-codex.sh",
+      "args": []
     }
   },
   "user_config": {

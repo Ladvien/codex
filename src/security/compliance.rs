@@ -745,10 +745,11 @@ impl ComplianceManager {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_compliance_manager_creation() {
+    #[tokio::test]
+    async fn test_compliance_manager_creation() {
         let config = GdprConfig::default();
-        let pool = Arc::new(PgPool::connect_lazy("postgresql://localhost").unwrap());
+        // Use a mock pool that doesn't actually connect
+        let pool = Arc::new(PgPool::connect_lazy("postgresql://localhost/test").unwrap());
         let manager = ComplianceManager::new(config, pool);
         assert!(!manager.is_enabled()); // disabled by default
     }

@@ -21,6 +21,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 /// Test environment that provides isolated database and configured services
+#[derive(Clone)]
 pub struct TestEnvironment {
     pub repository: Arc<MemoryRepository>,
     pub embedder: Arc<SimpleEmbedder>,
@@ -217,7 +218,7 @@ impl TestEnvironment {
     pub async fn cleanup_test_data(&self) -> Result<()> {
         // Delete all memories with this test_id
         let cleanup_query = r#"
-            DELETE FROM memories 
+            DELETE FROM memories
             WHERE metadata->>'test_id' = $1
         "#;
 
@@ -319,14 +320,14 @@ impl TestEnvironment {
     /// Get statistics about memories in this test environment
     pub async fn get_test_statistics(&self) -> Result<TestStatistics> {
         let query = r#"
-            SELECT 
+            SELECT
                 COUNT(*) as total_count,
                 COUNT(*) FILTER (WHERE tier = 'working') as working_count,
                 COUNT(*) FILTER (WHERE tier = 'warm') as warm_count,
                 COUNT(*) FILTER (WHERE tier = 'cold') as cold_count,
                 AVG(importance_score) as avg_importance,
                 AVG(access_count) as avg_access_count
-            FROM memories 
+            FROM memories
             WHERE metadata->>'test_id' = $1
         "#;
 

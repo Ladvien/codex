@@ -1,7 +1,7 @@
 {
   "dxt_version": "0.1",
   "name": "codex-memory",
-  "version": "0.1.15",
+  "version": "0.1.21",
   "display_name": "Codex Memory System",
   "description": "Advanced hierarchical memory system for AI agents with semantic search, auto-tiering, and PostgreSQL/pgvector backend",
   "author": {
@@ -13,10 +13,10 @@
   "icon": "icon.png",
   "server": {
     "type": "binary",
-    "entry_point": "./run-codex.sh",
+    "entry_point": "./codex-memory",
     "mcp_config": {
-      "command": "./run-codex.sh",
-      "args": []
+      "command": "./codex-memory",
+      "args": ["mcp-stdio", "--skip-setup"]
     }
   },
   "user_config": {

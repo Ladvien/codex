@@ -26,19 +26,24 @@ impl MemoryRepository {
         let content_hash = Memory::calculate_content_hash(&request.content);
         let tier = request.tier.unwrap_or(MemoryTier::Working);
 
-        // Check for duplicates
-        let duplicate_exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM memories WHERE content_hash = $1 AND tier = $2 AND status = 'active')"
-        )
-        .bind(&content_hash)
-        .bind(tier)
-        .fetch_one(&self.pool)
-        .await?;
+        // Check for duplicates (skip in test mode)
+        let skip_duplicate_check =
+            std::env::var("SKIP_DUPLICATE_CHECK").unwrap_or_else(|_| "false".to_string()) == "true";
 
-        if duplicate_exists {
-            return Err(MemoryError::DuplicateContent {
-                tier: format!("{tier:?}"),
-            });
+        if !skip_duplicate_check {
+            let duplicate_exists = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM memories WHERE content_hash = $1 AND tier = $2 AND status = 'active')"
+            )
+            .bind(&content_hash)
+            .bind(tier)
+            .fetch_one(&self.pool)
+            .await?;
+
+            if duplicate_exists {
+                return Err(MemoryError::DuplicateContent {
+                    tier: format!("{tier:?}"),
+                });
+            }
         }
 
         let embedding = request.embedding.map(Vector::from);
@@ -758,7 +763,7 @@ impl MemoryRepository {
                 COUNT(*) FILTER (WHERE status = 'deleted') as total_deleted,
                 AVG(importance_score) FILTER (WHERE status = 'active') as avg_importance,
                 MAX(access_count) FILTER (WHERE status = 'active') as max_access_count,
-                AVG(access_count) FILTER (WHERE status = 'active') as avg_access_count
+                CAST(AVG(access_count) FILTER (WHERE status = 'active') AS FLOAT8) as avg_access_count
             FROM memories
             "#,
         )

@@ -1,0 +1,28 @@
+# Quick commands to run the migration on Ubuntu server (.104)
+# Copy and paste these commands one by one
+
+# 1. First, make sure you're in the directory with the migration file
+cd ~
+ls migration_codex_01.sql
+
+# 2. Copy the migration file to /tmp with proper permissions
+sudo cp migration_codex_01.sql /tmp/
+sudo chmod 644 /tmp/migration_codex_01.sql
+
+# 3. Create the test database if it doesn't exist
+sudo -u postgres psql -c "CREATE DATABASE codex_test;"
+
+# 4. Apply the migration
+sudo -u postgres psql -d codex_test -f /tmp/migration_codex_01.sql
+
+# 5. Verify the migration worked
+sudo -u postgres psql -d codex_test -c "\dt"
+
+# 6. Check the memories table structure (should show last_accessed_at column)
+sudo -u postgres psql -d codex_test -c "\d memories"
+
+# 7. Clean up the temp file
+sudo rm /tmp/migration_codex_01.sql
+
+# Alternative: If you prefer to pipe the content directly (one command)
+cat migration_codex_01.sql | sudo -u postgres psql -d codex_test

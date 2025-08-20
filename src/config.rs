@@ -166,6 +166,26 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         dotenv::dotenv().ok(); // Load .env file if present
 
+        // Handle Claude Desktop MCP_ prefixed environment variables
+        if let Ok(mcp_db_url) = std::env::var("MCP_DATABASE_URL") {
+            std::env::set_var("DATABASE_URL", mcp_db_url);
+        }
+        if let Ok(mcp_provider) = std::env::var("MCP_EMBEDDING_PROVIDER") {
+            std::env::set_var("EMBEDDING_PROVIDER", mcp_provider);
+        }
+        if let Ok(mcp_model) = std::env::var("MCP_EMBEDDING_MODEL") {
+            std::env::set_var("EMBEDDING_MODEL", mcp_model);
+        }
+        if let Ok(mcp_api_key) = std::env::var("MCP_OPENAI_API_KEY") {
+            std::env::set_var("OPENAI_API_KEY", mcp_api_key);
+        }
+        if let Ok(mcp_ollama_url) = std::env::var("MCP_OLLAMA_BASE_URL") {
+            std::env::set_var("OLLAMA_BASE_URL", mcp_ollama_url);
+        }
+        if let Ok(mcp_log_level) = std::env::var("MCP_LOG_LEVEL") {
+            std::env::set_var("RUST_LOG", mcp_log_level);
+        }
+
         let mut config = Config::default();
 
         // Database URL - support multiple environment variable names for flexibility

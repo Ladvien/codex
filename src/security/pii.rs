@@ -198,9 +198,12 @@ impl PiiManager {
                 requires_action: false,
             };
         }
-        
+
         // Debug: log patterns being used
-        debug!("Detecting PII in content with {} patterns", self.patterns.len());
+        debug!(
+            "Detecting PII in content with {} patterns",
+            self.patterns.len()
+        );
 
         let mut found_patterns = Vec::new();
         let mut masked_content = content.to_string();
@@ -300,9 +303,10 @@ impl PiiManager {
             // For high-severity PII, replace with generic placeholders
             // We need to work with the original content and replace based on positions
             let mut anonymized = content.to_string();
-            
+
             // Sort by position in reverse to avoid position shifts
-            let mut high_severity_matches: Vec<_> = result.found_patterns
+            let mut high_severity_matches: Vec<_> = result
+                .found_patterns
                 .iter()
                 .filter(|m| matches!(m.severity, PiiSeverity::High | PiiSeverity::Critical))
                 .collect();
@@ -470,9 +474,15 @@ mod tests {
         let result = manager.detect_pii(text);
 
         // Debug: print what was found
-        println!("API key test - found {} patterns", result.found_patterns.len());
+        println!(
+            "API key test - found {} patterns",
+            result.found_patterns.len()
+        );
         for pattern in &result.found_patterns {
-            println!("  Found: {} - {}", pattern.pattern_name, pattern.matched_text);
+            println!(
+                "  Found: {} - {}",
+                pattern.pattern_name, pattern.matched_text
+            );
         }
 
         assert_eq!(result.found_patterns.len(), 1);

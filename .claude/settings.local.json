@@ -7,7 +7,10 @@
       "Bash(./target/release/codex-memory mcp:*)",
       "Bash(chmod:*)",
       "Bash(./mcp-manager.sh:*)",
-      "Bash(./target/release/codex-memory:*)"
+      "Bash(./target/release/codex-memory:*)",
+      "Bash(find:*)",
+      "Bash(cargo test:*)",
+      "Bash(mv:*)"
     ],
     "additionalDirectories": [
       "/Users/ladvien/Library",

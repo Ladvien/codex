@@ -1070,10 +1070,12 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                 stats.warm_count.unwrap_or(0),
                                                                 stats.cold_count.unwrap_or(0),
                                                                 stats.avg_importance.unwrap_or(0.0),
-                                                                stats.avg_access_count.unwrap_or(0.0),
+                                                                stats
+                                                                    .avg_access_count
+                                                                    .unwrap_or(0.0),
                                                                 stats.max_access_count.unwrap_or(0)
                                                             );
-                                                            
+
                                                             serde_json::json!({
                                                                 "jsonrpc": "2.0",
                                                                 "id": request.get("id"),
@@ -1093,7 +1095,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                                                 "id": request.get("id"),
                                                                 "error": {
                                                                     "code": -32603,
-                                                                    "message": format!("Failed to get statistics: {}", e)
+                                                                    "message": format!("Failed to get statistics: {} (codex-memory v{})", e, env!("CARGO_PKG_VERSION"))
                                                                 }
                                                             })
                                                         }

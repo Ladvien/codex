@@ -93,7 +93,7 @@ async fn test_database_basic_operations() -> Result<()> {
 
     sqlx::query(
         r#"
-        UPDATE test_memories 
+        UPDATE test_memories
         SET content = $1, content_hash = $2, updated_at = NOW()
         WHERE id = $3
     "#,
@@ -565,7 +565,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
     for memory_id in &memory_ids[0..2] {
         sqlx::query(
             r#"
-            UPDATE e2e_test_memories 
+            UPDATE e2e_test_memories
             SET access_count = access_count + 1,
                 importance_score = 0.8,
                 tier = 'warm'

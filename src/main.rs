@@ -8,7 +8,11 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use codex_memory::{
-    memory::{connection::create_pool, repository::MemoryStatistics},
+    memory::{
+        connection::create_pool,
+        models::{CreateMemoryRequest, SearchRequest, MemoryTier},
+        repository::MemoryStatistics,
+    },
     setup::create_sample_env_file,
     Config, DatabaseSetup, MCPServer, MemoryRepository, SetupManager, SimpleEmbedder,
 };
@@ -16,6 +20,7 @@ use codex_memory::{
 use prometheus::{Encoder, TextEncoder};
 use serde_json::json;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::signal;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -716,8 +721,8 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Database connection failed"))?;
 
     // Create repository and embedder
-    let _repository = Arc::new(MemoryRepository::new(pool.clone()));
-    let _embedder = Arc::new(match config.embedding.provider.as_str() {
+    let repository = Arc::new(MemoryRepository::new(pool.clone()));
+    let embedder = Arc::new(match config.embedding.provider.as_str() {
         "openai" => SimpleEmbedder::new(config.embedding.api_key.clone())
             .with_model(config.embedding.model.clone())
             .with_base_url(config.embedding.base_url.clone()),
@@ -811,34 +816,197 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                         if let Some(arguments) = params.get("arguments") {
                                             match tool_name {
                                                 "store_memory" => {
-                                                    serde_json::json!({
-                                                        "jsonrpc": "2.0",
-                                                        "id": request.get("id"),
-                                                        "result": {
-                                                            "content": [
-                                                                {
-                                                                    "type": "text",
-                                                                    "text": format!("Successfully stored memory: {}",
-                                                                        arguments.get("content").and_then(|c| c.as_str()).unwrap_or("unknown content"))
+                                                    // Extract parameters
+                                                    let content = arguments.get("content")
+                                                        .and_then(|c| c.as_str())
+                                                        .unwrap_or("");
+                                                    
+                                                    if content.is_empty() {
+                                                        serde_json::json!({
+                                                            "jsonrpc": "2.0",
+                                                            "id": request.get("id"),
+                                                            "error": {
+                                                                "code": -32602,
+                                                                "message": "Content is required"
+                                                            }
+                                                        })
+                                                    } else {
+                                                        // Parse tier if provided
+                                                        let tier = arguments.get("tier")
+                                                            .and_then(|t| t.as_str())
+                                                            .and_then(|t| t.parse::<MemoryTier>().ok());
+                                                        
+                                                        // Parse tags if provided and store as metadata
+                                                        let tags = arguments.get("tags")
+                                                            .and_then(|t| t.as_array())
+                                                            .map(|arr| arr.iter()
+                                                                .filter_map(|v| v.as_str().map(String::from))
+                                                                .collect::<Vec<String>>());
+                                                        
+                                                        let metadata = if let Some(tags) = tags {
+                                                            Some(serde_json::json!({ "tags": tags }))
+                                                        } else {
+                                                            None
+                                                        };
+                                                        
+                                                        // Generate embedding and store memory
+                                                        match embedder.generate_embedding(content).await {
+                                                            Ok(embedding) => {
+                                                                let mem_request = CreateMemoryRequest {
+                                                                    content: content.to_string(),
+                                                                    embedding: Some(embedding),
+                                                                    tier,
+                                                                    importance_score: None,
+                                                                    parent_id: None,
+                                                                    metadata,
+                                                                    expires_at: None,
+                                                                };
+                                                                
+                                                                match repository.create_memory(mem_request).await {
+                                                                    Ok(memory) => {
+                                                                        serde_json::json!({
+                                                                            "jsonrpc": "2.0",
+                                                                            "id": request.get("id"),
+                                                                            "result": {
+                                                                                "content": [
+                                                                                    {
+                                                                                        "type": "text",
+                                                                                        "text": format!("Successfully stored memory with ID: {}", memory.id)
+                                                                                    }
+                                                                                ]
+                                                                            }
+                                                                        })
+                                                                    },
+                                                                    Err(e) => {
+                                                                        serde_json::json!({
+                                                                            "jsonrpc": "2.0",
+                                                                            "id": request.get("id"),
+                                                                            "error": {
+                                                                                "code": -32603,
+                                                                                "message": format!("Failed to store memory: {}", e)
+                                                                            }
+                                                                        })
+                                                                    }
                                                                 }
-                                                            ]
+                                                            },
+                                                            Err(e) => {
+                                                                serde_json::json!({
+                                                                    "jsonrpc": "2.0",
+                                                                    "id": request.get("id"),
+                                                                    "error": {
+                                                                        "code": -32603,
+                                                                        "message": format!("Failed to generate embedding: {}", e)
+                                                                    }
+                                                                })
+                                                            }
                                                         }
-                                                    })
+                                                    }
                                                 }
                                                 "search_memory" => {
-                                                    serde_json::json!({
-                                                        "jsonrpc": "2.0",
-                                                        "id": request.get("id"),
-                                                        "result": {
-                                                            "content": [
-                                                                {
-                                                                    "type": "text",
-                                                                    "text": format!("Searched for: {}. No memories found yet (database integration pending).",
-                                                                        arguments.get("query").and_then(|q| q.as_str()).unwrap_or("unknown query"))
+                                                    // Extract parameters
+                                                    let query = arguments.get("query")
+                                                        .and_then(|q| q.as_str())
+                                                        .unwrap_or("");
+                                                    
+                                                    if query.is_empty() {
+                                                        serde_json::json!({
+                                                            "jsonrpc": "2.0",
+                                                            "id": request.get("id"),
+                                                            "error": {
+                                                                "code": -32602,
+                                                                "message": "Query is required"
+                                                            }
+                                                        })
+                                                    } else {
+                                                        let limit = arguments.get("limit")
+                                                            .and_then(|l| l.as_i64())
+                                                            .map(|l| l as i32)
+                                                            .unwrap_or(10);
+                                                        
+                                                        // Generate query embedding and search
+                                                        match embedder.generate_embedding(query).await {
+                                                            Ok(embedding) => {
+                                                                let search_req = SearchRequest {
+                                                                    query_text: Some(query.to_string()),
+                                                                    query_embedding: Some(embedding),
+                                                                    limit: Some(limit),
+                                                                    offset: None,
+                                                                    tier: None,
+                                                                    tags: None,
+                                                                    date_range: None,
+                                                                    importance_range: None,
+                                                                    metadata_filters: None,
+                                                                    similarity_threshold: Some(0.5),
+                                                                    search_type: None,
+                                                                    hybrid_weights: None,
+                                                                    cursor: None,
+                                                                    include_facets: None,
+                                                                    include_metadata: Some(true),
+                                                                    ranking_boost: None,
+                                                                    explain_score: None,
+                                                                };
+                                                                
+                                                                match repository.search_memories_simple(search_req).await {
+                                                                    Ok(results) => {
+                                                                        if results.is_empty() {
+                                                                            serde_json::json!({
+                                                                                "jsonrpc": "2.0",
+                                                                                "id": request.get("id"),
+                                                                                "result": {
+                                                                                    "content": [
+                                                                                        {
+                                                                                            "type": "text",
+                                                                                            "text": format!("No memories found for query: {}", query)
+                                                                                        }
+                                                                                    ]
+                                                                                }
+                                                                            })
+                                                                        } else {
+                                                                            let formatted_results = results.iter()
+                                                                                .map(|r| format!("[Score: {:.2}] {}", 
+                                                                                    r.similarity_score, 
+                                                                                    r.memory.content.chars().take(200).collect::<String>()))
+                                                                                .collect::<Vec<String>>()
+                                                                                .join("\n\n");
+                                                                            
+                                                                            serde_json::json!({
+                                                                                "jsonrpc": "2.0",
+                                                                                "id": request.get("id"),
+                                                                                "result": {
+                                                                                    "content": [
+                                                                                        {
+                                                                                            "type": "text",
+                                                                                            "text": format!("Found {} memories:\n\n{}", results.len(), formatted_results)
+                                                                                        }
+                                                                                    ]
+                                                                                }
+                                                                            })
+                                                                        }
+                                                                    },
+                                                                    Err(e) => {
+                                                                        serde_json::json!({
+                                                                            "jsonrpc": "2.0",
+                                                                            "id": request.get("id"),
+                                                                            "error": {
+                                                                                "code": -32603,
+                                                                                "message": format!("Failed to search memories: {}", e)
+                                                                            }
+                                                                        })
+                                                                    }
                                                                 }
-                                                            ]
+                                                            },
+                                                            Err(e) => {
+                                                                serde_json::json!({
+                                                                    "jsonrpc": "2.0",
+                                                                    "id": request.get("id"),
+                                                                    "error": {
+                                                                        "code": -32603,
+                                                                        "message": format!("Failed to generate query embedding: {}", e)
+                                                                    }
+                                                                })
+                                                            }
                                                         }
-                                                    })
+                                                    }
                                                 }
                                                 _ => {
                                                     serde_json::json!({

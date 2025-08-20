@@ -31,7 +31,7 @@ impl<'de> Deserialize<'de> for SerializableVector {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "memory_tier", rename_all = "lowercase")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum MemoryTier {
     Working,
     Warm,
@@ -52,7 +52,7 @@ impl FromStr for MemoryTier {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "memory_status", rename_all = "lowercase")]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
 pub enum MemoryStatus {
     Active,
     Migrating,

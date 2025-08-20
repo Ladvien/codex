@@ -78,30 +78,38 @@ async fn test_high_volume_memory_creation() -> Result<()> {
 
         let batch_meter = PerformanceMeter::new(&format!("batch_creation_{}", batch_size));
 
-        let creation_operations = ConcurrentTester::run_parallel(
-            |i| {
-                let repo = Arc::clone(&env.repository);
-                let test_id = env.test_id.clone();
-                async move {
-                    let request = CreateMemoryRequest {
-                        content: format!("High volume test memory {} with sufficient content to be realistic for testing purposes", i),
-                        embedding: None,
-                        tier: Some(MemoryTier::Working),
-                        importance_score: Some(0.5 + ((i % 100) as f64) * 0.005),
-                        metadata: Some(serde_json::json!({
-                            "test_id": test_id,
-                            "high_volume_test": true,
-                            "batch_size": batch_size,
-                            "index": i
-                        })),
-                        parent_id: None,
-                        expires_at: None,
-                    };
-                    repo.create_memory(request).await
-                }
-            },
-            batch_size,
-        ).await?;
+        // Create handles manually to avoid lifetime issues
+        let mut handles = Vec::new();
+        let repo = Arc::clone(&env.repository);
+        let test_id = env.test_id.clone();
+
+        for i in 0..batch_size {
+            let repo_clone = Arc::clone(&repo);
+            let test_id_clone = test_id.clone();
+            let handle = tokio::spawn(async move {
+                let request = CreateMemoryRequest {
+                    content: format!("High volume test memory {} with sufficient content to be realistic for testing purposes", i),
+                    embedding: None,
+                    tier: Some(MemoryTier::Working),
+                    importance_score: Some(0.5 + ((i % 100) as f64) * 0.005),
+                    metadata: Some(serde_json::json!({
+                        "test_id": test_id_clone,
+                        "high_volume_test": true,
+                        "batch_size": batch_size,
+                        "index": i
+                    })),
+                    parent_id: None,
+                    expires_at: None,
+                };
+                repo_clone.create_memory(request).await
+            });
+            handles.push(handle);
+        }
+
+        let mut creation_operations = Vec::new();
+        for handle in handles {
+            creation_operations.push(handle.await??);
+        }
 
         let batch_result = batch_meter.finish();
         let ops_per_second = batch_result.operations_per_second(batch_size);
@@ -166,70 +174,78 @@ async fn test_concurrent_user_simulation() -> Result<()> {
 
         let concurrent_meter = PerformanceMeter::new(&format!("concurrent_users_{}", user_count));
 
-        let user_operations = ConcurrentTester::run_parallel(
-            |user_id| {
-                let repo = Arc::clone(&env.repository);
-                let test_id = env.test_id.clone();
-                async move {
-                    let mut user_memories = Vec::new();
-                    // Each user performs a series of operations
-                    for op_id in 0..operations_per_user {
-                        // Create memory
-                        let create_request = CreateMemoryRequest {
-                            content: format!("User {} operation {} - content with realistic length for testing concurrent access patterns", user_id, op_id),
-                            embedding: None,
-                            tier: Some(MemoryTier::Working),
-                            importance_score: Some(0.5 + (op_id as f64 * 0.05)),
-                            metadata: Some(serde_json::json!({
+        // Create handles manually for concurrent users
+        let mut handles = Vec::new();
+        let repo = Arc::clone(&env.repository);
+        let test_id = env.test_id.clone();
+
+        for user_id in 0..user_count {
+            let repo_clone = Arc::clone(&repo);
+            let test_id_clone = test_id.clone();
+            let handle = tokio::spawn(async move {
+                let mut user_memories = Vec::new();
+                // Each user performs a series of operations
+                for op_id in 0..operations_per_user {
+                    // Create memory
+                    let create_request = CreateMemoryRequest {
+                        content: format!("User {} operation {} - content with realistic length for testing concurrent access patterns", user_id, op_id),
+                        embedding: None,
+                        tier: Some(MemoryTier::Working),
+                        importance_score: Some(0.5 + (op_id as f64 * 0.05)),
+                        metadata: Some(serde_json::json!({
+                            "test_id": test_id_clone,
+                            "user_id": user_id,
+                            "operation_id": op_id,
+                            "concurrent_test": true
+                        })),
+                        parent_id: None,
+                        expires_at: None,
+                    };
+
+                    let memory = repo_clone.create_memory(create_request).await?;
+                    user_memories.push(memory.id);
+
+                    // Immediately read it back
+                    let _retrieved = repo_clone.get_memory(memory.id).await?;
+
+                    // Every 3rd operation, do a search
+                    if op_id % 3 == 0 {
+                        let search_request = SearchRequest {
+                            query_text: Some(format!("User {} operation", user_id)),
+                            query_embedding: None,
+                            search_type: None,
+                            hybrid_weights: None,
+                            tier: None,
+                            date_range: None,
+                            importance_range: None,
+                            metadata_filters: Some(serde_json::json!({
                                 "test_id": test_id,
-                                "user_id": user_id,
-                                "operation_id": op_id,
-                                "concurrent_test": true
+                                "user_id": user_id
                             })),
-                            parent_id: None,
-                            expires_at: None,
+                            tags: None,
+                            limit: Some(5),
+                            offset: None,
+                            cursor: None,
+                            similarity_threshold: None,
+                            include_metadata: None,
+                            include_facets: None,
+                            ranking_boost: None,
+                            explain_score: None,
                         };
 
-                        let memory = repo.create_memory(create_request).await?;
-                        user_memories.push(memory.id);
-
-                        // Immediately read it back
-                        let _retrieved = repo.get_memory(memory.id).await?;
-
-                        // Every 3rd operation, do a search
-                        if op_id % 3 == 0 {
-                            let search_request = SearchRequest {
-                                query_text: Some(format!("User {} operation", user_id)),
-                                query_embedding: None,
-                                search_type: None,
-                                hybrid_weights: None,
-                                tier: None,
-                                date_range: None,
-                                importance_range: None,
-                                metadata_filters: Some(serde_json::json!({
-                                    "test_id": test_id,
-                                    "user_id": user_id
-                                })),
-                                tags: None,
-                                limit: Some(5),
-                                offset: None,
-                                cursor: None,
-                                similarity_threshold: None,
-                                include_metadata: None,
-                                include_facets: None,
-                                ranking_boost: None,
-                                explain_score: None,
-                            };
-
-                            let _search_results = repo.search_memories(search_request).await?;
-                        }
+                        let _search_results = repo_clone.search_memories(search_request).await?;
                     }
-
-                    Ok::<Vec<uuid::Uuid>, anyhow::Error>(user_memories)
                 }
-            },
-            user_count,
-        ).await?;
+
+                Ok::<Vec<uuid::Uuid>, anyhow::Error>(user_memories)
+            });
+            handles.push(handle);
+        }
+
+        let mut user_operations = Vec::new();
+        for handle in handles {
+            user_operations.push(handle.await??);
+        }
 
         let concurrent_result = concurrent_meter.finish();
         let total_operations = user_count * operations_per_user;
@@ -268,8 +284,7 @@ async fn test_concurrent_user_simulation() -> Result<()> {
 
         // Verify all users completed their operations
         assert_eq!(user_operations.len(), user_count);
-        for user_result in user_operations {
-            let user_memories = user_result?;
+        for user_memories in &user_operations {
             assert_eq!(user_memories.len(), operations_per_user);
         }
     }

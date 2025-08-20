@@ -302,8 +302,14 @@ async fn test_concurrent_memory_operations() -> Result<()> {
         })
         .collect();
 
-    let created_memories = ConcurrentTester::run_concurrent(creation_ops).await?;
-    assert_eq!(created_memories.len(), 10);
+    let created_memories_results = ConcurrentTester::run_concurrent(creation_ops).await?;
+    assert_eq!(created_memories_results.len(), 10);
+
+    // Unwrap successful results and collect memories
+    let mut created_memories = Vec::new();
+    for result in created_memories_results {
+        created_memories.push(result.map_err(|e| anyhow::anyhow!("{}", e))?);
+    }
 
     // Verify all memories were created with unique IDs
     let mut ids = std::collections::HashSet::new();
@@ -321,8 +327,14 @@ async fn test_concurrent_memory_operations() -> Result<()> {
         })
         .collect();
 
-    let read_results = ConcurrentTester::run_concurrent(read_ops).await?;
-    assert_eq!(read_results.len(), 5);
+    let read_results_raw = ConcurrentTester::run_concurrent(read_ops).await?;
+    assert_eq!(read_results_raw.len(), 5);
+
+    // Unwrap successful results
+    let mut read_results = Vec::new();
+    for result in read_results_raw {
+        read_results.push(result.map_err(|e| anyhow::anyhow!("{}", e))?);
+    }
 
     // All reads should return the same content but may have different access counts
     for result in &read_results {
@@ -360,8 +372,14 @@ async fn test_concurrent_memory_operations() -> Result<()> {
         })
         .collect();
 
-    let search_results = ConcurrentTester::run_concurrent(search_ops).await?;
-    assert_eq!(search_results.len(), 5);
+    let search_results_raw = ConcurrentTester::run_concurrent(search_ops).await?;
+    assert_eq!(search_results_raw.len(), 5);
+
+    // Unwrap successful results
+    let mut search_results = Vec::new();
+    for result in search_results_raw {
+        search_results.push(result.map_err(|e| anyhow::anyhow!("{}", e))?);
+    }
 
     // All searches should return results
     for result in &search_results {
@@ -382,29 +400,40 @@ async fn test_performance_under_load() -> Result<()> {
     let create_meter = PerformanceMeter::new("batch_memory_creation");
     let num_memories = 50;
 
-    let creation_operations = ConcurrentTester::run_parallel(
-        |i| {
-            let repo = Arc::clone(&env.repository);
-            let test_id = env.test_id.clone();
-            async move {
-                let request = CreateMemoryRequest {
-                    content: format!("Performance test memory {} with some additional content to make it realistic", i),
-                    embedding: None,
-                    tier: Some(MemoryTier::Working),
-                    importance_score: Some(0.5 + ((i % 10) as f64) * 0.05),
-                    metadata: Some(serde_json::json!({
-                        "test_id": test_id,
-                        "performance_test": true,
-                        "batch_id": i
-                    })),
-                    parent_id: None,
-                    expires_at: None,
-                };
-                repo.create_memory(request).await
-            }
-        },
-        num_memories,
-    ).await?;
+    // Create handles manually to avoid lifetime issues
+    let mut handles = Vec::new();
+    let repo = Arc::clone(&env.repository);
+    let test_id = env.test_id.clone();
+
+    for i in 0..num_memories {
+        let repo_clone = Arc::clone(&repo);
+        let test_id_clone = test_id.clone();
+        let handle = tokio::spawn(async move {
+            let request = CreateMemoryRequest {
+                content: format!(
+                    "Performance test memory {} with some additional content to make it realistic",
+                    i
+                ),
+                embedding: None,
+                tier: Some(MemoryTier::Working),
+                importance_score: Some(0.5 + ((i % 10) as f64) * 0.05),
+                metadata: Some(serde_json::json!({
+                    "test_id": test_id_clone,
+                    "performance_test": true,
+                    "batch_id": i
+                })),
+                parent_id: None,
+                expires_at: None,
+            };
+            repo_clone.create_memory(request).await
+        });
+        handles.push(handle);
+    }
+
+    let mut creation_operations = Vec::new();
+    for handle in handles {
+        creation_operations.push(handle.await??);
+    }
 
     let create_result = create_meter.finish();
     create_result.assert_under(TokioDuration::from_secs(30)); // Should complete in under 30 seconds

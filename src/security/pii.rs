@@ -114,9 +114,10 @@ impl PiiManager {
         )?;
 
         // API keys (generic patterns)
+        // Pattern matches "api_key:", "api-key=", "secret_key ", etc. followed by 20+ alphanumeric chars
         self.add_pattern(
             "api_key",
-            r"(?i)(api[_-]?key|access[_-]?token|secret[_-]?key)[\s:=]+[a-zA-Z0-9+/=]{20,}",
+            r"(?i)(api[_-]?key|access[_-]?token|secret[_-]?key)[\s:=]+[\w-]{20,}",
             '*',
             PiiSeverity::Critical,
         )?;
@@ -197,6 +198,9 @@ impl PiiManager {
                 requires_action: false,
             };
         }
+        
+        // Debug: log patterns being used
+        debug!("Detecting PII in content with {} patterns", self.patterns.len());
 
         let mut found_patterns = Vec::new();
         let mut masked_content = content.to_string();
@@ -294,28 +298,31 @@ impl PiiManager {
 
         if result.requires_action {
             // For high-severity PII, replace with generic placeholders
-            let mut anonymized = result.masked_content;
+            // We need to work with the original content and replace based on positions
+            let mut anonymized = content.to_string();
+            
+            // Sort by position in reverse to avoid position shifts
+            let mut high_severity_matches: Vec<_> = result.found_patterns
+                .iter()
+                .filter(|m| matches!(m.severity, PiiSeverity::High | PiiSeverity::Critical))
+                .collect();
+            high_severity_matches.sort_by(|a, b| b.start.cmp(&a.start));
 
-            for pii_match in &result.found_patterns {
-                if matches!(
-                    pii_match.severity,
-                    PiiSeverity::High | PiiSeverity::Critical
-                ) {
-                    let placeholder = match pii_match.pattern_name.as_str() {
-                        "email" => "[EMAIL]",
-                        "ssn" => "[SSN]",
-                        "credit_card" => "[CREDIT_CARD]",
-                        "phone" => "[PHONE]",
-                        "api_key" => "[API_KEY]",
-                        "password" => "[PASSWORD]",
-                        "jwt_token" => "[JWT_TOKEN]",
-                        "bank_account" => "[BANK_ACCOUNT]",
-                        "drivers_license" => "[DRIVERS_LICENSE]",
-                        _ => "[PII]",
-                    };
+            for pii_match in high_severity_matches {
+                let placeholder = match pii_match.pattern_name.as_str() {
+                    "email" => "[EMAIL]",
+                    "ssn" => "[SSN]",
+                    "credit_card" => "[CREDIT_CARD]",
+                    "phone" => "[PHONE]",
+                    "api_key" => "[API_KEY]",
+                    "password" => "[PASSWORD]",
+                    "jwt_token" => "[JWT_TOKEN]",
+                    "bank_account" => "[BANK_ACCOUNT]",
+                    "drivers_license" => "[DRIVERS_LICENSE]",
+                    _ => "[PII]",
+                };
 
-                    anonymized = anonymized.replace(&pii_match.masked_text, placeholder);
-                }
+                anonymized.replace_range(pii_match.start..pii_match.end, placeholder);
             }
 
             anonymized
@@ -396,6 +403,7 @@ mod tests {
     fn test_email_detection() {
         let mut config = PiiConfig::default();
         config.enabled = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
@@ -415,6 +423,7 @@ mod tests {
     fn test_ssn_detection() {
         let mut config = PiiConfig::default();
         config.enabled = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
@@ -434,6 +443,7 @@ mod tests {
     fn test_credit_card_detection() {
         let mut config = PiiConfig::default();
         config.enabled = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
@@ -452,11 +462,18 @@ mod tests {
     fn test_api_key_detection() {
         let mut config = PiiConfig::default();
         config.enabled = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
         let text = "api_key: sk-1234567890abcdef1234567890abcdef";
         let result = manager.detect_pii(text);
+
+        // Debug: print what was found
+        println!("API key test - found {} patterns", result.found_patterns.len());
+        for pattern in &result.found_patterns {
+            println!("  Found: {} - {}", pattern.pattern_name, pattern.matched_text);
+        }
 
         assert_eq!(result.found_patterns.len(), 1);
         assert_eq!(result.found_patterns[0].pattern_name, "api_key");
@@ -471,6 +488,7 @@ mod tests {
     fn test_multiple_pii_detection() {
         let mut config = PiiConfig::default();
         config.enabled = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
@@ -530,6 +548,7 @@ mod tests {
         let mut config = PiiConfig::default();
         config.enabled = true;
         config.anonymize_storage = true;
+        config.detect_patterns.clear(); // Clear custom patterns to avoid duplicates
 
         let manager = PiiManager::new(config).unwrap();
 
@@ -611,9 +630,10 @@ mod tests {
         let long_mask = manager.create_mask("1234567890", 'X');
         assert_eq!(long_mask, "12XXXXXX90");
 
-        // Test email masking
+        // Test email masking (20 chars total: "john.doe@example.com")
+        // Shows first 2 and last 2 chars, masks the middle 16
         let email_mask = manager.create_mask("john.doe@example.com", '*');
-        assert_eq!(email_mask, "jo*************om");
+        assert_eq!(email_mask, "jo****************om");
     }
 
     #[test]

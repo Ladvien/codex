@@ -1,6 +1,6 @@
 {
   "id": "codex-memory",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "name": "Codex Memory System",
   "description": "Advanced hierarchical memory system for AI agents with semantic search, auto-tiering, and PostgreSQL/pgvector backend",
   "author": "Ladvien",

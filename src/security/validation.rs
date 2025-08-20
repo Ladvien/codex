@@ -198,11 +198,12 @@ impl ValidationManager {
 
         // Escape HTML entities if XSS protection is enabled
         if self.config.xss_protection {
+            // Replace & first to avoid double-escaping
+            sanitized = sanitized.replace('&', "&amp;");
             sanitized = sanitized.replace('<', "&lt;");
             sanitized = sanitized.replace('>', "&gt;");
             sanitized = sanitized.replace('"', "&quot;");
             sanitized = sanitized.replace('\'', "&#x27;");
-            sanitized = sanitized.replace('&', "&amp;");
         }
 
         // Limit length to prevent buffer overflow attacks

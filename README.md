@@ -15,19 +15,33 @@ An intelligent, tiered memory management system for Claude AI agents, implementi
 
 ## Quick Start
 
-### Prerequisites
+### Claude Desktop Extension (Easiest)
+
+**New!** Install Codex Memory as a Claude Desktop extension for the simplest setup:
+
+1. Download `codex-memory.dxt` from [Releases](https://github.com/Ladvien/codex/releases)
+2. Open Claude Desktop → Settings → Extensions
+3. Click "Install Extension" and select the `.dxt` file
+4. Configure your database URL and embedding provider in the UI
+5. Start using memory commands in Claude!
+
+See [extension/README.md](extension/README.md) for detailed extension documentation.
+
+### Manual Installation
+
+#### Prerequisites
 
 - Rust 1.70+ and Cargo
 - PostgreSQL 15+ with pgvector extension
 - Ollama (for local embeddings) or OpenAI API key
-- macOS (for Claude Desktop/Code integration)
+- macOS/Linux/Windows
 
-### Installation
+#### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/codex-memory.git
-cd codex-memory
+git clone https://github.com/Ladvien/codex.git
+cd codex
 
 # Build the release binary
 cargo build --release

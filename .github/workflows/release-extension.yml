@@ -1,0 +1,200 @@
+name: Release Desktop Extension
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release'
+        required: true
+        default: '0.1.11'
+
+jobs:
+  build-extension:
+    name: Build Extension for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            extension_name: codex-memory-linux-x64.dxt
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            extension_name: codex-memory-macos-x64.dxt
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            extension_name: codex-memory-macos-arm64.dxt
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            extension_name: codex-memory-windows-x64.dxt
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dxt tool
+        run: npm install -g @anthropic-ai/dxt
+
+      - name: Prepare extension directory
+        shell: bash
+        run: |
+          mkdir -p extension/build
+          cp target/${{ matrix.target }}/release/codex-memory* extension/build/ || cp target/${{ matrix.target }}/release/codex-memory.exe extension/build/ || true
+          cp extension/manifest.json extension/build/
+          cp extension/run-codex.sh extension/build/ || true
+          
+          # Create platform-specific wrapper for Windows
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cat > extension/build/run-codex.bat << 'EOF'
+          @echo off
+          REM Wrapper script for Codex Memory MCP Server on Windows
+          
+          REM Set up environment from Claude Desktop config
+          if defined MCP_DATABASE_URL set DATABASE_URL=%MCP_DATABASE_URL%
+          if defined MCP_EMBEDDING_PROVIDER set EMBEDDING_PROVIDER=%MCP_EMBEDDING_PROVIDER%
+          if defined MCP_EMBEDDING_MODEL set EMBEDDING_MODEL=%MCP_EMBEDDING_MODEL%
+          if defined MCP_OPENAI_API_KEY set OPENAI_API_KEY=%MCP_OPENAI_API_KEY%
+          if defined MCP_OLLAMA_BASE_URL (
+              set OLLAMA_BASE_URL=%MCP_OLLAMA_BASE_URL%
+          ) else (
+              set OLLAMA_BASE_URL=http://localhost:11434
+          )
+          if defined MCP_WORKING_TIER_LIMIT set WORKING_TIER_LIMIT=%MCP_WORKING_TIER_LIMIT%
+          if defined MCP_WARM_TIER_LIMIT set WARM_TIER_LIMIT=%MCP_WARM_TIER_LIMIT%
+          if defined MCP_ENABLE_AUTO_TIERING set ENABLE_AUTO_TIERING=%MCP_ENABLE_AUTO_TIERING%
+          if defined MCP_ENABLE_METRICS set ENABLE_METRICS=%MCP_ENABLE_METRICS%
+          if defined MCP_LOG_LEVEL (
+              set RUST_LOG=%MCP_LOG_LEVEL%
+          ) else (
+              set RUST_LOG=info
+          )
+          
+          REM Execute the binary with stdio mode
+          codex-memory.exe mcp-stdio --skip-setup
+          EOF
+            
+            # Update manifest for Windows
+            sed -i 's/"path": ".\/run-codex.sh"/"path": ".\/run-codex.bat"/' extension/build/manifest.json
+          fi
+
+      - name: Create icon
+        shell: bash
+        run: |
+          # Create a simple icon if ImageMagick is available
+          if command -v convert &> /dev/null; then
+            convert -size 128x128 xc:'#4A90E2' -fill white -gravity center \
+                    -pointsize 72 -font Arial -annotate +0+0 'C' extension/build/icon.png
+          else
+            # Create empty icon as placeholder
+            echo "Creating placeholder icon"
+            touch extension/build/icon.png
+          fi
+
+      - name: Package extension
+        working-directory: extension/build
+        run: |
+          dxt pack
+          mv *.dxt ../${{ matrix.extension_name }}
+
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.extension_name }}
+          path: extension/${{ matrix.extension_name }}
+
+  create-release:
+    name: Create Release
+    needs: build-extension
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: extensions
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: extensions/**/*.dxt
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-universal:
+    name: Create Universal Extension
+    needs: build-extension
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: codex-memory-linux-x64.dxt
+          path: extensions
+
+      - name: Install dxt tool
+        run: npm install -g @anthropic-ai/dxt
+
+      - name: Create universal manifest
+        run: |
+          cat > universal-manifest.json << 'EOF'
+          {
+            "id": "codex-memory",
+            "version": "${{ github.event.inputs.version || '0.1.11' }}",
+            "name": "Codex Memory System",
+            "description": "Advanced hierarchical memory system for AI agents",
+            "author": "Ladvien",
+            "homepage": "https://github.com/Ladvien/codex",
+            "license": "GPL-3.0",
+            "platforms": {
+              "darwin-x64": "./codex-memory-macos-x64.dxt",
+              "darwin-arm64": "./codex-memory-macos-arm64.dxt",
+              "linux-x64": "./codex-memory-linux-x64.dxt",
+              "win32-x64": "./codex-memory-windows-x64.dxt"
+            }
+          }
+          EOF
+
+      - name: Upload universal manifest
+        uses: actions/upload-artifact@v3
+        with:
+          name: universal-manifest
+          path: universal-manifest.json

@@ -1,0 +1,217 @@
+{
+  "id": "codex-memory",
+  "version": "0.1.11",
+  "name": "Codex Memory System",
+  "description": "Advanced hierarchical memory system for AI agents with semantic search, auto-tiering, and PostgreSQL/pgvector backend",
+  "author": "Ladvien",
+  "homepage": "https://github.com/Ladvien/codex",
+  "license": "GPL-3.0",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "binary": {
+      "path": "./run-codex.sh",
+      "args": [],
+      "env": {}
+    }
+  },
+  "user_config": {
+    "database_url": {
+      "type": "string",
+      "title": "Database URL",
+      "description": "PostgreSQL connection string (e.g., postgresql://user:password@localhost/codex)",
+      "sensitive": true,
+      "required": true,
+      "default": "postgresql://localhost/codex"
+    },
+    "embedding_provider": {
+      "type": "string",
+      "title": "Embedding Provider",
+      "description": "Choose between 'ollama' (local) or 'openai' (cloud)",
+      "required": true,
+      "default": "ollama",
+      "enum": ["ollama", "openai"]
+    },
+    "embedding_model": {
+      "type": "string",
+      "title": "Embedding Model",
+      "description": "Model to use for embeddings (e.g., nomic-embed-text for Ollama, text-embedding-ada-002 for OpenAI)",
+      "required": true,
+      "default": "nomic-embed-text"
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API Key",
+      "description": "Required only if using OpenAI as embedding provider",
+      "sensitive": true,
+      "required": false,
+      "depends_on": {
+        "embedding_provider": "openai"
+      }
+    },
+    "ollama_base_url": {
+      "type": "string",
+      "title": "Ollama Base URL",
+      "description": "URL for local Ollama instance",
+      "required": false,
+      "default": "http://localhost:11434",
+      "depends_on": {
+        "embedding_provider": "ollama"
+      }
+    },
+    "working_tier_limit": {
+      "type": "number",
+      "title": "Working Memory Limit",
+      "description": "Maximum number of memories in working tier (hot cache)",
+      "required": false,
+      "default": 1000,
+      "min": 100,
+      "max": 10000
+    },
+    "warm_tier_limit": {
+      "type": "number",
+      "title": "Warm Memory Limit",
+      "description": "Maximum number of memories in warm tier",
+      "required": false,
+      "default": 10000,
+      "min": 1000,
+      "max": 100000
+    },
+    "enable_auto_tiering": {
+      "type": "boolean",
+      "title": "Enable Auto-Tiering",
+      "description": "Automatically move memories between tiers based on access patterns",
+      "required": false,
+      "default": true
+    },
+    "enable_metrics": {
+      "type": "boolean",
+      "title": "Enable Metrics",
+      "description": "Enable Prometheus metrics endpoint for monitoring",
+      "required": false,
+      "default": false
+    },
+    "log_level": {
+      "type": "string",
+      "title": "Log Level",
+      "description": "Logging verbosity",
+      "required": false,
+      "default": "info",
+      "enum": ["error", "warn", "info", "debug", "trace"]
+    }
+  },
+  "capabilities": {
+    "tools": [
+      {
+        "name": "store_memory",
+        "description": "Store a new memory with automatic embedding generation",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "The content to remember"
+            },
+            "importance": {
+              "type": "number",
+              "description": "Importance score (0-1)",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional metadata"
+            }
+          },
+          "required": ["content"]
+        }
+      },
+      {
+        "name": "search_memory",
+        "description": "Search memories using semantic similarity",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Maximum results to return",
+              "default": 10
+            },
+            "threshold": {
+              "type": "number",
+              "description": "Similarity threshold (0-1)",
+              "default": 0.7
+            }
+          },
+          "required": ["query"]
+        }
+      },
+      {
+        "name": "get_memory",
+        "description": "Retrieve a specific memory by ID",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Memory UUID"
+            }
+          },
+          "required": ["id"]
+        }
+      },
+      {
+        "name": "update_memory",
+        "description": "Update an existing memory",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Memory UUID"
+            },
+            "content": {
+              "type": "string",
+              "description": "New content"
+            },
+            "importance": {
+              "type": "number",
+              "description": "New importance score"
+            }
+          },
+          "required": ["id"]
+        }
+      },
+      {
+        "name": "delete_memory",
+        "description": "Delete a memory",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Memory UUID"
+            }
+          },
+          "required": ["id"]
+        }
+      },
+      {
+        "name": "get_statistics",
+        "description": "Get memory system statistics",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    ]
+  },
+  "requirements": {
+    "claude_desktop": ">=1.0.0",
+    "operating_systems": ["darwin", "linux", "windows"]
+  }
+}

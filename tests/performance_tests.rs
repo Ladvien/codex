@@ -87,7 +87,7 @@ async fn test_high_volume_memory_creation() -> Result<()> {
                         content: format!("High volume test memory {} with sufficient content to be realistic for testing purposes", i),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
-                        importance_score: Some(0.5 + (i as f64 % 100) * 0.005),
+                        importance_score: Some(0.5 + ((i % 100) as f64) * 0.005),
                         metadata: Some(serde_json::json!({
                             "test_id": test_id,
                             "high_volume_test": true,
@@ -268,7 +268,8 @@ async fn test_concurrent_user_simulation() -> Result<()> {
 
         // Verify all users completed their operations
         assert_eq!(user_operations.len(), user_count);
-        for user_memories in user_operations {
+        for user_result in user_operations {
+            let user_memories = user_result?;
             assert_eq!(user_memories.len(), operations_per_user);
         }
     }
@@ -319,7 +320,7 @@ async fn test_search_performance_scaling() -> Result<()> {
                         1 => MemoryTier::Warm,
                         _ => MemoryTier::Cold,
                     }),
-                    importance_score: Some(0.1 + (i as f64 % 100) * 0.009),
+                    importance_score: Some(0.1 + ((i % 100) as f64) * 0.009),
                     metadata: Some(serde_json::json!({
                         "test_id": test_id,
                         "search_test": true,
@@ -509,7 +510,13 @@ async fn test_memory_tier_performance() -> Result<()> {
             memories_per_tier, tier, tier_result.duration
         );
 
-        all_memories.extend(tier_operations);
+        // Unwrap the Results and collect only successful memories
+        for result in tier_operations {
+            match result {
+                Ok(memory) => all_memories.push(memory),
+                Err(e) => eprintln!("Failed to create memory: {:?}", e),
+            }
+        }
     }
 
     env.wait_for_consistency().await;

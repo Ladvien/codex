@@ -6,7 +6,7 @@
 //! - Test data generation and cleanup
 //! - Performance and load testing utilities
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use codex_memory::{
     memory::{
         connection::create_pool,
@@ -236,7 +236,7 @@ impl TestEnvironment {
         &self,
         content: &str,
         tier: MemoryTier,
-        importance: f32,
+        importance: f64,
     ) -> Result<codex_memory::Memory> {
         let request = CreateMemoryRequest {
             content: content.to_string(),
@@ -340,8 +340,8 @@ impl TestEnvironment {
             working_count: row.get::<i64, _>("working_count") as usize,
             warm_count: row.get::<i64, _>("warm_count") as usize,
             cold_count: row.get::<i64, _>("cold_count") as usize,
-            avg_importance: row.get::<Option<f64>, _>("avg_importance").unwrap_or(0.0) as f64,
-            avg_access_count: row.get::<Option<f64>, _>("avg_access_count").unwrap_or(0.0) as f64,
+            avg_importance: row.get::<Option<f64>, _>("avg_importance").unwrap_or(0.0),
+            avg_access_count: row.get::<Option<f64>, _>("avg_access_count").unwrap_or(0.0),
         })
     }
 }
@@ -353,8 +353,8 @@ pub struct TestStatistics {
     pub working_count: usize,
     pub warm_count: usize,
     pub cold_count: usize,
-    pub avg_importance: f32,
-    pub avg_access_count: f32,
+    pub avg_importance: f64,
+    pub avg_access_count: f64,
 }
 
 // Note: MockEmbedder functionality is now built into SimpleEmbedder with the Mock provider

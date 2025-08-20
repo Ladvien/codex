@@ -278,7 +278,7 @@ async fn test_claude_desktop_integration() -> Result<()> {
             content: content.to_string(),
             embedding: None,
             tier: Some(MemoryTier::Working),
-            importance_score: Some(0.7 + (i as f32 * 0.05)), // Increasing importance
+            importance_score: Some(0.7 + (i as f64 * 0.05)), // Increasing importance
             metadata: Some(json!({
                 "application": "claude_desktop",
                 "conversation_id": "conv_123",

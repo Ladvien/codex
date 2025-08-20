@@ -265,7 +265,7 @@ async fn test_memory_persistence_across_sessions() -> Result<()> {
             content: format!("Persistent memory {i}"),
             embedding: None,
             tier: Some(MemoryTier::Working),
-            importance_score: Some(0.5 + (i as f32 * 0.1)),
+            importance_score: Some(0.5 + (i as f64 * 0.1)),
             metadata: Some(json!({"session": 1, "index": i})),
             parent_id: None,
             expires_at: None,
@@ -282,7 +282,7 @@ async fn test_memory_persistence_across_sessions() -> Result<()> {
     for (i, id) in memory_ids.iter().enumerate() {
         let memory = env.repository.get_memory(*id).await?;
         assert_eq!(memory.content, format!("Persistent memory {i}"));
-        assert_eq!(memory.importance_score, 0.5 + (i as f32 * 0.1));
+        assert_eq!(memory.importance_score, 0.5 + (i as f64 * 0.1));
     }
 
     Ok(())
@@ -507,7 +507,7 @@ async fn test_concurrent_user_load() -> Result<()> {
                     content: format!("User {user_id} - Operation {op_id} content"),
                     embedding: None,
                     tier: Some(MemoryTier::Working),
-                    importance_score: Some(0.5 + (op_id as f32 * 0.1)),
+                    importance_score: Some(0.5 + (op_id as f64 * 0.1)),
                     metadata: Some(json!({"user_id": user_id, "operation_id": op_id})),
                     parent_id: None,
                     expires_at: None,

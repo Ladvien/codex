@@ -193,7 +193,7 @@ async fn test_concurrent_memory_operations() -> Result<()> {
                 content: format!("Concurrent memory {}", i),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
-                importance_score: Some(0.5 + (i as f32 * 0.05)),
+                importance_score: Some(0.5 + (i as f64 * 0.05)),
                 metadata: Some(serde_json::json!({
                     "test_id": test_id_clone,
                     "concurrent_test": true,
@@ -252,7 +252,7 @@ async fn test_performance_under_load() -> Result<()> {
                 ),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
-                importance_score: Some(0.5 + ((i % 10) as f32) * 0.05),
+                importance_score: Some(0.5 + ((i % 10) as f64) * 0.05),
                 metadata: Some(serde_json::json!({
                     "test_id": test_id_clone,
                     "performance_test": true,

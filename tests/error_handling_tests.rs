@@ -293,7 +293,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
                     content: Some(format!("Updated by worker {} at concurrent test", i)),
                     embedding: None,
                     tier: None,
-                    importance_score: Some(0.5 + (i as f32 * 0.05)),
+                    importance_score: Some(0.5 + (i as f64 * 0.05)),
                     metadata: Some(serde_json::json!({
                         "test_id": test_id,
                         "updated_by_worker": i,

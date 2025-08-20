@@ -269,7 +269,7 @@ impl TestEnvironment {
                 1 => MemoryTier::Warm,
                 _ => MemoryTier::Cold,
             };
-            let importance = 0.1 + (i as f32 * 0.1) % 1.0;
+            let importance = 0.1 + ((i as f64 * 0.1) % 1.0);
 
             let memory = self.create_test_memory(&content, tier, importance).await?;
             memories.push(memory);
@@ -340,8 +340,8 @@ impl TestEnvironment {
             working_count: row.get::<i64, _>("working_count") as usize,
             warm_count: row.get::<i64, _>("warm_count") as usize,
             cold_count: row.get::<i64, _>("cold_count") as usize,
-            avg_importance: row.get::<Option<f64>, _>("avg_importance").unwrap_or(0.0) as f32,
-            avg_access_count: row.get::<Option<f64>, _>("avg_access_count").unwrap_or(0.0) as f32,
+            avg_importance: row.get::<Option<f64>, _>("avg_importance").unwrap_or(0.0) as f64,
+            avg_access_count: row.get::<Option<f64>, _>("avg_access_count").unwrap_or(0.0) as f64,
         })
     }
 }

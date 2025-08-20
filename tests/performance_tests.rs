@@ -87,7 +87,7 @@ async fn test_high_volume_memory_creation() -> Result<()> {
                         content: format!("High volume test memory {} with sufficient content to be realistic for testing purposes", i),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
-                        importance_score: Some(0.5 + (i as f32 % 100) * 0.005),
+                        importance_score: Some(0.5 + (i as f64 % 100) * 0.005),
                         metadata: Some(serde_json::json!({
                             "test_id": test_id,
                             "high_volume_test": true,
@@ -179,7 +179,7 @@ async fn test_concurrent_user_simulation() -> Result<()> {
                             content: format!("User {} operation {} - content with realistic length for testing concurrent access patterns", user_id, op_id),
                             embedding: None,
                             tier: Some(MemoryTier::Working),
-                            importance_score: Some(0.5 + (op_id as f32 * 0.05)),
+                            importance_score: Some(0.5 + (op_id as f64 * 0.05)),
                             metadata: Some(serde_json::json!({
                                 "test_id": test_id,
                                 "user_id": user_id,
@@ -319,7 +319,7 @@ async fn test_search_performance_scaling() -> Result<()> {
                         1 => MemoryTier::Warm,
                         _ => MemoryTier::Cold,
                     }),
-                    importance_score: Some(0.1 + (i as f32 % 100) * 0.009),
+                    importance_score: Some(0.1 + (i as f64 % 100) * 0.009),
                     metadata: Some(serde_json::json!({
                         "test_id": test_id,
                         "search_test": true,
@@ -483,9 +483,9 @@ async fn test_memory_tier_performance() -> Result<()> {
                         embedding: None,
                         tier: Some(tier),
                         importance_score: Some(match tier {
-                            MemoryTier::Working => 0.8 + (i as f32 * 0.002),
-                            MemoryTier::Warm => 0.5 + (i as f32 * 0.003),
-                            MemoryTier::Cold => 0.2 + (i as f32 * 0.001),
+                            MemoryTier::Working => 0.8 + (i as f64 * 0.002),
+                            MemoryTier::Warm => 0.5 + (i as f64 * 0.003),
+                            MemoryTier::Cold => 0.2 + (i as f64 * 0.001),
                         }),
                         metadata: Some(serde_json::json!({
                             "test_id": test_id,

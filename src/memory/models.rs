@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use sqlx::postgres::types::PgInterval;
 use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -36,6 +37,7 @@ pub enum MemoryTier {
     Working,
     Warm,
     Cold,
+    Frozen,
 }
 
 impl FromStr for MemoryTier {
@@ -46,6 +48,7 @@ impl FromStr for MemoryTier {
             "working" => Ok(MemoryTier::Working),
             "warm" => Ok(MemoryTier::Warm),
             "cold" => Ok(MemoryTier::Cold),
+            "frozen" => Ok(MemoryTier::Frozen),
             _ => Err(format!("Invalid memory tier: {s}")),
         }
     }
@@ -76,6 +79,11 @@ pub struct Memory {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
+    // Consolidation fields for memory decay and strengthening
+    pub consolidation_strength: f64,
+    pub decay_rate: f64,
+    pub recall_probability: Option<f64>,
+    pub last_recall_interval: Option<PgInterval>,
 }
 
 impl Serialize for Memory {
@@ -84,7 +92,7 @@ impl Serialize for Memory {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Memory", 15)?;
+        let mut state = serializer.serialize_struct("Memory", 19)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("content", &self.content)?;
         state.serialize_field("content_hash", &self.content_hash)?;
@@ -99,6 +107,10 @@ impl Serialize for Memory {
         state.serialize_field("created_at", &self.created_at)?;
         state.serialize_field("updated_at", &self.updated_at)?;
         state.serialize_field("expires_at", &self.expires_at)?;
+        state.serialize_field("consolidation_strength", &self.consolidation_strength)?;
+        state.serialize_field("decay_rate", &self.decay_rate)?;
+        state.serialize_field("recall_probability", &self.recall_probability)?;
+        state.serialize_field("last_recall_interval", &self.last_recall_interval.as_ref().map(|i| i.microseconds))?;
         state.end()
     }
 }
@@ -373,6 +385,10 @@ impl Default for Memory {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             expires_at: None,
+            consolidation_strength: 1.0,
+            decay_rate: 1.0,
+            recall_probability: None,
+            last_recall_interval: None,
         }
     }
 }
@@ -388,8 +404,9 @@ impl Memory {
     pub fn should_migrate(&self) -> bool {
         match self.tier {
             MemoryTier::Working => {
-                // Migrate if importance is low and hasn't been accessed recently
-                self.importance_score < 0.3
+                // Migrate if recall probability drops below threshold
+                self.recall_probability.map_or(false, |p| p < 0.7)
+                    || self.importance_score < 0.3
                     || (self.last_accessed_at.is_some()
                         && Utc::now()
                             .signed_duration_since(self.last_accessed_at.unwrap())
@@ -397,11 +414,16 @@ impl Memory {
                             > 24)
             }
             MemoryTier::Warm => {
-                // Migrate to cold if very low importance and old
-                self.importance_score < 0.1
-                    && Utc::now().signed_duration_since(self.updated_at).num_days() > 7
+                // Migrate to cold if recall probability < 0.5
+                self.recall_probability.map_or(false, |p| p < 0.5)
+                    || (self.importance_score < 0.1
+                        && Utc::now().signed_duration_since(self.updated_at).num_days() > 7)
             }
-            MemoryTier::Cold => false,
+            MemoryTier::Cold => {
+                // Migrate to frozen if recall probability < 0.2
+                self.recall_probability.map_or(false, |p| p < 0.2)
+            }
+            MemoryTier::Frozen => false,
         }
     }
 
@@ -409,7 +431,195 @@ impl Memory {
         match self.tier {
             MemoryTier::Working => Some(MemoryTier::Warm),
             MemoryTier::Warm => Some(MemoryTier::Cold),
-            MemoryTier::Cold => None,
+            MemoryTier::Cold => Some(MemoryTier::Frozen),
+            MemoryTier::Frozen => None,
         }
     }
+
+    /// Calculate recall probability using forgetting curve mathematics
+    /// Based on: p(t) = [1 - exp(-r*e^(-t/gn))] / (1 - e^-1)
+    pub fn calculate_recall_probability(&self) -> Option<f64> {
+        let last_access = self.last_accessed_at?;
+        let time_hours = (Utc::now() - last_access).num_seconds() as f64 / 3600.0;
+        
+        if self.consolidation_strength <= 0.0 || self.decay_rate <= 0.0 {
+            return Some(0.0);
+        }
+        
+        let t_normalized = time_hours / self.consolidation_strength.max(0.1);
+        let exponent = -self.decay_rate * (-t_normalized).exp();
+        let probability = (1.0 - exponent.exp()) / (1.0 - (-1.0_f64).exp());
+        
+        Some(probability.max(0.0).min(1.0))
+    }
+
+    /// Update consolidation strength based on recall interval
+    /// Based on: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
+    pub fn update_consolidation_strength(&mut self, recall_interval: PgInterval) {
+        let time_hours = recall_interval.microseconds as f64 / 3600_000_000.0; // Convert microseconds to hours
+        let strength_increment = (1.0 - (-time_hours).exp()) / (1.0 + (-time_hours).exp());
+        self.consolidation_strength = (self.consolidation_strength + strength_increment).min(10.0);
+    }
+}
+
+// New model structs for consolidation features
+
+#[derive(Debug, Clone, FromRow)]
+pub struct MemoryConsolidationLog {
+    pub id: Uuid,
+    pub memory_id: Uuid,
+    pub event_type: String,
+    pub previous_consolidation_strength: f64,
+    pub new_consolidation_strength: f64,
+    pub previous_recall_probability: Option<f64>,
+    pub new_recall_probability: Option<f64>,
+    pub recall_interval: Option<PgInterval>,
+    pub access_context: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+impl Serialize for MemoryConsolidationLog {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("MemoryConsolidationLog", 10)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("memory_id", &self.memory_id)?;
+        state.serialize_field("event_type", &self.event_type)?;
+        state.serialize_field("previous_consolidation_strength", &self.previous_consolidation_strength)?;
+        state.serialize_field("new_consolidation_strength", &self.new_consolidation_strength)?;
+        state.serialize_field("previous_recall_probability", &self.previous_recall_probability)?;
+        state.serialize_field("new_recall_probability", &self.new_recall_probability)?;
+        state.serialize_field("recall_interval_microseconds", &self.recall_interval.as_ref().map(|i| i.microseconds))?;
+        state.serialize_field("access_context", &self.access_context)?;
+        state.serialize_field("created_at", &self.created_at)?;
+        state.end()
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct FrozenMemory {
+    pub id: Uuid,
+    pub original_memory_id: Uuid,
+    pub compressed_content: Vec<u8>,
+    pub compressed_metadata: Option<Vec<u8>>,
+    pub embedding_summary: Option<Vector>,
+    pub original_tier: MemoryTier,
+    pub frozen_at: DateTime<Utc>,
+    pub last_access_before_freeze: Option<DateTime<Utc>>,
+    pub access_count_before_freeze: i32,
+    pub final_consolidation_strength: f64,
+    pub final_recall_probability: Option<f64>,
+    pub compression_ratio: Option<f64>,
+    pub retrieval_difficulty_seconds: i32,
+    pub freeze_reason: Option<String>,
+    pub parent_relationships: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+impl Serialize for FrozenMemory {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("FrozenMemory", 16)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("original_memory_id", &self.original_memory_id)?;
+        state.serialize_field("compressed_content_size", &self.compressed_content.len())?;
+        state.serialize_field("has_compressed_metadata", &self.compressed_metadata.is_some())?;
+        state.serialize_field("embedding_summary", &self.embedding_summary.as_ref().map(|v| v.as_slice()))?;
+        state.serialize_field("original_tier", &self.original_tier)?;
+        state.serialize_field("frozen_at", &self.frozen_at)?;
+        state.serialize_field("last_access_before_freeze", &self.last_access_before_freeze)?;
+        state.serialize_field("access_count_before_freeze", &self.access_count_before_freeze)?;
+        state.serialize_field("final_consolidation_strength", &self.final_consolidation_strength)?;
+        state.serialize_field("final_recall_probability", &self.final_recall_probability)?;
+        state.serialize_field("compression_ratio", &self.compression_ratio)?;
+        state.serialize_field("retrieval_difficulty_seconds", &self.retrieval_difficulty_seconds)?;
+        state.serialize_field("freeze_reason", &self.freeze_reason)?;
+        state.serialize_field("parent_relationships", &self.parent_relationships)?;
+        state.serialize_field("created_at", &self.created_at)?;
+        state.end()
+    }
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MemoryTierStatistics {
+    pub id: Uuid,
+    pub tier: MemoryTier,
+    pub total_memories: i64,
+    pub average_consolidation_strength: Option<f64>,
+    pub average_recall_probability: Option<f64>,
+    pub average_age_days: Option<f64>,
+    pub total_storage_bytes: i64,
+    pub snapshot_timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ConsolidationAnalytics {
+    pub tier: MemoryTier,
+    pub total_memories: i64,
+    pub avg_consolidation_strength: Option<f64>,
+    pub avg_recall_probability: Option<f64>,
+    pub avg_decay_rate: Option<f64>,
+    pub avg_age_days: Option<f64>,
+    pub migration_candidates: i64,
+    pub never_accessed: i64,
+    pub accessed_recently: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ConsolidationEventSummary {
+    pub event_type: String,
+    pub event_count: i64,
+    pub avg_strength_change: Option<f64>,
+    pub avg_probability_change: Option<f64>,
+    pub avg_recall_interval_hours: Option<f64>,
+}
+
+// Request/Response structures for freezing operations
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FreezeMemoryRequest {
+    pub memory_id: Uuid,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FreezeMemoryResponse {
+    pub frozen_id: Uuid,
+    pub compression_ratio: Option<f64>,
+    pub original_tier: MemoryTier,
+    pub frozen_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnfreezeMemoryRequest {
+    pub frozen_id: Uuid,
+    pub target_tier: Option<MemoryTier>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnfreezeMemoryResponse {
+    pub memory_id: Uuid,
+    pub retrieval_delay_seconds: i32,
+    pub restoration_tier: MemoryTier,
+    pub unfrozen_at: DateTime<Utc>,
+}
+
+// Consolidation-specific search requests
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsolidationSearchRequest {
+    pub min_consolidation_strength: Option<f64>,
+    pub max_consolidation_strength: Option<f64>,
+    pub min_recall_probability: Option<f64>,
+    pub max_recall_probability: Option<f64>,
+    pub include_frozen: Option<bool>,
+    pub tier: Option<MemoryTier>,
+    pub limit: Option<i32>,
+    pub offset: Option<i64>,
 }

@@ -3,6 +3,7 @@ use super::models::*;
 use chrono::Utc;
 use pgvector::Vector;
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::postgres::types::PgInterval;
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, info};
@@ -52,9 +53,10 @@ impl MemoryRepository {
             r#"
             INSERT INTO memories (
                 id, content, content_hash, embedding, tier, status, 
-                importance_score, metadata, parent_id, expires_at
+                importance_score, metadata, parent_id, expires_at,
+                consolidation_strength, decay_rate
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             "#,
         )
@@ -68,6 +70,8 @@ impl MemoryRepository {
         .bind(request.metadata.unwrap_or(serde_json::json!({})))
         .bind(request.parent_id)
         .bind(request.expires_at)
+        .bind(1.0_f64) // Default consolidation_strength
+        .bind(1.0_f64) // Default decay_rate
         .fetch_one(&self.pool)
         .await?;
 
@@ -430,6 +434,10 @@ impl MemoryRepository {
                 created_at: row.try_get("created_at")?,
                 updated_at: row.try_get("updated_at")?,
                 expires_at: row.try_get("expires_at")?,
+                consolidation_strength: row.try_get("consolidation_strength").unwrap_or(1.0),
+                decay_rate: row.try_get("decay_rate").unwrap_or(1.0),
+                recall_probability: row.try_get("recall_probability")?,
+                last_recall_interval: row.try_get("last_recall_interval")?,
             };
 
             let similarity_score: f32 = row.try_get("similarity_score").unwrap_or(0.0);
@@ -742,6 +750,9 @@ impl MemoryRepository {
             MemoryTier::Cold => {
                 return Ok(Vec::new());
             }
+            MemoryTier::Frozen => {
+                return Ok(Vec::new()); // Frozen memories don't migrate further
+            }
         };
 
         let memories = sqlx::query_as::<_, Memory>(query)
@@ -771,6 +782,365 @@ impl MemoryRepository {
         .await?;
 
         Ok(stats)
+    }
+
+    // Consolidation and freezing methods
+
+    /// Get consolidation analytics for all tiers
+    pub async fn get_consolidation_analytics(&self) -> Result<Vec<ConsolidationAnalytics>> {
+        let analytics = sqlx::query_as::<_, ConsolidationAnalytics>(
+            r#"
+            SELECT 
+                tier,
+                COUNT(*) as total_memories,
+                AVG(consolidation_strength) as avg_consolidation_strength,
+                AVG(recall_probability) as avg_recall_probability,
+                AVG(decay_rate) as avg_decay_rate,
+                AVG(EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400) as avg_age_days,
+                COUNT(*) FILTER (WHERE recall_probability < 0.3) as migration_candidates,
+                COUNT(*) FILTER (WHERE last_accessed_at IS NULL) as never_accessed,
+                COUNT(*) FILTER (WHERE last_accessed_at > NOW() - INTERVAL '24 hours') as accessed_recently
+            FROM memories 
+            WHERE status = 'active' 
+            GROUP BY tier
+            ORDER BY 
+                CASE tier 
+                    WHEN 'working' THEN 1 
+                    WHEN 'warm' THEN 2 
+                    WHEN 'cold' THEN 3 
+                    WHEN 'frozen' THEN 4 
+                END
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(analytics)
+    }
+
+    /// Get consolidation event summary for the last week
+    pub async fn get_consolidation_events(&self) -> Result<Vec<ConsolidationEventSummary>> {
+        let events = sqlx::query_as::<_, ConsolidationEventSummary>(
+            r#"
+            SELECT 
+                event_type,
+                COUNT(*) as event_count,
+                AVG(new_consolidation_strength - previous_consolidation_strength) as avg_strength_change,
+                AVG(COALESCE(new_recall_probability, 0) - COALESCE(previous_recall_probability, 0)) as avg_probability_change,
+                AVG(EXTRACT(EPOCH FROM recall_interval) / 3600) as avg_recall_interval_hours
+            FROM memory_consolidation_log 
+            WHERE created_at > NOW() - INTERVAL '7 days'
+            GROUP BY event_type
+            ORDER BY event_count DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(events)
+    }
+
+    /// Find memories ready for tier migration based on recall probability
+    pub async fn find_migration_candidates(&self, tier: MemoryTier, limit: i32) -> Result<Vec<Memory>> {
+        let threshold = match tier {
+            MemoryTier::Working => 0.7,
+            MemoryTier::Warm => 0.5,
+            MemoryTier::Cold => 0.2,
+            MemoryTier::Frozen => 0.0, // Frozen memories don't migrate
+        };
+
+        let memories = sqlx::query_as::<_, Memory>(
+            r#"
+            SELECT * FROM memories 
+            WHERE tier = $1 
+            AND status = 'active'
+            AND (recall_probability < $2 OR recall_probability IS NULL)
+            ORDER BY recall_probability ASC NULLS LAST, consolidation_strength ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(tier)
+        .bind(threshold)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(memories)
+    }
+
+    /// Update memory consolidation parameters
+    pub async fn update_consolidation(&self, memory_id: Uuid, consolidation_strength: f64, decay_rate: f64, recall_probability: Option<f64>) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE memories 
+            SET consolidation_strength = $2, 
+                decay_rate = $3, 
+                recall_probability = $4,
+                updated_at = NOW()
+            WHERE id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(memory_id)
+        .bind(consolidation_strength)
+        .bind(decay_rate)
+        .bind(recall_probability)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Log a consolidation event
+    pub async fn log_consolidation_event(
+        &self,
+        memory_id: Uuid,
+        event_type: &str,
+        previous_strength: f64,
+        new_strength: f64,
+        previous_probability: Option<f64>,
+        new_probability: Option<f64>,
+        recall_interval: Option<PgInterval>,
+        context: serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO memory_consolidation_log (
+                memory_id, event_type, previous_consolidation_strength, 
+                new_consolidation_strength, previous_recall_probability,
+                new_recall_probability, recall_interval, access_context
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "#,
+        )
+        .bind(memory_id)
+        .bind(event_type)
+        .bind(previous_strength)
+        .bind(new_strength)
+        .bind(previous_probability)
+        .bind(new_probability)
+        .bind(recall_interval)
+        .bind(context)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Freeze a memory by moving it to compressed storage
+    pub async fn freeze_memory(&self, memory_id: Uuid, _reason: Option<String>) -> Result<FreezeMemoryResponse> {
+        let mut tx = self.pool.begin().await?;
+
+        // Call the database function to freeze the memory
+        let frozen_row = sqlx::query(
+            "SELECT freeze_memory($1) as frozen_id"
+        )
+        .bind(memory_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let frozen_id: Uuid = frozen_row.get("frozen_id");
+
+        // Get the frozen memory details for the response
+        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
+            "SELECT * FROM frozen_memories WHERE id = $1"
+        )
+        .bind(frozen_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(FreezeMemoryResponse {
+            frozen_id,
+            compression_ratio: frozen_memory.compression_ratio,
+            original_tier: frozen_memory.original_tier,
+            frozen_at: frozen_memory.frozen_at,
+        })
+    }
+
+    /// Unfreeze a memory and restore it to active status
+    pub async fn unfreeze_memory(&self, frozen_id: Uuid, target_tier: Option<MemoryTier>) -> Result<UnfreezeMemoryResponse> {
+        let mut tx = self.pool.begin().await?;
+
+        // Get the frozen memory details first
+        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
+            "SELECT * FROM frozen_memories WHERE id = $1"
+        )
+        .bind(frozen_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        // Call the database function to unfreeze the memory
+        let memory_row = sqlx::query(
+            "SELECT unfreeze_memory($1) as memory_id"
+        )
+        .bind(frozen_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let memory_id: Uuid = memory_row.get("memory_id");
+
+        // If a target tier was specified, update it
+        let restoration_tier = if let Some(tier) = target_tier {
+            sqlx::query(
+                "UPDATE memories SET tier = $1 WHERE id = $2"
+            )
+            .bind(tier)
+            .bind(memory_id)
+            .execute(&mut *tx)
+            .await?;
+            tier
+        } else {
+            MemoryTier::Working // Default restoration tier
+        };
+
+        tx.commit().await?;
+
+        Ok(UnfreezeMemoryResponse {
+            memory_id,
+            retrieval_delay_seconds: frozen_memory.retrieval_difficulty_seconds,
+            restoration_tier,
+            unfrozen_at: Utc::now(),
+        })
+    }
+
+    /// Get all frozen memories with pagination
+    pub async fn get_frozen_memories(&self, limit: i32, offset: i64) -> Result<Vec<FrozenMemory>> {
+        let frozen_memories = sqlx::query_as::<_, FrozenMemory>(
+            r#"
+            SELECT * FROM frozen_memories 
+            ORDER BY frozen_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(frozen_memories)
+    }
+
+    /// Search frozen memories by content or metadata
+    pub async fn search_frozen_memories(&self, query: &str, limit: i32) -> Result<Vec<FrozenMemory>> {
+        let frozen_memories = sqlx::query_as::<_, FrozenMemory>(
+            r#"
+            SELECT * FROM frozen_memories 
+            WHERE 
+                convert_from(compressed_content, 'UTF8') ILIKE $1
+                OR freeze_reason ILIKE $1
+            ORDER BY frozen_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(format!("%{query}%"))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(frozen_memories)
+    }
+
+    /// Get tier statistics for monitoring
+    pub async fn get_tier_statistics(&self) -> Result<Vec<MemoryTierStatistics>> {
+        let stats = sqlx::query_as::<_, MemoryTierStatistics>(
+            r#"
+            SELECT * FROM memory_tier_statistics 
+            WHERE snapshot_timestamp > NOW() - INTERVAL '24 hours'
+            ORDER BY snapshot_timestamp DESC, tier
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(stats)
+    }
+
+    /// Update tier statistics (typically called by a background job)
+    pub async fn update_tier_statistics(&self) -> Result<()> {
+        sqlx::query("SELECT update_tier_statistics()")
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Search memories with consolidation criteria
+    pub async fn search_by_consolidation(&self, request: ConsolidationSearchRequest) -> Result<Vec<Memory>> {
+        let mut conditions = Vec::new();
+        let mut bind_index = 1;
+
+        // Build dynamic WHERE clause
+        if request.min_consolidation_strength.is_some() {
+            conditions.push(format!("consolidation_strength >= ${bind_index}"));
+            bind_index += 1;
+        }
+        if request.max_consolidation_strength.is_some() {
+            conditions.push(format!("consolidation_strength <= ${bind_index}"));
+            bind_index += 1;
+        }
+        if request.min_recall_probability.is_some() {
+            conditions.push(format!("recall_probability >= ${bind_index}"));
+            bind_index += 1;
+        }
+        if request.max_recall_probability.is_some() {
+            conditions.push(format!("recall_probability <= ${bind_index}"));
+            bind_index += 1;
+        }
+        if request.tier.is_some() {
+            conditions.push(format!("tier = ${bind_index}"));
+            bind_index += 1;
+        }
+
+        if !request.include_frozen.unwrap_or(false) {
+            conditions.push("tier != 'frozen'".to_string());
+        }
+
+        conditions.push("status = 'active'".to_string());
+
+        let where_clause = if conditions.is_empty() {
+            "WHERE status = 'active'".to_string()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let query = format!(
+            r#"
+            SELECT * FROM memories 
+            {} 
+            ORDER BY consolidation_strength DESC, recall_probability DESC NULLS LAST
+            LIMIT ${} OFFSET ${}
+            "#,
+            where_clause,
+            bind_index,
+            bind_index + 1
+        );
+
+        let mut query_builder = sqlx::query_as::<_, Memory>(&query);
+
+        // Bind parameters in order
+        if let Some(val) = request.min_consolidation_strength {
+            query_builder = query_builder.bind(val);
+        }
+        if let Some(val) = request.max_consolidation_strength {
+            query_builder = query_builder.bind(val);
+        }
+        if let Some(val) = request.min_recall_probability {
+            query_builder = query_builder.bind(val);
+        }
+        if let Some(val) = request.max_recall_probability {
+            query_builder = query_builder.bind(val);
+        }
+        if let Some(val) = request.tier {
+            query_builder = query_builder.bind(val);
+        }
+
+        let limit = request.limit.unwrap_or(10);
+        let offset = request.offset.unwrap_or(0);
+        query_builder = query_builder.bind(limit).bind(offset);
+
+        let memories = query_builder.fetch_all(&self.pool).await?;
+        Ok(memories)
     }
 }
 
@@ -830,6 +1200,9 @@ mod tests {
         assert_eq!(memory.next_tier(), Some(MemoryTier::Cold));
 
         memory.tier = MemoryTier::Cold;
+        assert_eq!(memory.next_tier(), Some(MemoryTier::Frozen));
+
+        memory.tier = MemoryTier::Frozen;
         assert_eq!(memory.next_tier(), None);
     }
 }

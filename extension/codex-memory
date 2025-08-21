@@ -1,0 +1,13 @@
+#!/bin/bash
+# Wrapper script for codex-memory to work with Claude Desktop extensions
+
+# Claude Desktop will set these environment variables from user_config
+export DATABASE_URL="${DATABASE_URL:-postgresql://codex_user:MZSfXiLr5uR3QYbRwv2vTzi22SvFkj4a@192.168.1.104:5432/codex_db}"
+export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-ollama}"
+export EMBEDDING_MODEL="${EMBEDDING_MODEL:-nomic-embed-text}"
+export EMBEDDING_BASE_URL="${OLLAMA_BASE_URL:-http://192.168.1.110:11434}"
+export RUST_LOG="${LOG_LEVEL:-info}"
+
+# Execute the actual codex-memory binary with MCP stdio arguments
+# DXT extensions don't support passing args, so we hardcode them here
+exec /Users/ladvien/.cargo/bin/codex-memory mcp-stdio --skip-setup

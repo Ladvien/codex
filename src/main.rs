@@ -1143,6 +1143,26 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
                                     })
                                 }
                             }
+                            "resources/list" => {
+                                // Return empty resources list - codex-memory doesn't expose resources
+                                serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": request.get("id"),
+                                    "result": {
+                                        "resources": []
+                                    }
+                                })
+                            }
+                            "prompts/list" => {
+                                // Return empty prompts list - codex-memory doesn't use prompts
+                                serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": request.get("id"),
+                                    "result": {
+                                        "prompts": []
+                                    }
+                                })
+                            }
                             _ => {
                                 serde_json::json!({
                                     "jsonrpc": "2.0",

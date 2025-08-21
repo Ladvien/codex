@@ -1,0 +1,8 @@
+extension/
+tests/
+target/
+*.dxt
+HOW_IT_WORKS.md
+.env
+*.log
+extension/server/codex-memory

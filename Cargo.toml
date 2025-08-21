@@ -1,6 +1,6 @@
 [package]
 name = "codex-memory"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2021"
 authors = ["Ladvien <your-email@example.com>"]
 description = "An advanced hierarchical memory system for AI agents with MCP integration"
@@ -10,6 +10,7 @@ keywords = ["memory", "ai", "mcp", "agent", "embedding"]
 categories = ["database", "command-line-utilities", "web-programming"]
 readme = "README.md"
 homepage = "https://github.com/Ladvien/codex"
+exclude = ["extension/", "tests/", "*.dxt", "HOW_IT_WORKS.md", ".env", "*.log", "target/"]
 
 # [workspace]
 # members = [".", "migration"]

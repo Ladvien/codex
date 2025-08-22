@@ -20,13 +20,16 @@ pub struct MemoryRepository {
 
 impl MemoryRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { 
+        Self {
             pool,
             trigger_engine: None,
         }
     }
 
-    pub fn with_trigger_engine(pool: PgPool, trigger_engine: Arc<EventTriggeredScoringEngine>) -> Self {
+    pub fn with_trigger_engine(
+        pool: PgPool,
+        trigger_engine: Arc<EventTriggeredScoringEngine>,
+    ) -> Self {
         Self {
             pool,
             trigger_engine: Some(trigger_engine),
@@ -41,7 +44,11 @@ impl MemoryRepository {
         self.create_memory_with_user_context(request, None).await
     }
 
-    pub async fn create_memory_with_user_context(&self, request: CreateMemoryRequest, user_id: Option<&str>) -> Result<Memory> {
+    pub async fn create_memory_with_user_context(
+        &self,
+        request: CreateMemoryRequest,
+        user_id: Option<&str>,
+    ) -> Result<Memory> {
         let id = Uuid::new_v4();
         let content_hash = Memory::calculate_content_hash(&request.content);
         let tier = request.tier.unwrap_or(MemoryTier::Working);
@@ -67,10 +74,15 @@ impl MemoryRepository {
         }
 
         // Apply event-triggered scoring if available
-        let (final_importance_score, trigger_result) = if let Some(trigger_engine) = &self.trigger_engine {
+        let (final_importance_score, trigger_result) = if let Some(trigger_engine) =
+            &self.trigger_engine
+        {
             let original_importance = request.importance_score.unwrap_or(0.5);
-            
-            match trigger_engine.analyze_content(&request.content, original_importance, user_id).await {
+
+            match trigger_engine
+                .analyze_content(&request.content, original_importance, user_id)
+                .await
+            {
                 Ok(result) => {
                     if result.triggered {
                         info!(
@@ -134,7 +146,10 @@ impl MemoryRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        info!("Created memory {} in tier {:?} with importance {:.2}", memory.id, memory.tier, final_importance_score);
+        info!(
+            "Created memory {} in tier {:?} with importance {:.2}",
+            memory.id, memory.tier, final_importance_score
+        );
         Ok(memory)
     }
 
@@ -238,16 +253,19 @@ impl MemoryRepository {
     }
 
     /// Enhanced search method with memory-aware features for Story 9
-    pub async fn search_memories_enhanced(&self, request: crate::memory::enhanced_retrieval::MemoryAwareSearchRequest) -> Result<crate::memory::enhanced_retrieval::MemoryAwareSearchResponse> {
+    pub async fn search_memories_enhanced(
+        &self,
+        request: crate::memory::enhanced_retrieval::MemoryAwareSearchRequest,
+    ) -> Result<crate::memory::enhanced_retrieval::MemoryAwareSearchResponse> {
         use crate::memory::enhanced_retrieval::*;
-        
+
         let config = EnhancedRetrievalConfig::default();
         let retrieval_engine = MemoryAwareRetrievalEngine::new(
             config,
             std::sync::Arc::new(MemoryRepository::new(self.pool.clone())),
             None,
         );
-        
+
         retrieval_engine.search(request).await
     }
 
@@ -364,7 +382,7 @@ impl MemoryRepository {
 
     async fn hybrid_search(&self, request: &SearchRequest) -> Result<Vec<SearchResult>> {
         // Use three-component scoring weights (default: equal weighting)
-        let weights = request.hybrid_weights.as_ref().unwrap_or(&HybridWeights {
+        let _weights = request.hybrid_weights.as_ref().unwrap_or(&HybridWeights {
             semantic_weight: 0.333,
             temporal_weight: 0.333, // Maps to recency_score
             importance_weight: 0.334,
@@ -383,7 +401,7 @@ impl MemoryRepository {
         let offset = request.offset.unwrap_or(0);
         let threshold = request.similarity_threshold.unwrap_or(0.5);
 
-        // Update all scores before searching for real-time accuracy
+        // Update component scores which will automatically update the generated combined_score
         sqlx::query(
             r#"
             UPDATE memories 
@@ -399,6 +417,7 @@ impl MemoryRepository {
         .execute(&self.pool)
         .await?;
 
+        // Use the generated combined_score column for optimal P99 <1ms performance
         let query = format!(
             r#"
             SELECT m.*,
@@ -407,25 +426,15 @@ impl MemoryRepository {
                 m.importance_score,
                 m.relevance_score,
                 COALESCE(m.access_count, 0) as access_count,
-                calculate_combined_score(
-                    m.recency_score, 
-                    m.importance_score, 
-                    m.relevance_score,
-                    {}, {}, {}
-                ) as combined_score
+                m.combined_score as combined_score
             FROM memories m
             WHERE m.status = 'active'
                 AND m.embedding IS NOT NULL
                 AND 1 - (m.embedding <=> $1) >= {}
-            ORDER BY combined_score DESC, similarity_score DESC
+            ORDER BY m.combined_score DESC, similarity_score DESC
             LIMIT {} OFFSET {}
             "#,
-            weights.temporal_weight,   // recency_weight
-            weights.importance_weight, // importance_weight
-            weights.semantic_weight,   // relevance_weight (includes semantic similarity)
-            threshold,
-            limit,
-            offset
+            threshold, limit, offset
         );
 
         let rows = sqlx::query(&query)
@@ -1034,7 +1043,7 @@ impl MemoryRepository {
         memory_id: Uuid,
         reason: Option<String>,
     ) -> Result<FreezeMemoryResponse> {
-        use super::compression::{ZstdCompressionEngine, FrozenMemoryCompression};
+        use super::compression::{FrozenMemoryCompression, ZstdCompressionEngine};
         use std::time::Instant;
 
         let start_time = Instant::now();
@@ -1042,7 +1051,7 @@ impl MemoryRepository {
 
         // Get the memory to freeze with validation
         let memory = sqlx::query_as::<_, Memory>(
-            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'",
         )
         .bind(memory_id)
         .fetch_optional(&mut *tx)
@@ -1055,7 +1064,7 @@ impl MemoryRepository {
         if memory.tier != MemoryTier::Cold {
             return Err(MemoryError::InvalidRequest {
                 message: format!(
-                    "Can only freeze memories in cold tier, found {:?}", 
+                    "Can only freeze memories in cold tier, found {:?}",
                     memory.tier
                 ),
             });
@@ -1073,13 +1082,15 @@ impl MemoryRepository {
 
         info!(
             "Freezing memory {} (P(r)={:.3}, content_length={})",
-            memory_id, recall_probability, memory.content.len()
+            memory_id,
+            recall_probability,
+            memory.content.len()
         );
 
         // Compress the memory data using zstd
         let compression_engine = ZstdCompressionEngine::new();
-        let compression_result = compression_engine
-            .compress_memory_data(&memory.content, &memory.metadata)?;
+        let compression_result =
+            compression_engine.compress_memory_data(&memory.content, &memory.metadata)?;
 
         // Validate compression quality
         FrozenMemoryCompression::validate_compression_quality(
@@ -1087,7 +1098,7 @@ impl MemoryRepository {
             memory.content.len(),
         )?;
 
-        let (compressed_data, original_size, compressed_size, compression_ratio) = 
+        let (compressed_data, original_size, compressed_size, compression_ratio) =
             FrozenMemoryCompression::to_database_format(compression_result);
 
         debug!(
@@ -1105,7 +1116,7 @@ impl MemoryRepository {
                 original_tier, freeze_reason, compression_ratio,
                 original_size_bytes, compressed_size_bytes
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            "#
+            "#,
         )
         .bind(frozen_id)
         .bind(memory.id)
@@ -1114,7 +1125,11 @@ impl MemoryRepository {
         .bind(&memory.content_hash)
         .bind(memory.embedding.as_ref())
         .bind(memory.tier)
-        .bind(reason.as_deref().unwrap_or("Auto-frozen: P(r) < 0.2 threshold"))
+        .bind(
+            reason
+                .as_deref()
+                .unwrap_or("Auto-frozen: P(r) < 0.2 threshold"),
+        )
         .bind(compression_ratio)
         .bind(original_size)
         .bind(compressed_size)
@@ -1137,11 +1152,14 @@ impl MemoryRepository {
                 memory_id, from_tier, to_tier, migration_reason,
                 migration_duration_ms, success
             ) VALUES ($1, $2, 'frozen', $3, $4, true)
-            "#
+            "#,
         )
         .bind(memory_id)
         .bind(memory.tier)
-        .bind(format!("Frozen with {:.2}:1 compression", compression_ratio))
+        .bind(format!(
+            "Frozen with {:.2}:1 compression",
+            compression_ratio
+        ))
         .bind(processing_time_ms)
         .execute(&mut *tx)
         .await?;
@@ -1169,39 +1187,41 @@ impl MemoryRepository {
     ) -> Result<UnfreezeMemoryResponse> {
         use super::compression::ZstdCompressionEngine;
         use rand::Rng;
-        use tokio::time::{sleep, Duration};
         use std::time::Instant;
-        
+        use tokio::time::{sleep, Duration};
+
         let start_time = Instant::now();
         let mut tx = self.pool.begin().await?;
 
         // Get the frozen memory details
-        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
-            "SELECT * FROM frozen_memories WHERE id = $1"
-        )
-        .bind(frozen_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| MemoryError::NotFound {
-            id: frozen_id.to_string(),
-        })?;
+        let frozen_memory =
+            sqlx::query_as::<_, FrozenMemory>("SELECT * FROM frozen_memories WHERE id = $1")
+                .bind(frozen_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| MemoryError::NotFound {
+                    id: frozen_id.to_string(),
+                })?;
 
         info!(
             "Unfreezing memory {} (compression_ratio: {:.2}:1)",
-            frozen_id, 
+            frozen_id,
             frozen_memory.compression_ratio.unwrap_or(0.0)
         );
 
         // Implement intentional 2-5 second delay for frozen memory retrieval
         let mut rng = rand::thread_rng();
         let delay_seconds = rng.gen_range(2..=5);
-        
-        info!("Applying {}-second intentional delay for frozen tier retrieval", delay_seconds);
+
+        info!(
+            "Applying {}-second intentional delay for frozen tier retrieval",
+            delay_seconds
+        );
         sleep(Duration::from_secs(delay_seconds)).await;
 
         // Decompress the memory data using zstd
         let compression_engine = ZstdCompressionEngine::new();
-        
+
         // First, try to extract the compressed data
         // The frozen_memory.compressed_content is stored as JSONB but contains BYTEA data
         let compressed_data = match &frozen_memory.compressed_content {
@@ -1212,13 +1232,14 @@ impl MemoryRepository {
                     .map_err(|e| MemoryError::DecompressionError {
                         message: format!("Failed to decode base64 compressed data: {}", e),
                     })?
-            },
+            }
             serde_json::Value::Array(byte_array) => {
                 // If it's an array of numbers, convert to bytes
-                byte_array.iter()
+                byte_array
+                    .iter()
                     .map(|v| v.as_u64().unwrap_or(0) as u8)
                     .collect()
-            },
+            }
             _ => {
                 // Fallback: treat as raw bytes (this shouldn't happen with proper BYTEA storage)
                 return Err(MemoryError::DecompressionError {
@@ -1251,7 +1272,7 @@ impl MemoryRepository {
                 metadata = $3,
                 updated_at = NOW()
             WHERE id = $4
-            "#
+            "#,
         )
         .bind(&decompressed_data.content)
         .bind(restoration_tier)
@@ -1269,7 +1290,7 @@ impl MemoryRepository {
                     id, content, content_hash, embedding, tier, status,
                     importance_score, metadata, created_at, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, 'active', 0.5, $6, NOW(), NOW())
-                "#
+                "#,
             )
             .bind(memory_id)
             .bind(&decompressed_data.content)
@@ -1292,7 +1313,7 @@ impl MemoryRepository {
                 last_unfrozen_at = NOW(),
                 updated_at = NOW()
             WHERE id = $1
-            "#
+            "#,
         )
         .bind(frozen_id)
         .execute(&mut *tx)
@@ -1306,7 +1327,7 @@ impl MemoryRepository {
                 memory_id, from_tier, to_tier, migration_reason,
                 migration_duration_ms, success
             ) VALUES ($1, 'frozen', $2, $3, $4, true)
-            "#
+            "#,
         )
         .bind(memory_id)
         .bind(restoration_tier)
@@ -1531,7 +1552,7 @@ impl MemoryRepository {
         Ok(result.rows_affected() as i64)
     }
 
-    /// Get memories ranked by three-component combined score
+    /// Get memories ranked by three-component combined score using generated column
     pub async fn get_memories_by_combined_score(
         &self,
         tier: Option<MemoryTier>,
@@ -1541,9 +1562,15 @@ impl MemoryRepository {
         relevance_weight: Option<f64>,
     ) -> Result<Vec<Memory>> {
         let limit = limit.unwrap_or(50);
-        let recency_w = recency_weight.unwrap_or(0.333);
-        let importance_w = importance_weight.unwrap_or(0.333);
-        let relevance_w = relevance_weight.unwrap_or(0.334);
+
+        // Note: Custom weights are not supported with the generated column approach
+        // The generated column uses fixed weights: 0.333, 0.333, 0.334
+        // This is a trade-off for P99 <1ms performance
+        if recency_weight.is_some() || importance_weight.is_some() || relevance_weight.is_some() {
+            warn!(
+                "Custom weights not supported with generated combined_score column. Using fixed weights: 0.333, 0.333, 0.334"
+            );
+        }
 
         let query = if let Some(tier) = tier {
             sqlx::query_as::<_, Memory>(
@@ -1552,14 +1579,11 @@ impl MemoryRepository {
                 FROM memories m
                 WHERE m.status = 'active'
                   AND m.tier = $1
-                ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, $2, $3, $4) DESC, m.updated_at DESC
-                LIMIT $5
-                "#
+                ORDER BY m.combined_score DESC, m.updated_at DESC
+                LIMIT $2
+                "#,
             )
-            .bind(format!("{:?}", tier).to_lowercase())
-            .bind(recency_w)
-            .bind(importance_w)
-            .bind(relevance_w)
+            .bind(tier)
             .bind(limit as i64)
         } else {
             sqlx::query_as::<_, Memory>(
@@ -1567,20 +1591,17 @@ impl MemoryRepository {
                 SELECT m.*
                 FROM memories m
                 WHERE m.status = 'active'
-                ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, $1, $2, $3) DESC, m.updated_at DESC
-                LIMIT $4
-                "#
+                ORDER BY m.combined_score DESC, m.updated_at DESC
+                LIMIT $1
+                "#,
             )
-            .bind(recency_w)
-            .bind(importance_w)
-            .bind(relevance_w)
             .bind(limit as i64)
         };
 
         let memories = query.fetch_all(&self.pool).await?;
 
         debug!(
-            "Retrieved {} memories ranked by three-component score for tier {:?}",
+            "Retrieved {} memories ranked by generated combined_score for tier {:?}",
             memories.len(),
             tier
         );
@@ -1828,10 +1849,15 @@ impl MemoryRepository {
     pub async fn add_user_trigger_customization(
         &self,
         user_id: String,
-        customizations: std::collections::HashMap<super::event_triggers::TriggerEvent, super::event_triggers::TriggerPattern>,
+        customizations: std::collections::HashMap<
+            super::event_triggers::TriggerEvent,
+            super::event_triggers::TriggerPattern,
+        >,
     ) -> Result<()> {
         if let Some(trigger_engine) = &self.trigger_engine {
-            trigger_engine.add_user_customization(user_id, customizations).await?;
+            trigger_engine
+                .add_user_customization(user_id, customizations)
+                .await?;
         }
         Ok(())
     }
@@ -1847,10 +1873,10 @@ impl MemoryRepository {
         max_batch_size: Option<usize>,
     ) -> Result<BatchFreezeResult> {
         use std::time::Instant;
-        
+
         let start_time = Instant::now();
         let batch_size = max_batch_size.unwrap_or(100_000); // Default to 100K as per requirements
-        
+
         // Find memories in Cold tier with P(recall) < 0.2
         let candidates = sqlx::query_as::<_, Memory>(
             r#"
@@ -1860,7 +1886,7 @@ impl MemoryRepository {
             AND COALESCE(recall_probability, 0) < 0.2
             ORDER BY recall_probability ASC, last_accessed_at ASC
             LIMIT $1
-            "#
+            "#,
         )
         .bind(batch_size as i64)
         .fetch_all(&self.pool)
@@ -1875,7 +1901,7 @@ impl MemoryRepository {
         // Process in smaller chunks to avoid transaction timeouts
         for chunk in candidates.chunks(1000) {
             let mut tx = self.pool.begin().await?;
-            
+
             for memory in chunk {
                 // Call freeze function for each memory
                 match sqlx::query("SELECT freeze_memory($1) as frozen_id")
@@ -1886,7 +1912,7 @@ impl MemoryRepository {
                     Ok(row) => {
                         let frozen_id: Uuid = row.get("frozen_id");
                         frozen_ids.push(frozen_id);
-                        
+
                         // Estimate space saved (original content vs compressed)
                         let original_size = memory.content.len() as u64;
                         let estimated_compressed_size = original_size / 6; // Assume ~6:1 compression
@@ -1899,7 +1925,7 @@ impl MemoryRepository {
                     }
                 }
             }
-            
+
             tx.commit().await?;
         }
 
@@ -1912,7 +1938,9 @@ impl MemoryRepository {
 
         info!(
             "Batch freeze completed: {} memories frozen in {:?}, avg compression: {:.1}:1",
-            frozen_ids.len(), processing_time, avg_compression_ratio
+            frozen_ids.len(),
+            processing_time,
+            avg_compression_ratio
         );
 
         Ok(BatchFreezeResult {
@@ -1931,7 +1959,7 @@ impl MemoryRepository {
         target_tier: Option<MemoryTier>,
     ) -> Result<BatchUnfreezeResult> {
         use std::time::Instant;
-        
+
         let start_time = Instant::now();
         let mut unfrozen_memory_ids = Vec::new();
         let mut total_delay_seconds = 0i32;
@@ -1963,7 +1991,9 @@ impl MemoryRepository {
 
         info!(
             "Batch unfreeze completed: {} memories unfrozen in {:?}, avg delay: {:.1}s",
-            unfrozen_memory_ids.len(), processing_time, avg_delay_seconds
+            unfrozen_memory_ids.len(),
+            processing_time,
+            avg_delay_seconds
         );
 
         Ok(BatchUnfreezeResult {

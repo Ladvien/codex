@@ -162,10 +162,22 @@ impl MCPAuthConfig {
     
     /// Create configuration from environment variables
     pub fn from_env() -> Self {
+        // In production, authentication should be enabled by default for security
+        let is_production = env::var("ENVIRONMENT")
+            .unwrap_or_else(|_| "development".to_string())
+            .to_lowercase() == "production";
+        
+        let auth_enabled = env::var("MCP_AUTH_ENABLED")
+            .map(|s| s.parse().unwrap_or(is_production))
+            .unwrap_or(is_production);
+        
+        // Warn if authentication is disabled in production
+        if is_production && !auth_enabled {
+            eprintln!("WARNING: Authentication is disabled in production environment! This is a security risk.");
+        }
+        
         Self {
-            enabled: env::var("MCP_AUTH_ENABLED")
-                .map(|s| s.parse().unwrap_or(false))
-                .unwrap_or(false),
+            enabled: auth_enabled,
             ..Self::default()
         }
     }
@@ -314,7 +326,7 @@ impl MCPAuth {
             user_id: claims.sub,
             method: AuthMethod::JwtToken,
             scopes: claims.scope,
-            expires_at: Some(chrono::DateTime::from_timestamp(claims.exp, 0).unwrap()),
+            expires_at: chrono::DateTime::from_timestamp(claims.exp, 0),
             request_id: request_id.to_string(),
         })
     }

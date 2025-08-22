@@ -597,7 +597,13 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires actual OpenAI API key
     async fn test_generate_openai_embedding() {
-        let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
+        let api_key = match std::env::var("OPENAI_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("OPENAI_API_KEY not set, skipping test");
+                return;
+            }
+        };
         let embedder = SimpleEmbedder::new(api_key);
 
         let result = embedder.generate_embedding("Hello, world!").await;

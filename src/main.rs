@@ -12,6 +12,7 @@ use codex_memory::{
         connection::create_pool,
         models::{CreateMemoryRequest, MemoryTier, SearchRequest},
         repository::MemoryStatistics,
+        tier_manager::TierManager,
     },
     mcp_server::{MCPServer, MCPServerConfig},
     setup::create_sample_env_file,
@@ -174,6 +175,7 @@ struct AppState {
     config: Config,
     repository: Arc<MemoryRepository>,
     embedder: Arc<SimpleEmbedder>,
+    tier_manager: Option<Arc<TierManager>>,
 }
 
 #[tokio::main]
@@ -646,11 +648,24 @@ async fn start_server(skip_setup: bool) -> Result<()> {
         }
     });
 
+    // Create and start tier manager if enabled
+    let tier_manager = if config.tier_manager.enabled {
+        info!("🔧 Starting tier management service...");
+        let manager = Arc::new(TierManager::new(repository.clone(), config.tier_manager.clone())?);
+        manager.start().await?;
+        info!("✅ Tier management service started");
+        Some(manager)
+    } else {
+        info!("⚠️  Tier management is disabled in configuration");
+        None
+    };
+
     // Create app state
     let state = AppState {
         config: config.clone(),
         repository,
         embedder,
+        tier_manager,
     };
 
     // Build router
@@ -660,6 +675,8 @@ async fn start_server(skip_setup: bool) -> Result<()> {
         .route("/api/v1/memories/:id", get(get_memory))
         .route("/api/v1/memories/search", post(search_memories))
         .route("/api/v1/stats", get(get_statistics))
+        .route("/api/v1/tier-manager/metrics", get(get_tier_manager_metrics))
+        .route("/api/v1/tier-manager/force-scan", post(force_tier_scan))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
@@ -712,6 +729,17 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
         ),
         _ => SimpleEmbedder::new_mock(),
     });
+
+    // Create and start tier manager if enabled
+    let _tier_manager = if config.tier_manager.enabled {
+        let manager = Arc::new(TierManager::new(repository.clone(), config.tier_manager.clone())
+            .map_err(|_| anyhow::anyhow!("Failed to create tier manager"))?);
+        manager.start().await
+            .map_err(|_| anyhow::anyhow!("Failed to start tier manager"))?;
+        Some(manager)
+    } else {
+        None
+    };
 
     // Create MCP server configuration
     let mcp_config = MCPServerConfig::default();
@@ -866,5 +894,68 @@ async fn get_statistics(
             error!("Failed to get statistics: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+async fn get_tier_manager_metrics(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match &state.tier_manager {
+        Some(manager) => {
+            match manager.get_metrics().await {
+                Ok(metrics) => Ok(Json(json!({
+                    "tier_manager": {
+                        "enabled": true,
+                        "is_running": metrics.is_running,
+                        "last_scan_time": metrics.last_scan_time,
+                        "total_migrations_completed": metrics.total_migrations_completed,
+                        "total_migrations_failed": metrics.total_migrations_failed,
+                        "last_scan_duration_ms": metrics.last_scan_duration_ms,
+                        "migrations_per_second_recent": metrics.migrations_per_second_recent,
+                        "memories_by_tier": metrics.memories_by_tier,
+                        "average_recall_probability_by_tier": metrics.average_recall_probability_by_tier
+                    }
+                }))),
+                Err(e) => {
+                    error!("Failed to get tier manager metrics: {}", e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        },
+        None => Ok(Json(json!({
+            "tier_manager": {
+                "enabled": false,
+                "message": "Tier management is disabled in configuration"
+            }
+        })))
+    }
+}
+
+async fn force_tier_scan(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match &state.tier_manager {
+        Some(manager) => {
+            match manager.force_scan().await {
+                Ok(result) => Ok(Json(json!({
+                    "scan_result": {
+                        "batch_id": result.batch_id,
+                        "successful_migrations": result.successful_migrations.len(),
+                        "failed_migrations": result.failed_migrations.len(),
+                        "duration_ms": result.duration_ms,
+                        "memories_per_second": result.memories_per_second,
+                        "successful_memory_ids": result.successful_migrations,
+                        "failed_memory_details": result.failed_migrations
+                    }
+                }))),
+                Err(e) => {
+                    error!("Failed to force tier scan: {}", e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        },
+        None => Ok(Json(json!({
+            "error": "Tier management is disabled in configuration"
+        })))
     }
 }

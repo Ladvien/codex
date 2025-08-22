@@ -28,6 +28,9 @@ pub struct Config {
 
     /// Security and compliance settings
     pub security: SecurityConfiguration,
+
+    /// Tier manager configuration
+    pub tier_manager: TierManagerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +125,7 @@ impl Default for Config {
             operational: OperationalConfig::default(),
             backup: BackupConfiguration::default(),
             security: SecurityConfiguration::default(),
+            tier_manager: TierManagerConfig::default(),
         }
     }
 }
@@ -522,6 +526,44 @@ impl Default for BackupConfiguration {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierManagerConfig {
+    /// Enable automatic tier management
+    pub enabled: bool,
+    
+    /// Interval between tier management scans in seconds
+    pub scan_interval_seconds: u64,
+    
+    /// Batch size for migration operations (memories per batch)
+    pub migration_batch_size: usize,
+    
+    /// Maximum concurrent migration tasks
+    pub max_concurrent_migrations: usize,
+    
+    /// Recall probability thresholds for tier migrations
+    pub working_to_warm_threshold: f64,  // P(r) < 0.7
+    pub warm_to_cold_threshold: f64,     // P(r) < 0.5
+    pub cold_to_frozen_threshold: f64,   // P(r) < 0.2
+    
+    /// Minimum age before considering migration (prevents rapid tier changes)
+    pub min_working_age_hours: u64,
+    pub min_warm_age_hours: u64,
+    pub min_cold_age_hours: u64,
+    
+    /// Migration performance targets
+    pub target_migrations_per_second: u32,
+    
+    /// Enable migration history logging
+    pub log_migrations: bool,
+    
+    /// Migration failure retry configuration
+    pub max_retry_attempts: u32,
+    pub retry_delay_seconds: u64,
+    
+    /// Enable metrics collection for migration monitoring
+    pub enable_metrics: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfiguration {
     /// Enable security features
     pub enabled: bool,
@@ -585,6 +627,35 @@ impl Default for SecurityConfiguration {
             vault_token_path: None,
             input_validation_enabled: true,
             max_request_size_mb: 10,
+        }
+    }
+}
+
+impl Default for TierManagerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scan_interval_seconds: 300, // 5 minutes - frequent enough for responsive tier management
+            migration_batch_size: 100,  // Process in batches to avoid long-running transactions
+            max_concurrent_migrations: 4, // Balance throughput with resource usage
+            
+            // Cognitive research-based thresholds for forgetting curves
+            working_to_warm_threshold: 0.7,  // HIGH-002 requirement
+            warm_to_cold_threshold: 0.5,     // HIGH-002 requirement  
+            cold_to_frozen_threshold: 0.2,   // HIGH-002 requirement
+            
+            // Minimum ages prevent thrashing between tiers
+            min_working_age_hours: 1,   // At least 1 hour in working memory
+            min_warm_age_hours: 24,     // At least 1 day in warm storage
+            min_cold_age_hours: 168,    // At least 1 week in cold storage
+            
+            // Performance target from HIGH-002
+            target_migrations_per_second: 1000,
+            
+            log_migrations: true,       // Track for audit and analysis
+            max_retry_attempts: 3,      // Reasonable retry policy
+            retry_delay_seconds: 60,    // 1 minute between retries
+            enable_metrics: true,       // Essential for monitoring
         }
     }
 }

@@ -65,8 +65,20 @@ pub enum MemoryError {
     #[error("Data integrity error: {message}")]
     IntegrityError { message: String },
 
+    #[error("Service error: {0}")]
+    ServiceError(String),
+
+    #[error("Metrics error: {0}")]
+    MetricsError(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
+}
+
+impl From<prometheus::Error> for MemoryError {
+    fn from(err: prometheus::Error) -> Self {
+        MemoryError::MetricsError(err.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, MemoryError>;

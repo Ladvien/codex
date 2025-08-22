@@ -10,6 +10,7 @@ pub mod models;
 pub mod repository;
 pub mod semantic_deduplication;
 pub mod simple_consolidation;
+pub mod tier_manager;
 
 // Cognitive enhancement modules
 pub mod cognitive_consolidation;
@@ -99,4 +100,9 @@ pub use enhanced_retrieval::{
     MemoryAwareRetrievalEngine, MemoryAwareSearchRequest, MemoryAwareSearchResponse,
     MemoryAwareSearchResult, MemoryDescendant, MemoryLineage, PerformanceMetrics,
     ProvenanceMetadata, QueryPatternCache, RelationshipType,
+};
+
+// Tier manager exports
+pub use tier_manager::{
+    TierManager, TierManagerMetrics, TierMigrationBatch, TierMigrationCandidate, TierMigrationResult,
 };

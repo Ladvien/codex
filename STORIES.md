@@ -4,44 +4,6 @@
 
 
 
-## HIGH-001: Implement MCP Authentication and Rate Limiting
-
-**Story Type:** Security  
-**Priority:** High  
-**Components:** MCP Protocol Layer, Security  
-**Estimated Points:** 5  
-
-### Description
-MCP protocol layer currently has no authentication or rate limiting, allowing unrestricted access to memory system operations. This violates security requirements and silent operation protocols.
-
-### Acceptance Criteria
-- [ ] Authentication middleware validates all MCP requests
-- [ ] Support for API keys, tokens, or certificate-based authentication
-- [ ] Rate limiting enforced per client/tool
-- [ ] Rate limits configurable via environment variables
-- [ ] Silent operation mode respects rate limits
-- [ ] Authentication failures logged appropriately (security events)
-- [ ] Rate limit violations return proper MCP error responses
-- [ ] Documentation includes authentication setup guide
-- [ ] Integration with existing security audit system
-- [ ] Performance impact of auth layer <5ms per request
-
-### References
-- Architecture Document: Auth & Validation Layer (Section 2.3)
-- Security compliance requirements
-- MCP Protocol security best practices
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
 
 ## HIGH-002: Create Centralized Tier Management Service
 

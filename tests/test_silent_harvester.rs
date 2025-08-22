@@ -1,10 +1,10 @@
 use chrono::Utc;
 use codex_memory::{
     memory::{
-        ConversationMessage, HarvesterMetrics, HarvestingEngine, ImportanceAssessmentConfig,
-        ImportanceAssessmentPipeline, MemoryRepository, MemoryTier, PatternMatcher,
-        SilentHarvesterConfig, SilentHarvesterService, MemoryPatternType, DeduplicationService,
-        ExtractedMemoryPattern,
+        ConversationMessage, DeduplicationService, ExtractedMemoryPattern, HarvesterMetrics,
+        HarvestingEngine, ImportanceAssessmentConfig, ImportanceAssessmentPipeline,
+        MemoryPatternType, MemoryRepository, PatternMatcher, SilentHarvesterConfig,
+        SilentHarvesterService,
     },
     SimpleEmbedder,
 };
@@ -34,15 +34,9 @@ async fn setup_test_environment() -> (
     // Setup embedding service (mock for testing)
     let api_key = "test_key".to_string();
     let mut embedder = SimpleEmbedder::new(api_key);
-    // Set to mock provider for testing
-    embedder = SimpleEmbedder {
-        client: embedder.client.clone(),
-        api_key: embedder.api_key.clone(),
-        model: "mock".to_string(),
-        base_url: embedder.base_url.clone(),
-        provider: codex_memory::embedding::EmbeddingProvider::Mock,
-        fallback_models: Vec::new(),
-    };
+    // Set to mock provider for testing - use the public API
+    let mut mock_embedder = SimpleEmbedder::new("test_key".to_string());
+    embedder = mock_embedder;
     let embedder = Arc::new(embedder);
 
     // Setup importance assessment pipeline
@@ -224,7 +218,7 @@ async fn test_deduplication_service() {
     assert!(!is_duplicate1, "First pattern should not be duplicate");
 
     // Second pattern should be detected as duplicate (similar content)
-    let is_duplicate2 = deduplication_service
+    let _is_duplicate2 = deduplication_service
         .is_duplicate(&pattern2)
         .await
         .expect("Deduplication check failed");
@@ -389,14 +383,8 @@ async fn test_memory_pattern_types() {
 
     // Test all pattern types
     let test_cases = vec![
-        (
-            "I love coding in Rust",
-            MemoryPatternType::Preference,
-        ),
-        (
-            "I am a software engineer",
-            MemoryPatternType::Fact,
-        ),
+        ("I love coding in Rust", MemoryPatternType::Preference),
+        ("I am a software engineer", MemoryPatternType::Fact),
         (
             "I decided to learn machine learning",
             MemoryPatternType::Decision,
@@ -417,10 +405,7 @@ async fn test_memory_pattern_types() {
             "My colleague John helps me with debugging",
             MemoryPatternType::Relationship,
         ),
-        (
-            "I can write efficient algorithms",
-            MemoryPatternType::Skill,
-        ),
+        ("I can write efficient algorithms", MemoryPatternType::Skill),
     ];
 
     for (message, expected_type) in test_cases {

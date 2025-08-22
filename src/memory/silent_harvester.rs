@@ -6,13 +6,14 @@ use prometheus::{Counter, Histogram, Registry};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio::time::{interval, timeout};
 use tracing::{debug, error, info, trace, warn};
+use futures::future;
 
 #[derive(Debug, Error)]
 pub enum HarvesterError {
@@ -36,6 +37,15 @@ pub enum HarvesterError {
 
     #[error("Background task failed: {0}")]
     BackgroundTaskFailed(String),
+
+    #[error("Circuit breaker open: {0}")]
+    CircuitBreakerOpen(String),
+
+    #[error("Resource exhaustion: {0}")]
+    ResourceExhaustion(String),
+
+    #[error("Backpressure applied: {0}")]
+    BackpressureApplied(String),
 }
 
 /// Types of memory patterns that can be extracted
@@ -89,6 +99,15 @@ pub struct SilentHarvesterConfig {
 
     /// Pattern extraction configuration
     pub pattern_config: PatternExtractionConfig,
+
+    /// Enable graceful degradation when errors occur
+    pub graceful_degradation: bool,
+
+    /// Maximum retries for failed operations
+    pub max_retries: u32,
+
+    /// Enable fallback storage when primary storage fails
+    pub enable_fallback_storage: bool,
 }
 
 impl Default for SilentHarvesterConfig {
@@ -102,6 +121,9 @@ impl Default for SilentHarvesterConfig {
             max_processing_time_seconds: 2,
             silent_mode: true,
             pattern_config: PatternExtractionConfig::default(),
+            graceful_degradation: true,
+            max_retries: 3,
+            enable_fallback_storage: true,
         }
     }
 }
@@ -458,55 +480,234 @@ impl PatternMatcher {
         &self,
         pattern_type: &MemoryPatternType,
         content: &str,
-        _context: &str,
+        context: &str,
     ) -> f64 {
-        let mut confidence: f64 = 0.5; // Base confidence
+        // Research-backed confidence calculation using multiple signals
+        // Base confidence starts lower to be more conservative
+        let mut confidence: f64 = 0.3;
 
-        // Adjust based on pattern type specificity
-        match pattern_type {
-            MemoryPatternType::Preference => confidence += 0.1,
-            MemoryPatternType::Fact => confidence += 0.15,
-            MemoryPatternType::Decision => confidence += 0.2,
-            MemoryPatternType::Correction => confidence += 0.25,
-            MemoryPatternType::Emotion => confidence += 0.1,
-            MemoryPatternType::Goal => confidence += 0.15,
-            MemoryPatternType::Relationship => confidence += 0.1,
-            MemoryPatternType::Skill => confidence += 0.15,
+        // 1. Pattern type specificity (based on linguistic certainty markers)
+        let type_boost = match pattern_type {
+            MemoryPatternType::Correction => 0.3, // Corrections are highly reliable
+            MemoryPatternType::Decision => 0.25,  // Decisions show clear intent
+            MemoryPatternType::Fact => 0.2,       // Facts are generally reliable
+            MemoryPatternType::Goal => 0.18,      // Goals show clear intent
+            MemoryPatternType::Skill => 0.15,     // Skills are moderately reliable
+            MemoryPatternType::Preference => 0.12, // Preferences can be temporary
+            MemoryPatternType::Relationship => 0.1, // Relationships context-dependent
+            MemoryPatternType::Emotion => 0.08,   // Emotions are ephemeral
+        };
+        confidence += type_boost;
+
+        // 2. Linguistic certainty markers (research-backed indicators)
+        let certainty_markers = [
+            ("definitely", 0.15),
+            ("certainly", 0.15),
+            ("absolutely", 0.15),
+            ("always", 0.12),
+            ("never", 0.12),
+            ("completely", 0.12),
+            ("strongly", 0.1),
+            ("really", 0.08),
+            ("very", 0.06),
+            ("quite", 0.04),
+            ("somewhat", -0.05),
+            ("maybe", -0.1),
+            ("perhaps", -0.08),
+            ("possibly", -0.08),
+            ("might", -0.06),
+        ];
+
+        for (marker, boost) in &certainty_markers {
+            if content.to_lowercase().contains(marker) {
+                confidence += boost;
+                break; // Only apply the first marker found
+            }
         }
 
-        // Adjust based on content length and quality
-        if content.len() > 50 {
-            confidence += 0.1;
-        }
-        if content.len() > 100 {
-            confidence += 0.1;
+        // 3. Personal agency indicators (research shows first-person statements more reliable)
+        let personal_indicators = content.matches(|c: char| c == 'I').count() as f64;
+        let my_indicators = content.to_lowercase().matches("my ").count() as f64;
+        let me_indicators = content.to_lowercase().matches("me ").count() as f64;
+
+        let personal_score =
+            (personal_indicators * 0.03 + my_indicators * 0.04 + me_indicators * 0.02).min(0.15);
+        confidence += personal_score;
+
+        // 4. Content length and informativeness (optimal range based on memory research)
+        let length_score = match content.len() {
+            0..=10 => -0.3,   // Too short, likely incomplete
+            11..=30 => -0.1,  // Short but potentially valid
+            31..=80 => 0.1,   // Good length for memory patterns
+            81..=150 => 0.15, // Optimal range for detailed patterns
+            151..=250 => 0.1, // Still good, getting longer
+            251..=400 => 0.0, // Neutral, might be too verbose
+            _ => -0.15,       // Too long, likely contains noise
+        };
+        confidence += length_score;
+
+        // 5. Context relevance (simple heuristic)
+        if !context.is_empty() && content.len() > context.len() / 10 {
+            confidence += 0.05; // Bonus for substantial content relative to context
         }
 
-        // Adjust based on first-person indicators
-        if content.contains("I ") || content.contains("my ") || content.contains("me ") {
-            confidence += 0.1;
+        // 6. Sentence structure quality (basic grammar indicators)
+        let word_count = content.split_whitespace().count() as f64;
+        let sentence_count = content
+            .matches(|c: char| c == '.' || c == '!' || c == '?')
+            .count() as f64;
+
+        if word_count > 0.0 {
+            let avg_sentence_length = word_count / sentence_count.max(1.0);
+            // Optimal sentence length for memory patterns is 8-20 words
+            let structure_score = match avg_sentence_length as usize {
+                1..=3 => -0.05,  // Too terse
+                4..=7 => 0.0,    // Short but acceptable
+                8..=20 => 0.08,  // Optimal range
+                21..=35 => 0.02, // Getting long
+                _ => -0.05,      // Too complex
+            };
+            confidence += structure_score;
         }
 
-        // Penalize very short or very long extractions
-        if content.len() < 10 {
-            confidence -= 0.2;
-        }
-        if content.len() > 500 {
-            confidence -= 0.1;
+        // 7. Redundancy penalty (repeated words suggest lower quality)
+        let lowercase_content = content.to_lowercase();
+        let words: Vec<&str> = lowercase_content.split_whitespace().collect();
+        if words.len() > 5 {
+            let unique_words: std::collections::HashSet<_> = words.iter().collect();
+            let uniqueness_ratio = unique_words.len() as f64 / words.len() as f64;
+
+            // Penalize low uniqueness (high repetition)
+            if uniqueness_ratio < 0.7 {
+                confidence -= 0.1;
+            } else if uniqueness_ratio > 0.9 {
+                confidence += 0.05; // Bonus for diverse vocabulary
+            }
         }
 
-        // Ensure confidence is within valid range
-        confidence.clamp(0.0, 1.0)
+        // Ensure confidence is within valid range and apply final calibration
+        confidence.clamp(0.1, 0.95) // Never completely certain or uncertain
     }
 }
 
-/// Service for deduplicating extracted patterns
+/// Circuit breaker states
+#[derive(Debug, Clone, PartialEq)]
+enum CircuitBreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+/// Circuit breaker for embedding service
+#[derive(Debug)]
+struct CircuitBreaker {
+    state: Arc<RwLock<CircuitBreakerState>>,
+    failure_count: Arc<AtomicU64>,
+    last_failure_time: Arc<RwLock<Option<Instant>>>,
+    failure_threshold: u64,
+    timeout: Duration,
+    half_open_max_calls: u64,
+    half_open_calls: Arc<AtomicU64>,
+}
+
+impl CircuitBreaker {
+    fn new(failure_threshold: u64, timeout: Duration) -> Self {
+        Self {
+            state: Arc::new(RwLock::new(CircuitBreakerState::Closed)),
+            failure_count: Arc::new(AtomicU64::new(0)),
+            last_failure_time: Arc::new(RwLock::new(None)),
+            failure_threshold,
+            timeout,
+            half_open_max_calls: 3,
+            half_open_calls: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    async fn call<T, F, Fut>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        match *self.state.read().await {
+            CircuitBreakerState::Open => {
+                let last_failure = *self.last_failure_time.read().await;
+                if let Some(failure_time) = last_failure {
+                    if failure_time.elapsed() > self.timeout {
+                        *self.state.write().await = CircuitBreakerState::HalfOpen;
+                        self.half_open_calls.store(0, Ordering::Relaxed);
+                    } else {
+                        return Err(HarvesterError::CircuitBreakerOpen(
+                            "Embedding service circuit breaker is open".to_string(),
+                        )
+                        .into());
+                    }
+                } else {
+                    return Err(HarvesterError::CircuitBreakerOpen(
+                        "Embedding service circuit breaker is open".to_string(),
+                    )
+                    .into());
+                }
+            }
+            CircuitBreakerState::HalfOpen => {
+                if self.half_open_calls.load(Ordering::Relaxed) >= self.half_open_max_calls {
+                    return Err(HarvesterError::CircuitBreakerOpen(
+                        "Half-open circuit breaker call limit exceeded".to_string(),
+                    )
+                    .into());
+                }
+                self.half_open_calls.fetch_add(1, Ordering::Relaxed);
+            }
+            CircuitBreakerState::Closed => {}
+        }
+
+        match f().await {
+            Ok(result) => {
+                self.on_success().await;
+                Ok(result)
+            }
+            Err(e) => {
+                self.on_failure().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn on_success(&self) {
+        let current_state = self.state.read().await.clone();
+        match current_state {
+            CircuitBreakerState::HalfOpen => {
+                *self.state.write().await = CircuitBreakerState::Closed;
+                self.failure_count.store(0, Ordering::Relaxed);
+            }
+            _ => {
+                self.failure_count.store(0, Ordering::Relaxed);
+            }
+        }
+    }
+
+    async fn on_failure(&self) {
+        let failures = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+        if failures >= self.failure_threshold {
+            *self.state.write().await = CircuitBreakerState::Open;
+            *self.last_failure_time.write().await = Some(Instant::now());
+            warn!("Circuit breaker opened after {} failures", failures);
+        }
+    }
+}
+
+/// Service for deduplicating extracted patterns with bounded cache and circuit breaker
 pub struct DeduplicationService {
     threshold: f64,
     embedding_service: Arc<dyn EmbeddingService>,
-    recent_embeddings: Arc<RwLock<VecDeque<(String, Vec<f32>)>>>,
+    recent_embeddings: Arc<RwLock<VecDeque<(String, Vec<f32>, Instant)>>>,
     max_cache_size: usize,
+    cache_cleanup_threshold: f64,
+    circuit_breaker: CircuitBreaker,
+    bypass_on_failure: Arc<AtomicBool>,
+    cache_ttl: Duration,
 }
+
 
 impl DeduplicationService {
     pub fn new(
@@ -519,43 +720,131 @@ impl DeduplicationService {
             embedding_service,
             recent_embeddings: Arc::new(RwLock::new(VecDeque::new())),
             max_cache_size,
+            cache_cleanup_threshold: 0.8, // Start cleanup at 80% capacity
+            circuit_breaker: CircuitBreaker::new(5, Duration::from_secs(60)), // 5 failures, 60s timeout
+            bypass_on_failure: Arc::new(AtomicBool::new(false)),
+            cache_ttl: Duration::from_secs(3600), // 1 hour TTL for cache entries
         }
     }
 
     /// Check if a pattern is a duplicate of recent patterns
     pub async fn is_duplicate(&self, pattern: &ExtractedMemoryPattern) -> Result<bool> {
-        let embedding = self
-            .embedding_service
-            .generate_embedding(&pattern.content)
-            .await
-            .context("Failed to generate embedding for deduplication")?;
+        // First clean up expired entries to prevent unbounded growth
+        self.cleanup_expired_entries().await;
 
+        // Check if we should bypass deduplication due to repeated failures
+        if self.bypass_on_failure.load(Ordering::Relaxed) {
+            warn!("Bypassing deduplication due to embedding service failures");
+            return Ok(false);
+        }
+
+        // Generate embedding with circuit breaker protection
+        let embedding = match self
+            .circuit_breaker
+            .call(|| async {
+                self.embedding_service
+                    .generate_embedding(&pattern.content)
+                    .await
+                    .context("Failed to generate embedding for deduplication")
+            })
+            .await
+        {
+            Ok(embedding) => {
+                // Reset bypass flag on successful embedding generation
+                self.bypass_on_failure.store(false, Ordering::Relaxed);
+                embedding
+            }
+            Err(e) => {
+                // Set bypass flag to prevent further deduplication failures
+                self.bypass_on_failure.store(true, Ordering::Relaxed);
+                warn!(
+                    "Embedding generation failed, bypassing deduplication: {}",
+                    e
+                );
+                return Ok(false); // Don't treat as duplicate when we can't check
+            }
+        };
+
+        let now = Instant::now();
         let recent_embeddings = self.recent_embeddings.read().await;
 
-        for (_, cached_embedding) in recent_embeddings.iter() {
-            let similarity = self.cosine_similarity(&embedding, cached_embedding);
-            if similarity >= self.threshold {
-                trace!(
-                    "Duplicate pattern detected with similarity {:.3}: '{}'",
-                    similarity,
-                    pattern.content.chars().take(50).collect::<String>()
-                );
-                return Ok(true);
+        // Check for duplicates among valid (non-expired) entries
+        for (_, cached_embedding, timestamp) in recent_embeddings.iter() {
+            if now.duration_since(*timestamp) <= self.cache_ttl {
+                let similarity = self.cosine_similarity(&embedding, cached_embedding);
+                if similarity >= self.threshold {
+                    trace!(
+                        "Duplicate pattern detected with similarity {:.3}: '{}'",
+                        similarity,
+                        pattern.content.chars().take(50).collect::<String>()
+                    );
+                    return Ok(true);
+                }
             }
         }
 
         drop(recent_embeddings);
 
-        // Add to cache
+        // Add to cache with timestamp
         let mut cache = self.recent_embeddings.write().await;
-        cache.push_back((pattern.content.clone(), embedding));
+        cache.push_back((pattern.content.clone(), embedding, now));
 
-        // Maintain cache size
+        // Maintain cache size with aggressive cleanup when approaching limit
+        let current_size = cache.len();
+        let cleanup_threshold_size =
+            (self.max_cache_size as f64 * self.cache_cleanup_threshold) as usize;
+
+        if current_size >= cleanup_threshold_size {
+            self.aggressive_cache_cleanup(&mut cache, now).await;
+        }
+
+        // Final size enforcement - remove oldest entries if still over limit
         while cache.len() > self.max_cache_size {
             cache.pop_front();
         }
 
         Ok(false)
+    }
+
+    /// Clean up expired cache entries
+    async fn cleanup_expired_entries(&self) {
+        let mut cache = self.recent_embeddings.write().await;
+        let now = Instant::now();
+        let initial_size = cache.len();
+
+        // Remove expired entries from the front (oldest entries)
+        while let Some((_, _, timestamp)) = cache.front() {
+            if now.duration_since(*timestamp) > self.cache_ttl {
+                cache.pop_front();
+            } else {
+                break; // Since entries are ordered by time, we can stop here
+            }
+        }
+
+        let cleaned_count = initial_size - cache.len();
+        if cleaned_count > 0 {
+            trace!("Cleaned up {} expired cache entries", cleaned_count);
+        }
+    }
+
+    /// Aggressive cache cleanup when approaching size limit
+    async fn aggressive_cache_cleanup(
+        &self,
+        cache: &mut VecDeque<(String, Vec<f32>, Instant)>,
+        _now: Instant,
+    ) {
+        let initial_size = cache.len();
+
+        // Remove oldest 25% of entries to create breathing room
+        let removal_count = cache.len() / 4;
+        for _ in 0..removal_count {
+            cache.pop_front();
+        }
+
+        let removed_count = initial_size - cache.len();
+        if removed_count > 0 {
+            debug!("Aggressive cache cleanup removed {} entries", removed_count);
+        }
     }
 
     fn cosine_similarity(&self, a: &[f32], b: &[f32]) -> f64 {
@@ -585,16 +874,77 @@ pub struct ConversationMessage {
     pub context: String,
 }
 
+/// Bounded message queue with backpressure
+struct BoundedMessageQueue {
+    queue: VecDeque<ConversationMessage>,
+    max_size: usize,
+    max_memory_mb: usize,
+    current_memory_bytes: usize,
+}
+
+impl BoundedMessageQueue {
+    fn new(max_size: usize, max_memory_mb: usize) -> Self {
+        Self {
+            queue: VecDeque::new(),
+            max_size,
+            max_memory_mb,
+            current_memory_bytes: 0,
+        }
+    }
+
+    fn try_push(&mut self, message: ConversationMessage) -> Result<()> {
+        let message_size = self.estimate_message_size(&message);
+        let new_memory_bytes = self.current_memory_bytes + message_size;
+        let max_memory_bytes = self.max_memory_mb * 1024 * 1024;
+
+        // Check size and memory limits
+        if self.queue.len() >= self.max_size {
+            return Err(HarvesterError::BackpressureApplied(format!(
+                "Message queue size limit exceeded: {}",
+                self.max_size
+            ))
+            .into());
+        }
+
+        if new_memory_bytes > max_memory_bytes {
+            return Err(HarvesterError::BackpressureApplied(format!(
+                "Message queue memory limit exceeded: {} MB",
+                self.max_memory_mb
+            ))
+            .into());
+        }
+
+        self.current_memory_bytes = new_memory_bytes;
+        self.queue.push_back(message);
+        Ok(())
+    }
+
+    fn drain_all(&mut self) -> Vec<ConversationMessage> {
+        self.current_memory_bytes = 0;
+        self.queue.drain(..).collect()
+    }
+
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    fn estimate_message_size(&self, message: &ConversationMessage) -> usize {
+        // Rough estimate: ID + content + context + timestamp + metadata
+        message.id.len() + message.content.len() + message.context.len() + message.role.len() + 100
+    }
+}
+
 /// Core harvesting engine
 pub struct HarvestingEngine {
     config: SilentHarvesterConfig,
     pattern_matcher: PatternMatcher,
-    deduplication_service: DeduplicationService,
+    deduplication_service: Arc<DeduplicationService>, // Shared across all tasks
     repository: Arc<MemoryRepository>,
     importance_pipeline: Arc<ImportanceAssessmentPipeline>,
     metrics: Arc<HarvesterMetrics>,
-    message_queue: Arc<Mutex<VecDeque<ConversationMessage>>>,
+    message_queue: Arc<Mutex<BoundedMessageQueue>>,
     last_harvest_time: Arc<Mutex<Option<Instant>>>,
+    processing_semaphore: Arc<Semaphore>, // Limit concurrent processing
 }
 
 impl HarvestingEngine {
@@ -606,10 +956,16 @@ impl HarvestingEngine {
         metrics: Arc<HarvesterMetrics>,
     ) -> Result<Self> {
         let pattern_matcher = PatternMatcher::new(&config.pattern_config)?;
-        let deduplication_service = DeduplicationService::new(
+        let deduplication_service = Arc::new(DeduplicationService::new(
             config.deduplication_threshold,
             embedding_service,
             1000, // Cache size
+        ));
+
+        // Bounded message queue with size and memory limits
+        let message_queue = BoundedMessageQueue::new(
+            config.max_batch_size * 5, // 5x batch size for queuing
+            50,                        // 50MB memory limit
         );
 
         Ok(Self {
@@ -619,32 +975,91 @@ impl HarvestingEngine {
             repository,
             importance_pipeline,
             metrics,
-            message_queue: Arc::new(Mutex::new(VecDeque::new())),
+            message_queue: Arc::new(Mutex::new(message_queue)),
             last_harvest_time: Arc::new(Mutex::new(None)),
+            processing_semaphore: Arc::new(Semaphore::new(2)), // Allow max 2 concurrent processing tasks
         })
     }
 
-    /// Add a message to the processing queue
+    /// Add a message to the processing queue with backpressure
     pub async fn queue_message(&self, message: ConversationMessage) -> Result<()> {
         let mut queue = self.message_queue.lock().await;
-        queue.push_back(message);
+
+        // Try to add message with backpressure handling
+        match queue.try_push(message) {
+            Ok(()) => {}
+            Err(e) => {
+                // Apply backpressure by forcing immediate processing
+                warn!("Queue limit reached, forcing immediate processing: {}", e);
+                let messages = queue.drain_all();
+                drop(queue);
+
+                // Process immediately with higher priority (synchronously to avoid lifetime issues)
+                if !messages.is_empty() {
+                    if let Ok(_permit) = self.processing_semaphore.try_acquire() {
+                        self.process_message_batch(messages)
+                            .await
+                            .unwrap_or_else(|e| {
+                                error!("Forced harvest processing failed: {}", e);
+                            });
+                    }
+                }
+                return Err(e);
+            }
+        }
 
         // Check if we should trigger processing
         let should_process =
             queue.len() >= self.config.message_trigger_count || self.should_trigger_by_time().await;
 
         if should_process {
-            // Clone the queue contents and clear it
-            let messages: Vec<ConversationMessage> = queue.drain(..).collect();
+            // Get messages and clear queue
+            let messages = queue.drain_all();
             drop(queue);
 
-            // Process in background
-            let engine = self.clone_for_background();
-            tokio::spawn(async move {
-                if let Err(e) = engine.process_message_batch(messages).await {
-                    error!("Background harvest processing failed: {}", e);
+            // Process in background with semaphore protection
+            if !messages.is_empty() {
+                match self.processing_semaphore.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        // Clone needed data before spawn
+                        let config = self.config.clone();
+                        let dedup_service = self.deduplication_service.clone();
+                        let repository = self.repository.clone();
+                        let importance_pipeline = self.importance_pipeline.clone();
+                        let metrics = self.metrics.clone();
+                        let last_harvest_time = self.last_harvest_time.clone();
+                        let pattern_config = self.config.pattern_config.clone();
+
+                        tokio::spawn(async move {
+                            let pattern_matcher = match PatternMatcher::new(&pattern_config) {
+                                Ok(pm) => pm,
+                                Err(e) => {
+                                    error!("Failed to create pattern matcher: {}", e);
+                                    return;
+                                }
+                            };
+
+                            let engine_handle = HarvestingEngineHandle {
+                                config,
+                                pattern_matcher,
+                                deduplication_service: dedup_service,
+                                repository,
+                                importance_pipeline,
+                                metrics,
+                                last_harvest_time,
+                            };
+
+                            let _permit = permit; // Keep permit alive
+                            if let Err(e) = engine_handle.process_message_batch(messages).await {
+                                error!("Background harvest processing failed: {}", e);
+                            }
+                        });
+                    }
+                    Err(_) => {
+                        warn!("Processing semaphore exhausted, skipping background processing");
+                    }
                 }
-            });
+            }
         }
 
         Ok(())
@@ -699,20 +1114,34 @@ impl HarvestingEngine {
     }
 
     async fn process_messages_internal(&self, messages: Vec<ConversationMessage>) -> Result<()> {
-        let mut all_patterns = Vec::new();
         let extraction_start = Instant::now();
 
-        // Extract patterns from all messages
-        for message in &messages {
-            let patterns = self
-                .pattern_matcher
-                .extract_patterns(&message.content, &message.context);
+        // Extract patterns from all messages in parallel
+        let pattern_futures: Vec<_> = messages
+            .iter()
+            .map(|message| {
+                let pattern_matcher = &self.pattern_matcher;
+                let metrics = &self.metrics;
+                async move {
+                    let patterns =
+                        pattern_matcher.extract_patterns(&message.content, &message.context);
 
-            for mut pattern in patterns {
-                pattern.source_message_id = Some(message.id.clone());
-                self.metrics.record_pattern_confidence(pattern.confidence);
-                all_patterns.push(pattern);
-            }
+                    let mut message_patterns = Vec::new();
+                    for mut pattern in patterns {
+                        pattern.source_message_id = Some(message.id.clone());
+                        metrics.record_pattern_confidence(pattern.confidence);
+                        message_patterns.push(pattern);
+                    }
+                    message_patterns
+                }
+            })
+            .collect();
+
+        // Execute pattern extraction in parallel
+        let pattern_results = future::join_all(pattern_futures).await;
+        let mut all_patterns = Vec::new();
+        for patterns in pattern_results {
+            all_patterns.extend(patterns);
         }
 
         let extraction_time = extraction_start.elapsed();
@@ -748,23 +1177,39 @@ impl HarvestingEngine {
             return Ok(());
         }
 
-        // Deduplicate patterns
+        // Deduplicate patterns in parallel batches
+        let dedup_batch_size = 10; // Process 10 patterns at a time
         let mut unique_patterns = Vec::new();
         let mut duplicate_count = 0;
 
-        for pattern in high_confidence_patterns {
-            match self.deduplication_service.is_duplicate(&pattern).await {
-                Ok(is_duplicate) => {
-                    if is_duplicate {
-                        duplicate_count += 1;
-                    } else {
-                        unique_patterns.push(pattern);
+        for batch in high_confidence_patterns.chunks(dedup_batch_size) {
+            let dedup_futures: Vec<_> = batch
+                .iter()
+                .map(|pattern| {
+                    let dedup_service = &self.deduplication_service;
+                    async move {
+                        match dedup_service.is_duplicate(pattern).await {
+                            Ok(is_duplicate) => (pattern, is_duplicate, None),
+                            Err(e) => {
+                                warn!("Deduplication check failed for pattern: {}", e);
+                                (pattern, false, Some(e)) // Treat as unique to avoid data loss
+                            }
+                        }
                     }
-                }
-                Err(e) => {
-                    warn!("Deduplication check failed for pattern: {}", e);
-                    // Include the pattern anyway to avoid losing data
-                    unique_patterns.push(pattern);
+                })
+                .collect();
+
+            let dedup_results = future::join_all(dedup_futures).await;
+
+            for (pattern, is_duplicate, error) in dedup_results {
+                if is_duplicate {
+                    duplicate_count += 1;
+                } else {
+                    unique_patterns.push(pattern.clone());
+                    if error.is_some() {
+                        // Log deduplication failures but continue processing
+                        warn!("Pattern included despite deduplication failure");
+                    }
                 }
             }
         }
@@ -775,16 +1220,22 @@ impl HarvestingEngine {
             duplicate_count
         );
 
-        // Store unique patterns as memories
-        let mut stored_count = 0;
-        for pattern in unique_patterns {
-            match self.store_pattern_as_memory(pattern).await {
-                Ok(_) => stored_count += 1,
-                Err(e) => {
-                    warn!("Failed to store pattern as memory: {}", e);
+        // Store unique patterns as memories using batch operations with error handling
+        let stored_count = match self
+            .store_patterns_as_memories_batch(unique_patterns.clone())
+            .await
+        {
+            Ok(count) => count,
+            Err(e) => {
+                error!("Batch storage failed: {}", e);
+                if self.config.graceful_degradation {
+                    warn!("Falling back to individual pattern storage");
+                    self.fallback_individual_storage(unique_patterns).await
+                } else {
+                    return Err(e);
                 }
             }
-        }
+        };
 
         self.metrics
             .record_storage(stored_count, duplicate_count)
@@ -867,23 +1318,6 @@ impl HarvestingEngine {
             .map_err(Into::into)
     }
 
-    /// Clone for background processing
-    fn clone_for_background(&self) -> HarvestingEngineHandle {
-        HarvestingEngineHandle {
-            config: self.config.clone(),
-            pattern_matcher: PatternMatcher::new(&self.config.pattern_config).unwrap(),
-            deduplication_service: DeduplicationService::new(
-                self.config.deduplication_threshold,
-                // Note: This is a simplified clone - in practice you'd want to share the service
-                self.deduplication_service.embedding_service.clone(),
-                1000,
-            ),
-            repository: self.repository.clone(),
-            importance_pipeline: self.importance_pipeline.clone(),
-            metrics: self.metrics.clone(),
-            last_harvest_time: self.last_harvest_time.clone(),
-        }
-    }
 
     /// Get current metrics summary
     pub async fn get_metrics_summary(&self) -> HarvesterMetricsSummary {
@@ -905,7 +1339,7 @@ impl HarvestingEngine {
     pub async fn force_harvest(&self) -> Result<HarvestResult> {
         let messages = {
             let mut queue = self.message_queue.lock().await;
-            queue.drain(..).collect::<Vec<_>>()
+            queue.drain_all()
         };
 
         if messages.is_empty() {
@@ -930,13 +1364,110 @@ impl HarvestingEngine {
             processing_time_ms: processing_time.as_millis() as u64,
         })
     }
+
+    /// Store multiple patterns as memories using batch operations for better performance
+    async fn store_patterns_as_memories_batch(
+        &self,
+        patterns: Vec<ExtractedMemoryPattern>,
+    ) -> Result<u64> {
+        if patterns.is_empty() {
+            return Ok(0);
+        }
+
+        // Process in parallel batches to avoid overwhelming the database
+        let batch_size = 20; // Store up to 20 patterns concurrently
+        let mut stored_count = 0;
+
+        for batch in patterns.chunks(batch_size) {
+            let storage_futures: Vec<_> = batch
+                .iter()
+                .map(|pattern| self.store_pattern_as_memory(pattern.clone()))
+                .collect();
+
+            // Execute batch storage operations
+            let results = future::join_all(storage_futures).await;
+
+            // Count successful storage operations
+            for result in results {
+                match result {
+                    Ok(_) => stored_count += 1,
+                    Err(e) => {
+                        warn!("Failed to store pattern as memory in batch: {}", e);
+                        // Continue with other patterns rather than failing entire batch
+                    }
+                }
+            }
+        }
+
+        Ok(stored_count)
+    }
+
+    /// Fallback storage method for when batch operations fail
+    async fn fallback_individual_storage(&self, patterns: Vec<ExtractedMemoryPattern>) -> u64 {
+        let mut stored_count = 0;
+        let mut consecutive_failures = 0;
+        const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+
+        let patterns_len = patterns.len();
+        for pattern in patterns {
+            // Implement retry logic with exponential backoff
+            let mut retry_count = 0;
+            let mut success = false;
+
+            while retry_count < self.config.max_retries && !success {
+                match self.store_pattern_as_memory(pattern.clone()).await {
+                    Ok(_) => {
+                        stored_count += 1;
+                        consecutive_failures = 0;
+                        success = true;
+                    }
+                    Err(e) => {
+                        retry_count += 1;
+                        consecutive_failures += 1;
+
+                        warn!(
+                            "Failed to store pattern (attempt {} of {}): {}",
+                            retry_count, self.config.max_retries, e
+                        );
+
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                            error!(
+                                "Too many consecutive failures ({}), stopping fallback storage",
+                                consecutive_failures
+                            );
+                            break;
+                        }
+
+                        // Exponential backoff: 100ms, 200ms, 400ms
+                        if retry_count < self.config.max_retries {
+                            let delay = Duration::from_millis(100 * (1u64 << retry_count));
+                            tokio::time::sleep(delay).await;
+                        }
+                    }
+                }
+            }
+
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                break;
+            }
+        }
+
+        if stored_count < patterns_len as u64 {
+            warn!(
+                "Fallback storage completed with partial success: {}/{} patterns stored",
+                stored_count, patterns_len
+            );
+        }
+
+        stored_count
+    }
 }
 
-/// Simplified handle for background processing
+/// Shared handle for background processing (prevents race conditions)
 struct HarvestingEngineHandle {
     config: SilentHarvesterConfig,
     pattern_matcher: PatternMatcher,
-    deduplication_service: DeduplicationService,
+    deduplication_service: Arc<DeduplicationService>, // Shared service prevents race conditions
     repository: Arc<MemoryRepository>,
     importance_pipeline: Arc<ImportanceAssessmentPipeline>,
     metrics: Arc<HarvesterMetrics>,

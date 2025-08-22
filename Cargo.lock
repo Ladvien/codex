@@ -632,6 +632,7 @@ dependencies = [
  "log",
  "md5",
  "nix",
+ "nonzero_ext",
  "pgvector",
  "prometheus",
  "proptest",

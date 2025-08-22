@@ -5,7 +5,9 @@
 
 use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::mcp_server::{
+    auth::{MCPAuth, AuthContext},
     circuit_breaker::{CircuitBreaker, CircuitBreakerError},
+    rate_limiter::MCPRateLimiter,
     tools::MCPTools,
     transport::{create_error_response, create_success_response, format_tool_response},
 };
@@ -13,6 +15,7 @@ use crate::SimpleEmbedder;
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -23,6 +26,8 @@ pub struct MCPHandlers {
     embedder: Arc<SimpleEmbedder>,
     harvester_service: Arc<SilentHarvesterService>,
     circuit_breaker: Option<Arc<CircuitBreaker>>,
+    auth: Option<Arc<MCPAuth>>,
+    rate_limiter: Option<Arc<MCPRateLimiter>>,
 }
 
 impl MCPHandlers {
@@ -32,23 +37,79 @@ impl MCPHandlers {
         embedder: Arc<SimpleEmbedder>,
         harvester_service: Arc<SilentHarvesterService>,
         circuit_breaker: Option<Arc<CircuitBreaker>>,
+        auth: Option<Arc<MCPAuth>>,
+        rate_limiter: Option<Arc<MCPRateLimiter>>,
     ) -> Self {
         Self {
             repository,
             embedder,
             harvester_service,
             circuit_breaker,
+            auth,
+            rate_limiter,
         }
     }
 
-    /// Handle incoming MCP requests
+    /// Handle incoming MCP requests with authentication and rate limiting
     pub async fn handle_request(&mut self, method: &str, params: Option<&Value>, id: Option<&Value>) -> Value {
+        self.handle_request_with_headers(method, params, id, &HashMap::new()).await
+    }
+
+    /// Handle incoming MCP requests with headers for auth/rate limiting
+    pub async fn handle_request_with_headers(
+        &mut self, 
+        method: &str, 
+        params: Option<&Value>, 
+        id: Option<&Value>,
+        headers: &HashMap<String, String>
+    ) -> Value {
         debug!("Handling MCP request: {}", method);
 
+        // Skip auth for initialize method
+        if method == "initialize" {
+            return self.handle_initialize(id, params).await;
+        }
+
+        // Authenticate request
+        let auth_context = match &self.auth {
+            Some(auth) => {
+                match auth.authenticate_request(method, params, headers).await {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        error!("Authentication failed: {}", e);
+                        return create_error_response(id, -32001, &format!("Authentication failed: {}", e));
+                    }
+                }
+            }
+            None => None,
+        };
+
+        // Check rate limits
+        if let Some(ref rate_limiter) = self.rate_limiter {
+            // Determine if we're in silent mode based on the tool/method
+            let silent_mode = matches!(method, "harvest_conversation") || 
+                params.and_then(|p| p.get("silent_mode"))
+                    .and_then(|s| s.as_bool())
+                    .unwrap_or(false);
+
+            let tool_name = if method == "tools/call" {
+                params.and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown")
+            } else {
+                method
+            };
+
+            if let Err(e) = rate_limiter.check_rate_limit(auth_context.as_ref(), tool_name, silent_mode).await {
+                warn!("Rate limit exceeded for method: {}", method);
+                return create_error_response(id, -32002, "Rate limit exceeded. Please try again later.");
+            }
+        }
+
+        // Proceed with normal request handling
         match method {
-            "initialize" => self.handle_initialize(id, params).await,
             "tools/list" => self.handle_tools_list(id).await,
-            "tools/call" => self.handle_tools_call(id, params).await,
+            "tools/call" => self.handle_tools_call(id, params, auth_context.as_ref()).await,
             "resources/list" => self.handle_resources_list(id).await,
             "prompts/list" => self.handle_prompts_list(id).await,
             _ => {
@@ -83,7 +144,7 @@ impl MCPHandlers {
     }
 
     /// Handle tools/call request
-    async fn handle_tools_call(&mut self, id: Option<&Value>, params: Option<&Value>) -> Value {
+    async fn handle_tools_call(&mut self, id: Option<&Value>, params: Option<&Value>, auth_context: Option<&AuthContext>) -> Value {
         let params = match params {
             Some(p) => p,
             None => {
@@ -108,6 +169,15 @@ impl MCPHandlers {
         // Validate arguments against schema
         if let Err(error) = MCPTools::validate_tool_args(tool_name, arguments) {
             return create_error_response(id, -32602, &error);
+        }
+
+        // Validate tool access permissions if authenticated
+        if let Some(ref auth) = self.auth {
+            if let Some(context) = auth_context {
+                if let Err(e) = auth.validate_tool_access(context, tool_name) {
+                    return create_error_response(id, -32003, &format!("Access denied: {}", e));
+                }
+            }
         }
 
         debug!("Executing tool: {} with args: {}", tool_name, arguments);

@@ -3,44 +3,6 @@
 ---
 
 
-## CRITICAL-003: Consolidate MCP Protocol Implementation
-
-**Story Type:** Technical Debt  
-**Priority:** Critical  
-**Components:** MCP Protocol Layer  
-**Estimated Points:** 8  
-
-### Description
-System currently has two conflicting MCP implementations - one using proper stdio transport in main.rs and another using incorrect JSON-RPC over TCP in src/mcp/. This creates protocol conflicts and maintenance nightmares.
-
-### Acceptance Criteria
-- [ ] Single MCP implementation exists using stdio transport protocol
-- [ ] All MCP functionality consolidated in appropriate module structure
-- [ ] JSON-RPC over TCP implementation completely removed
-- [ ] All MCP tools follow MCP protocol specification 2025-06-18
-- [ ] Tool schemas properly validated and enforced
-- [ ] Silent Harvester fully integrated with MCP layer
-- [ ] "What did you remember?" query pattern properly implemented
-- [ ] Circuit breaker implementation uses proper error handling (no panic!() calls)
-- [ ] All MCP handlers properly timeout according to specifications
-- [ ] MCP server responds correctly to all standard protocol messages
-
-### References
-- MCP Protocol Specification 2025-06-18
-- Architecture Document: MCP Protocol Layer (Section 2.0)
-- Silent Memory Harvesting design patterns
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
 
 ## HIGH-001: Implement MCP Authentication and Rate Limiting
 

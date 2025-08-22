@@ -714,12 +714,7 @@ async fn start_mcp_stdio(skip_setup: bool) -> Result<()> {
     });
 
     // Create MCP server configuration
-    let mcp_config = MCPServerConfig {
-        request_timeout_ms: 30000,
-        max_request_size: 10 * 1024 * 1024, // 10MB
-        enable_circuit_breaker: true,
-        circuit_breaker: Default::default(),
-    };
+    let mcp_config = MCPServerConfig::default();
 
     // Create and start MCP server
     let mut mcp_server = MCPServer::new(repository, embedder, mcp_config)?;

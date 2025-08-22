@@ -6,17 +6,22 @@
 //! The server exposes memory management tools through the MCP protocol,
 //! allowing Claude to store, search, and manage hierarchical memories.
 
+pub mod auth;
 pub mod circuit_breaker;
 pub mod handlers;
+pub mod rate_limiter;
 pub mod tools;
 pub mod transport;
 
+pub use auth::{MCPAuth, MCPAuthConfig, AuthContext, AuthMethod};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState};
 pub use handlers::MCPHandlers;
+pub use rate_limiter::{MCPRateLimiter, MCPRateLimitConfig, RateLimitStats};
 pub use tools::MCPTools;
 pub use transport::StdioTransport;
 
 use crate::memory::{ImportanceAssessmentConfig, ImportanceAssessmentPipeline, MemoryRepository, SilentHarvesterService};
+use crate::security::{AuditConfig, audit::AuditLogger};
 use crate::SimpleEmbedder;
 use anyhow::Result;
 use std::sync::Arc;
@@ -29,6 +34,11 @@ pub struct MCPServerConfig {
     pub max_request_size: usize,
     pub enable_circuit_breaker: bool,
     pub circuit_breaker: CircuitBreakerConfig,
+    pub enable_authentication: bool,
+    pub auth: MCPAuthConfig,
+    pub enable_rate_limiting: bool,
+    pub rate_limiting: MCPRateLimitConfig,
+    pub audit: AuditConfig,
 }
 
 impl Default for MCPServerConfig {
@@ -38,6 +48,15 @@ impl Default for MCPServerConfig {
             max_request_size: 10 * 1024 * 1024, // 10MB
             enable_circuit_breaker: true,
             circuit_breaker: CircuitBreakerConfig::default(),
+            enable_authentication: std::env::var("MCP_AUTH_ENABLED")
+                .map(|s| s.parse().unwrap_or(false))
+                .unwrap_or(false),
+            auth: MCPAuthConfig::from_env(),
+            enable_rate_limiting: std::env::var("MCP_RATE_LIMIT_ENABLED")
+                .map(|s| s.parse().unwrap_or(true))
+                .unwrap_or(true),
+            rate_limiting: MCPRateLimitConfig::from_env(),
+            audit: AuditConfig::default(),
         }
     }
 }
@@ -51,6 +70,9 @@ pub struct MCPServer {
     transport: StdioTransport,
     circuit_breaker: Option<Arc<CircuitBreaker>>,
     harvester_service: Arc<SilentHarvesterService>,
+    auth: Option<Arc<MCPAuth>>,
+    rate_limiter: Option<Arc<MCPRateLimiter>>,
+    audit_logger: Arc<AuditLogger>,
 }
 
 impl MCPServer {
@@ -60,6 +82,28 @@ impl MCPServer {
         embedder: Arc<SimpleEmbedder>,
         config: MCPServerConfig,
     ) -> Result<Self> {
+        // Initialize audit logger
+        let audit_logger = Arc::new(AuditLogger::new(config.audit.clone())?);
+
+        // Initialize authentication if enabled
+        let auth = if config.enable_authentication {
+            Some(Arc::new(MCPAuth::new(
+                config.auth.clone(),
+                audit_logger.clone(),
+            )?))
+        } else {
+            None
+        };
+
+        // Initialize rate limiting if enabled
+        let rate_limiter = if config.enable_rate_limiting {
+            Some(Arc::new(MCPRateLimiter::new(
+                config.rate_limiting.clone(),
+                audit_logger.clone(),
+            )))
+        } else {
+            None
+        };
         // Initialize Silent Harvester Service
         let importance_config = ImportanceAssessmentConfig::default();
         let importance_pipeline = Arc::new(ImportanceAssessmentPipeline::new(
@@ -89,6 +133,8 @@ impl MCPServer {
             embedder.clone(),
             harvester_service.clone(),
             circuit_breaker.clone(),
+            auth.clone(),
+            rate_limiter.clone(),
         );
 
         // Create transport
@@ -102,6 +148,9 @@ impl MCPServer {
             transport,
             circuit_breaker,
             harvester_service,
+            auth,
+            rate_limiter,
+            audit_logger,
         })
     }
 
@@ -126,6 +175,18 @@ impl MCPServer {
             None
         };
 
+        let auth_stats = if let Some(ref auth) = self.auth {
+            Some(auth.get_stats().await)
+        } else {
+            None
+        };
+
+        let rate_limit_stats = if let Some(ref rl) = self.rate_limiter {
+            Some(rl.get_status().await)
+        } else {
+            None
+        };
+
         Ok(serde_json::json!({
             "server": {
                 "protocol_version": "2025-06-18",
@@ -133,11 +194,17 @@ impl MCPServer {
                 "uptime_seconds": std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_secs()
+                    .as_secs(),
+                "security": {
+                    "authentication_enabled": self.config.enable_authentication,
+                    "rate_limiting_enabled": self.config.enable_rate_limiting,
+                }
             },
             "memory_system": repo_stats,
             "harvester": harvester_metrics,
-            "circuit_breaker": circuit_breaker_stats
+            "circuit_breaker": circuit_breaker_stats,
+            "authentication": auth_stats,
+            "rate_limiting": rate_limit_stats
         }))
     }
 

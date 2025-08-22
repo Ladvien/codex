@@ -290,11 +290,12 @@ impl MemoryRepository {
     }
 
     async fn hybrid_search(&self, request: &SearchRequest) -> Result<Vec<SearchResult>> {
+        // Use three-component scoring weights (default: equal weighting)
         let weights = request.hybrid_weights.as_ref().unwrap_or(&HybridWeights {
-            semantic_weight: 0.4,
-            temporal_weight: 0.3,
-            importance_weight: 0.2,
-            access_frequency_weight: 0.1,
+            semantic_weight: 0.333,
+            temporal_weight: 0.333, // Maps to recency_score
+            importance_weight: 0.334,
+            access_frequency_weight: 0.0, // Included in relevance_score
         });
 
         let query_embedding = if let Some(ref embedding) = request.query_embedding {
@@ -309,30 +310,46 @@ impl MemoryRepository {
         let offset = request.offset.unwrap_or(0);
         let threshold = request.similarity_threshold.unwrap_or(0.5);
 
+        // Update all scores before searching for real-time accuracy
+        sqlx::query(
+            r#"
+            UPDATE memories 
+            SET recency_score = calculate_recency_score(last_accessed_at, created_at, 0.005),
+                relevance_score = LEAST(1.0, 
+                    0.5 * importance_score + 
+                    0.3 * LEAST(1.0, access_count / 100.0) + 
+                    0.2
+                )
+            WHERE status = 'active' AND embedding IS NOT NULL
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
         let query = format!(
             r#"
             SELECT m.*,
                 1 - (m.embedding <=> $1) as similarity_score,
-                EXTRACT(EPOCH FROM (NOW() - m.created_at))::float / 86400 as days_old,
+                m.recency_score as temporal_score,
                 m.importance_score,
+                m.relevance_score,
                 COALESCE(m.access_count, 0) as access_count,
-                (
-                    {} * (1 - (m.embedding <=> $1)) +
-                    {} * GREATEST(0, 1 - (EXTRACT(EPOCH FROM (NOW() - m.created_at))::float / 2592000)) + -- 30 days
-                    {} * m.importance_score +
-                    {} * LEAST(1.0, COALESCE(m.access_count, 0)::float / 100.0)
+                calculate_combined_score(
+                    m.recency_score, 
+                    m.importance_score, 
+                    m.relevance_score,
+                    {}, {}, {}
                 ) as combined_score
             FROM memories m
             WHERE m.status = 'active'
                 AND m.embedding IS NOT NULL
                 AND 1 - (m.embedding <=> $1) >= {}
-            ORDER BY combined_score DESC
+            ORDER BY combined_score DESC, similarity_score DESC
             LIMIT {} OFFSET {}
             "#,
-            weights.semantic_weight,
-            weights.temporal_weight,
-            weights.importance_weight,
-            weights.access_frequency_weight,
+            weights.temporal_weight,   // recency_weight
+            weights.importance_weight, // importance_weight
+            weights.semantic_weight,   // relevance_weight (includes semantic similarity)
             threshold,
             limit,
             offset
@@ -438,6 +455,8 @@ impl MemoryRepository {
                 decay_rate: row.try_get("decay_rate").unwrap_or(1.0),
                 recall_probability: row.try_get("recall_probability")?,
                 last_recall_interval: row.try_get("last_recall_interval")?,
+                recency_score: row.try_get("recency_score").unwrap_or(0.0),
+                relevance_score: row.try_get("relevance_score").unwrap_or(0.0),
             };
 
             let similarity_score: f32 = row.try_get("similarity_score").unwrap_or(0.0);
@@ -1157,6 +1176,110 @@ impl MemoryRepository {
         query_builder = query_builder.bind(limit).bind(offset);
 
         let memories = query_builder.fetch_all(&self.pool).await?;
+        Ok(memories)
+    }
+
+    /// Update three-component scores for specific memory
+    pub async fn update_memory_scores(
+        &self,
+        memory_id: Uuid,
+        recency_score: f64,
+        relevance_score: f64,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE memories 
+            SET recency_score = $2, 
+                relevance_score = $3,
+                updated_at = NOW()
+            WHERE id = $1 AND status = 'active'
+            "#,
+        )
+        .bind(memory_id)
+        .bind(recency_score)
+        .bind(relevance_score)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Batch update three-component scores for all active memories
+    pub async fn batch_update_three_component_scores(&self) -> Result<i64> {
+        let start_time = Instant::now();
+        
+        let result = sqlx::query(
+            r#"
+            UPDATE memories 
+            SET recency_score = calculate_recency_score(last_accessed_at, created_at, 0.005),
+                relevance_score = LEAST(1.0, 
+                    0.5 * importance_score + 
+                    0.3 * LEAST(1.0, access_count / 100.0) + 
+                    0.2
+                ),
+                updated_at = NOW()
+            WHERE status = 'active'
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let duration = start_time.elapsed();
+        info!(
+            "Updated three-component scores for {} memories in {:?}",
+            result.rows_affected(),
+            duration
+        );
+
+        Ok(result.rows_affected() as i64)
+    }
+
+    /// Get memories ranked by three-component combined score
+    pub async fn get_memories_by_combined_score(
+        &self,
+        tier: Option<MemoryTier>,
+        limit: Option<i32>,
+        recency_weight: Option<f64>,
+        importance_weight: Option<f64>,
+        relevance_weight: Option<f64>,
+    ) -> Result<Vec<Memory>> {
+        let limit = limit.unwrap_or(50);
+        let recency_w = recency_weight.unwrap_or(0.333);
+        let importance_w = importance_weight.unwrap_or(0.333);
+        let relevance_w = relevance_weight.unwrap_or(0.334);
+
+        let mut query_parts = vec![
+            format!(
+                r#"
+                SELECT m.*
+                FROM memories m
+                WHERE m.status = 'active'
+                "#
+            )
+        ];
+
+        if let Some(tier) = tier {
+            query_parts.push(format!("AND m.tier = '{tier:?}'"));
+        }
+
+        query_parts.push(format!(
+            "ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, {}, {}, {}) DESC, m.updated_at DESC",
+            recency_w, importance_w, relevance_w
+        ));
+        query_parts.push(format!("LIMIT {limit}"));
+
+        let query = query_parts.join(" ");
+        
+        let memories = sqlx::query_as::<_, Memory>(&query)
+            .fetch_all(&self.pool)
+            .await?;
+
+        debug!(
+            "Retrieved {} memories ranked by three-component score for tier {:?}",
+            memories.len(),
+            tier
+        );
+
         Ok(memories)
     }
 }

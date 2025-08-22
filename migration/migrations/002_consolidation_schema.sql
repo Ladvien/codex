@@ -10,14 +10,23 @@ ALTER TABLE memories
 ADD COLUMN IF NOT EXISTS consolidation_strength FLOAT DEFAULT 1.0,
 ADD COLUMN IF NOT EXISTS decay_rate FLOAT DEFAULT 1.0,
 ADD COLUMN IF NOT EXISTS recall_probability FLOAT,
-ADD COLUMN IF NOT EXISTS last_recall_interval INTERVAL;
+ADD COLUMN IF NOT EXISTS last_recall_interval INTERVAL,
+ADD COLUMN IF NOT EXISTS recency_score FLOAT DEFAULT 0.0,
+ADD COLUMN IF NOT EXISTS relevance_score FLOAT DEFAULT 0.0;
 
--- Update existing memories with default consolidation values
+-- Update existing memories with default consolidation values and initial scores
 UPDATE memories 
 SET consolidation_strength = 1.0,
     decay_rate = 1.0,
     recall_probability = 0.8,
-    last_recall_interval = INTERVAL '0 seconds'
+    last_recall_interval = INTERVAL '0 seconds',
+    recency_score = CASE 
+        WHEN last_accessed_at IS NOT NULL THEN 
+            EXP(-0.005 * EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 3600.0)
+        ELSE 
+            EXP(-0.005 * EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0)
+    END,
+    relevance_score = 0.5 * importance_score + 0.3 * LEAST(1.0, access_count / 100.0) + 0.2
 WHERE consolidation_strength IS NULL;
 
 -- Create memory_consolidation_log table for tracking consolidation events
@@ -89,6 +98,20 @@ ON memories (decay_rate);
 CREATE INDEX IF NOT EXISTS memories_last_recall_interval_idx 
 ON memories (last_recall_interval);
 
+-- Create indexes for three-component scoring columns
+CREATE INDEX IF NOT EXISTS memories_recency_score_idx 
+ON memories (recency_score DESC);
+
+CREATE INDEX IF NOT EXISTS memories_relevance_score_idx 
+ON memories (relevance_score DESC);
+
+-- Composite index for three-component combined scoring
+CREATE INDEX IF NOT EXISTS memories_combined_score_idx 
+ON memories (
+    (0.333 * recency_score + 0.333 * importance_score + 0.334 * relevance_score) DESC,
+    tier, status
+) WHERE status = 'active';
+
 -- Composite indexes for efficient tier migration queries
 CREATE INDEX IF NOT EXISTS memories_tier_recall_prob_idx 
 ON memories (tier, recall_probability DESC) 
@@ -109,6 +132,14 @@ CHECK (decay_rate >= 0.0 AND decay_rate <= 5.0);
 ALTER TABLE memories 
 ADD CONSTRAINT check_recall_probability 
 CHECK (recall_probability >= 0.0 AND recall_probability <= 1.0);
+
+ALTER TABLE memories 
+ADD CONSTRAINT check_recency_score 
+CHECK (recency_score >= 0.0 AND recency_score <= 1.0);
+
+ALTER TABLE memories 
+ADD CONSTRAINT check_relevance_score 
+CHECK (relevance_score >= 0.0 AND relevance_score <= 1.0);
 
 -- Create database function for calculating recall probability using forgetting curve
 CREATE OR REPLACE FUNCTION calculate_recall_probability(
@@ -159,12 +190,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
+-- Create function for calculating three-component combined score
+CREATE OR REPLACE FUNCTION calculate_combined_score(
+    p_recency_score FLOAT,
+    p_importance_score FLOAT,
+    p_relevance_score FLOAT,
+    p_recency_weight FLOAT DEFAULT 0.333,
+    p_importance_weight FLOAT DEFAULT 0.333,
+    p_relevance_weight FLOAT DEFAULT 0.334
+) RETURNS FLOAT AS $$
+BEGIN
+    RETURN LEAST(1.0, GREATEST(0.0,
+        p_recency_weight * p_recency_score +
+        p_importance_weight * p_importance_score +
+        p_relevance_weight * p_relevance_score
+    ));
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- Create function for updating recency score based on time elapsed
+CREATE OR REPLACE FUNCTION calculate_recency_score(
+    p_last_accessed_at TIMESTAMP WITH TIME ZONE,
+    p_created_at TIMESTAMP WITH TIME ZONE,
+    p_decay_lambda FLOAT DEFAULT 0.005
+) RETURNS FLOAT AS $$
+DECLARE
+    reference_time TIMESTAMP WITH TIME ZONE;
+    hours_elapsed FLOAT;
+BEGIN
+    -- Use last accessed time if available, otherwise creation time
+    reference_time := COALESCE(p_last_accessed_at, p_created_at);
+    
+    -- Calculate hours elapsed
+    hours_elapsed := EXTRACT(EPOCH FROM (NOW() - reference_time)) / 3600.0;
+    
+    -- Apply exponential decay: e^(-λt)
+    RETURN GREATEST(0.0, LEAST(1.0, EXP(-p_decay_lambda * hours_elapsed)));
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Create trigger function for automatic consolidation updates
 CREATE OR REPLACE FUNCTION trigger_consolidation_update() RETURNS TRIGGER AS $$
 DECLARE
     time_diff INTERVAL;
     new_consolidation FLOAT;
     new_recall_prob FLOAT;
+    new_recency_score FLOAT;
+    new_relevance_score FLOAT;
+    hours_elapsed FLOAT;
 BEGIN
     -- Only trigger on access updates (when last_accessed_at changes)
     IF TG_OP = 'UPDATE' AND OLD.last_accessed_at != NEW.last_accessed_at THEN
@@ -185,10 +258,22 @@ BEGIN
             INTERVAL '0 seconds' -- Just accessed, so immediate recall
         );
         
+        -- Calculate new recency score using the function
+        new_recency_score := calculate_recency_score(NEW.last_accessed_at, NEW.created_at, 0.005);
+        
+        -- Calculate new relevance score (access pattern + importance + base relevance)
+        new_relevance_score := LEAST(1.0, 
+            0.5 * NEW.importance_score + 
+            0.3 * LEAST(1.0, (NEW.access_count + 1) / 100.0) + 
+            0.2
+        );
+        
         -- Update the new record
         NEW.consolidation_strength := new_consolidation;
         NEW.recall_probability := new_recall_prob;
         NEW.last_recall_interval := time_diff;
+        NEW.recency_score := new_recency_score;
+        NEW.relevance_score := new_relevance_score;
         
         -- Log the consolidation event
         INSERT INTO memory_consolidation_log (

@@ -35,6 +35,9 @@ pub enum MemoryError {
     #[error("Invalid request: {message}")]
     InvalidRequest { message: String },
 
+    #[error("Math engine error: {0}")]
+    MathEngine(#[from] super::math_engine::MathEngineError),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }

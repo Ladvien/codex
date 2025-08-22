@@ -84,6 +84,9 @@ pub struct Memory {
     pub decay_rate: f64,
     pub recall_probability: Option<f64>,
     pub last_recall_interval: Option<PgInterval>,
+    // Three-component scoring fields
+    pub recency_score: f64,
+    pub relevance_score: f64,
 }
 
 impl Serialize for Memory {
@@ -92,7 +95,7 @@ impl Serialize for Memory {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Memory", 19)?;
+        let mut state = serializer.serialize_struct("Memory", 21)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("content", &self.content)?;
         state.serialize_field("content_hash", &self.content_hash)?;
@@ -114,6 +117,8 @@ impl Serialize for Memory {
             "last_recall_interval",
             &self.last_recall_interval.as_ref().map(|i| i.microseconds),
         )?;
+        state.serialize_field("recency_score", &self.recency_score)?;
+        state.serialize_field("relevance_score", &self.relevance_score)?;
         state.end()
     }
 }
@@ -251,7 +256,7 @@ pub struct UpdateMemoryRequest {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchRequest {
     // Query options
     pub query_text: Option<String>,
@@ -392,6 +397,8 @@ impl Default for Memory {
             decay_rate: 1.0,
             recall_probability: None,
             last_recall_interval: None,
+            recency_score: 0.0,
+            relevance_score: 0.0,
         }
     }
 }
@@ -462,9 +469,14 @@ impl Memory {
 
         match engine.calculate_recall_probability(&params) {
             Ok(result) => Some(result.recall_probability),
-            Err(_) => {
-                // Fallback to a conservative estimate if calculation fails
-                Some(0.1)
+            Err(e) => {
+                tracing::warn!(
+                    "Recall probability calculation failed for memory {}: {}. Using fallback.", 
+                    self.id, e
+                );
+                // Use mathematically principled fallback based on importance and consolidation
+                let fallback = (self.importance_score * self.consolidation_strength / 10.0).min(1.0).max(0.0);
+                Some(fallback)
             }
         }
     }

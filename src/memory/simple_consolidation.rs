@@ -34,9 +34,10 @@ pub struct SimpleConsolidationConfig {
 
 impl Default for SimpleConsolidationConfig {
     fn default() -> Self {
+        use super::math_engine::constants;
         Self {
             base_recall_strength: 0.95,
-            migration_threshold: 0.86,
+            migration_threshold: constants::COLD_MIGRATION_THRESHOLD,
             max_consolidation_strength: 10.0,
             time_scale_factor: 0.1, // Much slower time decay
         }

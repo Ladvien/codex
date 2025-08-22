@@ -47,8 +47,8 @@ pub mod constants {
     pub const MATHEMATICAL_TOLERANCE: f64 = 0.001;
 
     /// Default thresholds for tier migration
-    pub const COLD_MIGRATION_THRESHOLD: f64 = 0.86;
-    pub const FROZEN_MIGRATION_THRESHOLD: f64 = 0.3;
+    pub const COLD_MIGRATION_THRESHOLD: f64 = 0.5;
+    pub const FROZEN_MIGRATION_THRESHOLD: f64 = 0.2;
 
     /// Default consolidation parameters
     pub const DEFAULT_CONSOLIDATION_STRENGTH: f64 = 1.0;

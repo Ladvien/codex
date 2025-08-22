@@ -40,7 +40,7 @@ mod tests {
         let config = SimpleConsolidationConfig::default();
 
         assert_eq!(config.base_recall_strength, 0.95);
-        assert_eq!(config.migration_threshold, 0.86);
+        assert_eq!(config.migration_threshold, 0.5);
         assert_eq!(config.max_consolidation_strength, 10.0);
         // similarity_weight removed - now using direct multiplication
         assert_eq!(config.time_scale_factor, 0.1);

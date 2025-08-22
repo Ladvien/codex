@@ -1,5 +1,6 @@
 use super::error::{MemoryError, Result};
 use super::event_triggers::EventTriggeredScoringEngine;
+use super::math_engine::constants;
 use super::models::*;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -898,7 +899,7 @@ impl MemoryRepository {
                 AVG(recall_probability) as avg_recall_probability,
                 AVG(decay_rate) as avg_decay_rate,
                 AVG(EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400) as avg_age_days,
-                COUNT(*) FILTER (WHERE recall_probability < 0.3) as migration_candidates,
+                COUNT(*) FILTER (WHERE recall_probability < $1) as migration_candidates,
                 COUNT(*) FILTER (WHERE last_accessed_at IS NULL) as never_accessed,
                 COUNT(*) FILTER (WHERE last_accessed_at > NOW() - INTERVAL '24 hours') as accessed_recently
             FROM memories 
@@ -913,6 +914,7 @@ impl MemoryRepository {
                 END
             "#,
         )
+        .bind(constants::FROZEN_MIGRATION_THRESHOLD)
         .fetch_all(&self.pool)
         .await?;
 
@@ -1633,7 +1635,7 @@ impl MemoryRepository {
             ORDER BY 
                 CASE 
                     WHEN recall_probability IS NULL THEN 1
-                    WHEN recall_probability < 0.86 THEN 2
+                    WHEN recall_probability < $2 THEN 2
                     ELSE 3
                 END,
                 last_accessed_at ASC NULLS FIRST,
@@ -1645,6 +1647,7 @@ impl MemoryRepository {
 
         let memories = sqlx::query_as::<_, Memory>(&query)
             .bind(batch_size as i64)
+            .bind(constants::COLD_MIGRATION_THRESHOLD)
             .fetch_all(&self.pool)
             .await?;
 
@@ -1812,7 +1815,7 @@ impl MemoryRepository {
         let stats = sqlx::query_as::<_, SimpleConsolidationStats>(
             r#"
             SELECT 
-                COUNT(*) FILTER (WHERE recall_probability < 0.86) as migration_candidates,
+                COUNT(*) FILTER (WHERE recall_probability < $1) as migration_candidates,
                 COUNT(*) FILTER (WHERE consolidation_strength > 5.0) as highly_consolidated,
                 AVG(consolidation_strength) as avg_consolidation_strength,
                 AVG(recall_probability) as avg_recall_probability,
@@ -1822,6 +1825,7 @@ impl MemoryRepository {
             WHERE status = 'active'
             "#,
         )
+        .bind(constants::COLD_MIGRATION_THRESHOLD)
         .fetch_one(&self.pool)
         .await?;
 

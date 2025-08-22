@@ -6,6 +6,9 @@ use sqlx::FromRow;
 use std::str::FromStr;
 use uuid::Uuid;
 
+use super::math_engine::constants;
+use super::simple_consolidation::{SimpleConsolidationConfig, SimpleConsolidationEngine};
+
 #[derive(Debug, Clone)]
 pub struct SerializableVector(pub Option<Vector>);
 
@@ -417,10 +420,6 @@ impl Memory {
     }
 
     pub fn should_migrate(&self) -> bool {
-        use crate::memory::simple_consolidation::{
-            SimpleConsolidationConfig, SimpleConsolidationEngine,
-        };
-
         // Frozen tier never migrates
         if matches!(self.tier, MemoryTier::Frozen) {
             return false;
@@ -431,7 +430,7 @@ impl Memory {
 
         // Use the simple consolidation engine to calculate recall probability
         match engine.calculate_recall_probability(self, None) {
-            Ok(recall_prob) => recall_prob < 0.86, // Story 2 threshold
+            Ok(recall_prob) => recall_prob < constants::COLD_MIGRATION_THRESHOLD,
             Err(_) => {
                 // Fallback to basic heuristics if calculation fails
                 match self.tier {

@@ -1,9 +1,17 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use backoff::{future::retry, ExponentialBackoff};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{info, warn};
+
+/// Trait for embedding services
+#[async_trait]
+pub trait EmbeddingService: Send + Sync {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>>;
+    async fn health_check(&self) -> Result<()>;
+}
 
 #[derive(Debug, Clone)]
 pub struct SimpleEmbedder {
@@ -174,7 +182,7 @@ impl SimpleEmbedder {
 
         let response = self
             .client
-            .post(&format!("{}/v1/embeddings", self.base_url))
+            .post(format!("{}/v1/embeddings", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&request)
@@ -217,7 +225,7 @@ impl SimpleEmbedder {
 
         let response = self
             .client
-            .post(&format!("{}/api/embeddings", self.base_url))
+            .post(format!("{}/api/embeddings", self.base_url))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -441,7 +449,7 @@ impl SimpleEmbedder {
         base_url: &str,
     ) -> Result<Vec<EmbeddingModelInfo>> {
         let response = client
-            .get(&format!("{}/api/tags", base_url))
+            .get(format!("{base_url}/api/tags"))
             .send()
             .await
             .context("Failed to connect to Ollama API")?;
@@ -540,6 +548,25 @@ impl SimpleEmbedder {
         available_models
             .first()
             .ok_or_else(|| anyhow::anyhow!("No embedding models available"))
+    }
+}
+
+#[async_trait]
+impl EmbeddingService for SimpleEmbedder {
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
+        SimpleEmbedder::generate_embedding(self, text).await
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        let health = SimpleEmbedder::health_check(self).await?;
+        if health.status == "healthy" {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "Embedding service unhealthy: {:?}",
+                health.error
+            ))
+        }
     }
 }
 

@@ -53,9 +53,7 @@ use super::insight_loop_prevention::{
     LoopPreventionConfig, LoopPreventionEngine, PreventionAction,
 };
 use super::models::*;
-use super::reflection_engine::{
-    Insight, ReflectionConfig, ReflectionEngine, ReflectionSession,
-};
+use super::reflection_engine::{Insight, ReflectionConfig, ReflectionEngine, ReflectionSession};
 use super::repository::MemoryRepository;
 use super::three_component_scoring::{
     EnhancedSearchService, ScoringContext, ThreeComponentConfig, ThreeComponentEngine,

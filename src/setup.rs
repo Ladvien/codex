@@ -105,7 +105,7 @@ impl SetupManager {
 
         let response = self
             .client
-            .get(&format!("{}/api/tags", self.config.embedding.base_url))
+            .get(format!("{}/api/tags", self.config.embedding.base_url))
             .send()
             .await
             .context("Failed to connect to Ollama. Is it running and accessible?")?;
@@ -127,7 +127,7 @@ impl SetupManager {
 
         let response = self
             .client
-            .get(&format!("{}/api/tags", self.config.embedding.base_url))
+            .get(format!("{}/api/tags", self.config.embedding.base_url))
             .send()
             .await?;
 
@@ -286,7 +286,7 @@ impl SetupManager {
 
         let response = self
             .client
-            .post(&format!("{}/api/pull", self.config.embedding.base_url))
+            .post(format!("{}/api/pull", self.config.embedding.base_url))
             .json(&request)
             .send()
             .await?;
@@ -369,7 +369,7 @@ impl SetupManager {
                 info!("  📊 Embedding dimensions: {}", embedding.len());
                 info!(
                     "  📊 Sample values: [{:.4}, {:.4}, {:.4}, ...]",
-                    embedding.get(0).unwrap_or(&0.0),
+                    embedding.first().unwrap_or(&0.0),
                     embedding.get(1).unwrap_or(&0.0),
                     embedding.get(2).unwrap_or(&0.0)
                 );

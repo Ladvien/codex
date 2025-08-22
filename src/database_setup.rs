@@ -462,7 +462,7 @@ impl DatabaseSetup {
             .join(",");
         client
             .execute(
-                &format!("INSERT INTO memories (content, embedding) VALUES ($1, '[{}]'::vector) ON CONFLICT DO NOTHING", test_vector),
+                &format!("INSERT INTO memories (content, embedding) VALUES ($1, '[{test_vector}]'::vector) ON CONFLICT DO NOTHING"),
                 &[&"Setup test memory"],
             )
             .await
@@ -476,10 +476,7 @@ impl DatabaseSetup {
             .join(",");
         client
             .query(
-                &format!(
-                    "SELECT content FROM memories ORDER BY embedding <-> '[{}]'::vector LIMIT 1",
-                    query_vector
-                ),
+                &format!("SELECT content FROM memories ORDER BY embedding <-> '[{query_vector}]'::vector LIMIT 1"),
                 &[],
             )
             .await
@@ -515,7 +512,7 @@ impl DatabaseSetup {
             Ok(_) => health.connectivity = true,
             Err(e) => {
                 health.connectivity = false;
-                health.issues.push(format!("Connectivity failed: {}", e));
+                health.issues.push(format!("Connectivity failed: {e}"));
             }
         }
 
@@ -535,7 +532,7 @@ impl DatabaseSetup {
             Err(e) => {
                 health
                     .issues
-                    .push(format!("Failed to check pgvector: {}", e));
+                    .push(format!("Failed to check pgvector: {e}"));
             }
         }
 
@@ -552,13 +549,13 @@ impl DatabaseSetup {
             {
                 Ok(rows) => {
                     if rows.is_empty() {
-                        health.issues.push(format!("Table '{}' missing", table));
+                        health.issues.push(format!("Table '{table}' missing"));
                     } else {
                         tables_found += 1;
                     }
                 }
                 Err(e) => {
-                    health.issues.push(format!("Failed to check table {}: {}", table, e));
+                    health.issues.push(format!("Failed to check table {table}: {e}"));
                 }
             }
         }
@@ -573,7 +570,7 @@ impl DatabaseSetup {
             Err(e) => {
                 health
                     .issues
-                    .push(format!("Failed to get memory count: {}", e));
+                    .push(format!("Failed to get memory count: {e}"));
             }
         }
 

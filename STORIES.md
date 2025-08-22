@@ -1,34 +1,5 @@
 # Epic: Upgrade Memory System to SOTA Cognitive Architecture
 
-## Story 2: Add Memory Consolidation Mechanics
-**Assignee:** Cognitive Subagent  
-**Story Points:** 13  
-**Priority:** Critical  
-**Dependencies:** Story 1
-
-**Description:**
-Implement consolidation strength tracking that increases with recalls, mimicking human memory.
-
-**Acceptance Criteria:**
-- [ ] Add `consolidation_strength` field (FLOAT, default 1.0)
-- [ ] Add `decay_rate` field (FLOAT, default 1.0)
-- [ ] Add `recall_count` field (INTEGER, default 0)
-- [ ] Add `last_recall_interval` field (INTERVAL)
-- [ ] Implement formula: P(recall) = r × exp(-g × t / (1 + n)) × cos_similarity
-- [ ] Update consolidation_strength on each access: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
-- [ ] Trigger tier migration when P(recall) < 0.86
-- [ ] Create background job for consolidation calculations
-
-**Definition of Done:**
-- Mathematical tests verify consolidation formula
-- Consolidation increases with repeated access
-- Tier migrations trigger at correct thresholds
-- Background job runs without blocking operations
-- Performance: batch process 1000 memories in < 1 second
-- Metrics track consolidation patterns
-
----
-
 ## Story 3: Build Multi-Stage Importance Assessment Pipeline
 **Assignee:** ML Subagent  
 **Story Points:** 8  

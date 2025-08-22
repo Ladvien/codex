@@ -421,6 +421,11 @@ impl Memory {
             SimpleConsolidationConfig, SimpleConsolidationEngine,
         };
 
+        // Frozen tier never migrates
+        if matches!(self.tier, MemoryTier::Frozen) {
+            return false;
+        }
+
         let config = SimpleConsolidationConfig::default();
         let engine = SimpleConsolidationEngine::new(config);
 

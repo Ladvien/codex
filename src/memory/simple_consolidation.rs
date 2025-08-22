@@ -28,9 +28,6 @@ pub struct SimpleConsolidationConfig {
     /// Maximum consolidation strength
     pub max_consolidation_strength: f64,
 
-    /// Similarity weight in recall calculation
-    pub similarity_weight: f64,
-
     /// Time scaling factor (hours to normalized units)
     pub time_scale_factor: f64,
 }
@@ -41,7 +38,6 @@ impl Default for SimpleConsolidationConfig {
             base_recall_strength: 0.95,
             migration_threshold: 0.86,
             max_consolidation_strength: 10.0,
-            similarity_weight: 0.1,
             time_scale_factor: 0.1, // Much slower time decay
         }
     }
@@ -92,11 +88,11 @@ impl SimpleConsolidationEngine {
         // Base recall calculation: r × exp(-g × t / (1 + n))
         let base_recall = r * (-g * t_normalized / (1.0 + n)).exp();
 
-        // Apply cosine similarity if available
+        // Apply cosine similarity if available (Story 2 formula: direct multiplication)
         let similarity_factor = cos_similarity.unwrap_or(1.0);
-        let weighted_similarity = 1.0 + (similarity_factor - 1.0) * self.config.similarity_weight;
 
-        let recall_probability = base_recall * weighted_similarity;
+        // Story 2 formula: P(recall) = r × exp(-g × t / (1 + n)) × cos_similarity
+        let recall_probability = base_recall * similarity_factor;
 
         // Ensure bounds [0, 1]
         Ok(recall_probability.max(0.0).min(1.0))

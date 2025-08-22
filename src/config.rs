@@ -186,11 +186,11 @@ impl Config {
             std::env::set_var("RUST_LOG", mcp_log_level);
         }
 
-        let mut config = Config::default();
-
-        // Database URL - support multiple environment variable names for flexibility
-        config.database_url = Self::get_database_url_from_env()
-            .map_err(|e| anyhow::anyhow!("Database configuration error: {}", e))?;
+        let mut config = Config {
+            database_url: Self::get_database_url_from_env()
+                .map_err(|e| anyhow::anyhow!("Database configuration error: {e}"))?,
+            ..Config::default()
+        };
 
         // Embedding configuration
         if let Ok(provider) = env::var("EMBEDDING_PROVIDER") {
@@ -362,12 +362,9 @@ impl Config {
             let port = env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
 
             if password.is_empty() {
-                return Ok(format!("postgresql://{}@{}:{}/{}", user, host, port, db));
+                return Ok(format!("postgresql://{user}@{host}:{port}/{db}"));
             } else {
-                return Ok(format!(
-                    "postgresql://{}:{}@{}:{}/{}",
-                    user, password, host, port, db
-                ));
+                return Ok(format!("postgresql://{user}:{password}@{host}:{port}/{db}"));
             }
         }
 
@@ -500,7 +497,7 @@ impl Config {
         report.push_str("\nValidation Results:\n");
         match self.validate_mcp_environment() {
             Ok(_) => report.push_str("  ✅ All configuration checks passed\n"),
-            Err(e) => report.push_str(&format!("  ❌ Configuration error: {}\n", e)),
+            Err(e) => report.push_str(&format!("  ❌ Configuration error: {e}\n")),
         }
 
         report.push_str("\n=== End Configuration Report ===\n");

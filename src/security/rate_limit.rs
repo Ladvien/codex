@@ -18,27 +18,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+// Type aliases to reduce complexity
+type GovernorLimiter = GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>;
+type IpLimiters = Arc<RwLock<HashMap<IpAddr, Arc<GovernorLimiter>>>>;
+type UserLimiters = Arc<RwLock<HashMap<String, Arc<GovernorLimiter>>>>;
+
 /// Rate limiting manager
 pub struct RateLimitManager {
     config: RateLimitConfig,
-    ip_limiters: Arc<
-        RwLock<
-            HashMap<
-                IpAddr,
-                Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
-            >,
-        >,
-    >,
-    user_limiters: Arc<
-        RwLock<
-            HashMap<
-                String,
-                Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
-            >,
-        >,
-    >,
-    global_limiter:
-        Option<Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>>,
+    ip_limiters: IpLimiters,
+    user_limiters: UserLimiters,
+    global_limiter: Option<Arc<GovernorLimiter>>,
 }
 
 impl RateLimitManager {
@@ -231,14 +221,14 @@ pub async fn rate_limit_middleware(
     }
 
     // Check global rate limit first
-    if let Err(_) = rate_limiter.check_global_limit().await {
+    if rate_limiter.check_global_limit().await.is_err() {
         warn!("Global rate limit exceeded");
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
     // Check IP-based rate limit
     let ip = addr.ip();
-    if let Err(_) = rate_limiter.check_ip_limit(ip).await {
+    if rate_limiter.check_ip_limit(ip).await.is_err() {
         warn!("IP rate limit exceeded for: {}", ip);
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
@@ -247,7 +237,7 @@ pub async fn rate_limit_middleware(
     if rate_limiter.config.per_user {
         if let Some(user_header) = headers.get("X-User-ID") {
             if let Ok(user_id) = user_header.to_str() {
-                if let Err(_) = rate_limiter.check_user_limit(user_id).await {
+                if rate_limiter.check_user_limit(user_id).await.is_err() {
                     warn!("User rate limit exceeded for: {}", user_id);
                     return Err(StatusCode::TOO_MANY_REQUESTS);
                 }

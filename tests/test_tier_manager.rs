@@ -364,7 +364,7 @@ async fn test_batch_migration_performance() -> Result<()> {
 #[tokio::test]
 async fn test_migration_history_logging() -> Result<()> {
     let pool = create_test_pool().await?;
-    let repository = Arc::new(MemoryRepository::new(pool));
+    let repository = Arc::new(MemoryRepository::new(pool.clone()));
     
     let memory = create_test_memory(
         &repository,

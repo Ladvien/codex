@@ -485,8 +485,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let audit_config = AuditConfig {
             enabled: true,
-            log_file: temp_dir.path().join("test.log"),
-            ..Default::default()
+            log_all_requests: true,
+            log_data_access: true, 
+            log_modifications: true,
+            log_auth_events: true,
+            retention_days: 30,
         };
         let audit_logger = Arc::new(AuditLogger::new(audit_config).unwrap());
         MCPRateLimiter::new(config, audit_logger)
@@ -583,8 +586,11 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let audit_config = AuditConfig {
             enabled: true,
-            log_file: temp_dir.path().join("test.log"),
-            ..Default::default()
+            log_all_requests: true,
+            log_data_access: true, 
+            log_modifications: true,
+            log_auth_events: true,
+            retention_days: 30,
         };
         let audit_logger = Arc::new(AuditLogger::new(audit_config).unwrap());
         let limiter = MCPRateLimiter::new(config, audit_logger);

@@ -219,7 +219,8 @@ mod tests {
 
     #[test]
     fn test_create_success_response() {
-        let id = Some(&serde_json::json!(1));
+        let id_value = serde_json::json!(1);
+        let id = Some(&id_value);
         let result = serde_json::json!({"status": "ok"});
         
         let response = create_success_response(id, result);
@@ -231,7 +232,8 @@ mod tests {
 
     #[test]
     fn test_create_error_response() {
-        let id = Some(&serde_json::json!("test-id"));
+        let id_value = serde_json::json!("test-id");
+        let id = Some(&id_value);
         
         let response = create_error_response(id, -32601, "Method not found");
         

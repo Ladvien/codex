@@ -3,13 +3,13 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
-use crate::memory::{SearchRequest, SearchType, MemoryTier};
 use super::AppState;
+use crate::memory::{MemoryTier, SearchRequest, SearchType};
 
 #[derive(Debug, Serialize)]
 pub struct HarvesterStatus {
@@ -38,9 +38,9 @@ pub struct HarvesterStatistics {
 
 #[derive(Debug, Serialize)]
 pub struct ConfidenceDistribution {
-    pub high_confidence: u64,      // > 0.8
-    pub medium_confidence: u64,    // 0.6 - 0.8  
-    pub low_confidence: u64,       // < 0.6
+    pub high_confidence: u64,   // > 0.8
+    pub medium_confidence: u64, // 0.6 - 0.8
+    pub low_confidence: u64,    // < 0.6
 }
 
 #[derive(Debug, Serialize)]
@@ -108,7 +108,9 @@ pub struct ExportMetadata {
 }
 
 /// Get current harvester status
-pub async fn get_status(State(state): State<AppState>) -> Result<Json<HarvesterStatus>, StatusCode> {
+pub async fn get_status(
+    State(state): State<AppState>,
+) -> Result<Json<HarvesterStatus>, StatusCode> {
     let status = if let Some(harvester) = &state.harvester_service {
         // In a real implementation, get metrics from the harvester service
         HarvesterStatus {
@@ -141,7 +143,7 @@ pub async fn get_status(State(state): State<AppState>) -> Result<Json<HarvesterS
 pub async fn toggle_harvester(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     // TODO: Implement harvester toggle functionality
     // This would start/stop the harvester service
-    
+
     Ok(Json(json!({
         "status": "success",
         "message": "Harvester toggle requested (implementation pending)",
@@ -150,10 +152,12 @@ pub async fn toggle_harvester(State(state): State<AppState>) -> Result<Json<Valu
 }
 
 /// Get harvester statistics
-pub async fn get_statistics(State(state): State<AppState>) -> Result<Json<HarvesterStatistics>, StatusCode> {
+pub async fn get_statistics(
+    State(state): State<AppState>,
+) -> Result<Json<HarvesterStatistics>, StatusCode> {
     // Generate sample statistics data
     // In a real implementation, this would come from the harvester metrics
-    
+
     let mut pattern_breakdown = HashMap::new();
     pattern_breakdown.insert("Preference".to_string(), 45);
     pattern_breakdown.insert("Fact".to_string(), 35);
@@ -213,7 +217,7 @@ pub async fn get_recent_memories(
 ) -> Result<Json<Vec<RecentMemory>>, StatusCode> {
     let limit = params.limit.unwrap_or(20).min(100);
     let min_confidence = params.min_confidence.unwrap_or(0.0);
-    
+
     // Search for recent memories (in a real implementation)
     let search_request = SearchRequest {
         query_text: None,
@@ -237,18 +241,23 @@ pub async fn get_recent_memories(
 
     match state.repository.search_memories(search_request).await {
         Ok(search_response) => {
-            let recent_memories: Vec<RecentMemory> = search_response.results
+            let recent_memories: Vec<RecentMemory> = search_response
+                .results
                 .into_iter()
                 .map(|result| RecentMemory {
                     id: result.memory.id.to_string(),
                     content: result.memory.content.chars().take(200).collect::<String>() + "...",
-                    pattern_type: result.memory.metadata
+                    pattern_type: result
+                        .memory
+                        .metadata
                         .as_object()
                         .and_then(|m| m.get("pattern_type"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("Unknown")
                         .to_string(),
-                    confidence: result.memory.metadata
+                    confidence: result
+                        .memory
+                        .metadata
                         .as_object()
                         .and_then(|m| m.get("confidence"))
                         .and_then(|v| v.as_f64())
@@ -266,7 +275,8 @@ pub async fn get_recent_memories(
             let sample_memories = vec![
                 RecentMemory {
                     id: "sample-1".to_string(),
-                    content: "I prefer working in the morning when I'm most productive...".to_string(),
+                    content: "I prefer working in the morning when I'm most productive..."
+                        .to_string(),
                     pattern_type: "Preference".to_string(),
                     confidence: 0.85,
                     created_at: Utc::now() - chrono::Duration::minutes(30),
@@ -275,7 +285,8 @@ pub async fn get_recent_memories(
                 },
                 RecentMemory {
                     id: "sample-2".to_string(),
-                    content: "My goal is to improve my Rust programming skills this year...".to_string(),
+                    content: "My goal is to improve my Rust programming skills this year..."
+                        .to_string(),
                     pattern_type: "Goal".to_string(),
                     confidence: 0.92,
                     created_at: Utc::now() - chrono::Duration::hours(2),
@@ -294,7 +305,8 @@ pub async fn export_history(State(state): State<AppState>) -> Result<Json<Export
     let export_memories = vec![
         ExportMemory {
             id: "export-1".to_string(),
-            content: "I prefer working with TypeScript over JavaScript for large projects".to_string(),
+            content: "I prefer working with TypeScript over JavaScript for large projects"
+                .to_string(),
             pattern_type: "Preference".to_string(),
             confidence: 0.88,
             created_at: Utc::now() - chrono::Duration::days(1),

@@ -5,12 +5,12 @@
 //! bypass normal processing pipelines for immediate attention.
 
 use crate::memory::error::{MemoryError, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use regex::Regex;
-use tokio::sync::RwLock;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
 /// Five core trigger event types for pattern detection
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -53,11 +53,11 @@ impl TriggerEvent {
     /// Get priority level for conflict resolution (higher = more important)
     pub fn priority(&self) -> u8 {
         match self {
-            TriggerEvent::Security => 100,      // Highest priority
-            TriggerEvent::Error => 90,          // Critical system issues
-            TriggerEvent::Performance => 70,    // Important but not critical
+            TriggerEvent::Security => 100,        // Highest priority
+            TriggerEvent::Error => 90,            // Critical system issues
+            TriggerEvent::Performance => 70,      // Important but not critical
             TriggerEvent::BusinessCritical => 80, // High business impact
-            TriggerEvent::UserExperience => 60, // Important but lower priority
+            TriggerEvent::UserExperience => 60,   // Important but lower priority
         }
     }
 }
@@ -83,9 +83,10 @@ pub struct TriggerPattern {
 impl TriggerPattern {
     /// Create new trigger pattern
     pub fn new(regex: String, keywords: Vec<String>) -> Result<Self> {
-        let compiled_regex = Some(Regex::new(&regex).map_err(|e| {
-            MemoryError::Configuration(format!("Invalid regex pattern: {}", e))
-        })?);
+        let compiled_regex =
+            Some(Regex::new(&regex).map_err(|e| {
+                MemoryError::Configuration(format!("Invalid regex pattern: {}", e))
+            })?);
 
         Ok(TriggerPattern {
             regex,
@@ -112,7 +113,9 @@ impl TriggerPattern {
 
         // Check keyword matches
         let content_lower = content.to_lowercase();
-        self.keywords.iter().any(|keyword| content_lower.contains(&keyword.to_lowercase()))
+        self.keywords
+            .iter()
+            .any(|keyword| content_lower.contains(&keyword.to_lowercase()))
     }
 
     /// Calculate confidence score for a match (0.0-1.0)
@@ -125,26 +128,44 @@ impl TriggerPattern {
         let mut confidence = 0.4; // Base confidence for any match
 
         // High-value security terms get extra boost
-        let high_value_security_terms = ["xss", "injection", "csrf", "vulnerability", "exploit", "malware", "phishing"];
-        let has_high_value_security = high_value_security_terms.iter()
+        let high_value_security_terms = [
+            "xss",
+            "injection",
+            "csrf",
+            "vulnerability",
+            "exploit",
+            "malware",
+            "phishing",
+        ];
+        let has_high_value_security = high_value_security_terms
+            .iter()
             .any(|term| content_lower.contains(term));
 
         // Boost for keyword matches - more generous scoring
-        let keyword_matches = self.keywords.iter()
+        let keyword_matches = self
+            .keywords
+            .iter()
             .filter(|keyword| content_lower.contains(&keyword.to_lowercase()))
             .count() as f64;
         if keyword_matches > 0.0 {
             // Give a good boost for any keyword matches, with diminishing returns
             confidence += 0.3 + (keyword_matches / self.keywords.len() as f64) * 0.2;
-            
+
             // Extra boost for high-value security terms
-            if has_high_value_security && self.keywords.iter().any(|k| high_value_security_terms.contains(&k.as_str())) {
+            if has_high_value_security
+                && self
+                    .keywords
+                    .iter()
+                    .any(|k| high_value_security_terms.contains(&k.as_str()))
+            {
                 confidence += 0.1;
             }
         }
 
         // Boost for context words
-        let context_matches = self.context_boosters.iter()
+        let context_matches = self
+            .context_boosters
+            .iter()
             .filter(|booster| content_lower.contains(&booster.to_lowercase()))
             .count() as f64;
         if !self.context_boosters.is_empty() && context_matches > 0.0 {
@@ -173,7 +194,7 @@ pub struct TriggerConfig {
 impl Default for TriggerConfig {
     fn default() -> Self {
         let mut patterns = HashMap::new();
-        
+
         // Security patterns
         if let Ok(mut security_pattern) = TriggerPattern::new(
             r"(?i)(vulnerability|exploit|attack|breach|security|threat|malware|phishing|xss|injection|csrf)".to_string(),
@@ -206,7 +227,7 @@ impl Default for TriggerConfig {
                 "panic".to_string(),
                 "fatal".to_string(),
                 "critical".to_string(),
-            ]
+            ],
         ) {
             error_pattern.confidence_threshold = 0.6;
             patterns.insert(TriggerEvent::Error, error_pattern);
@@ -214,14 +235,15 @@ impl Default for TriggerConfig {
 
         // Performance patterns
         if let Ok(mut performance_pattern) = TriggerPattern::new(
-            r"(?i)(slow|latency|bottleneck|performance|optimization|memory leak|timeout)".to_string(),
+            r"(?i)(slow|latency|bottleneck|performance|optimization|memory leak|timeout)"
+                .to_string(),
             vec![
                 "slow".to_string(),
                 "latency".to_string(),
                 "bottleneck".to_string(),
                 "performance".to_string(),
                 "optimization".to_string(),
-            ]
+            ],
         ) {
             performance_pattern.confidence_threshold = 0.6;
             patterns.insert(TriggerEvent::Performance, performance_pattern);
@@ -236,7 +258,7 @@ impl Default for TriggerConfig {
                 "critical".to_string(),
                 "strategic".to_string(),
                 "decision".to_string(),
-            ]
+            ],
         ) {
             business_pattern.confidence_threshold = 0.6;
             patterns.insert(TriggerEvent::BusinessCritical, business_pattern);
@@ -251,7 +273,7 @@ impl Default for TriggerConfig {
                 "feedback".to_string(),
                 "complaint".to_string(),
                 "satisfaction".to_string(),
-            ]
+            ],
         ) {
             ux_pattern.confidence_threshold = 0.6;
             patterns.insert(TriggerEvent::UserExperience, ux_pattern);
@@ -336,7 +358,10 @@ impl EventTriggeredScoringEngine {
 
         // Get applicable patterns (user-specific or default)
         let patterns = if let Some(user) = user_id {
-            config.user_customizations.get(user).unwrap_or(&config.patterns)
+            config
+                .user_customizations
+                .get(user)
+                .unwrap_or(&config.patterns)
         } else {
             &config.patterns
         };
@@ -363,7 +388,7 @@ impl EventTriggeredScoringEngine {
                             // Otherwise, use confidence
                             confidence > *current_confidence
                         };
-                        
+
                         if should_replace {
                             best_match = Some((trigger_type.clone(), confidence));
                         }
@@ -379,9 +404,10 @@ impl EventTriggeredScoringEngine {
         // Create result
         let result = if let Some((trigger_type, confidence)) = best_match {
             let boosted_importance = original_importance * config.importance_multiplier;
-            
+
             // Update metrics
-            self.update_metrics(&trigger_type, processing_time, true).await;
+            self.update_metrics(&trigger_type, processing_time, true)
+                .await;
 
             TriggerDetectionResult {
                 triggered: true,
@@ -439,27 +465,42 @@ impl EventTriggeredScoringEngine {
     }
 
     // Private helper methods
-    async fn update_metrics(&self, trigger_type: &TriggerEvent, processing_time: Duration, triggered: bool) {
+    async fn update_metrics(
+        &self,
+        trigger_type: &TriggerEvent,
+        processing_time: Duration,
+        triggered: bool,
+    ) {
         let mut metrics = self.metrics.write().await;
-        
+
         metrics.total_memories_processed += 1;
         if triggered {
             metrics.total_triggered_memories += 1;
-            *metrics.triggers_by_type.entry(trigger_type.clone()).or_insert(0) += 1;
-            *metrics.processing_time_by_type.entry(trigger_type.clone()).or_insert(Duration::ZERO) += processing_time;
+            *metrics
+                .triggers_by_type
+                .entry(trigger_type.clone())
+                .or_insert(0) += 1;
+            *metrics
+                .processing_time_by_type
+                .entry(trigger_type.clone())
+                .or_insert(Duration::ZERO) += processing_time;
         }
 
         // Update average processing time
-        let total_time = metrics.average_processing_time * (metrics.total_memories_processed - 1) as u32 + processing_time;
+        let total_time = metrics.average_processing_time
+            * (metrics.total_memories_processed - 1) as u32
+            + processing_time;
         metrics.average_processing_time = total_time / metrics.total_memories_processed as u32;
     }
 
     async fn update_metrics_non_triggered(&self, processing_time: Duration) {
         let mut metrics = self.metrics.write().await;
         metrics.total_memories_processed += 1;
-        
+
         // Update average processing time
-        let total_time = metrics.average_processing_time * (metrics.total_memories_processed - 1) as u32 + processing_time;
+        let total_time = metrics.average_processing_time
+            * (metrics.total_memories_processed - 1) as u32
+            + processing_time;
         metrics.average_processing_time = total_time / metrics.total_memories_processed as u32;
     }
 }
@@ -484,7 +525,8 @@ mod tests {
         let pattern = TriggerPattern::new(
             r"(?i)(error|exception)".to_string(),
             vec!["error".to_string(), "exception".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(pattern.matches("An error occurred"));
         assert!(pattern.matches("Exception thrown"));
@@ -496,8 +538,9 @@ mod tests {
         let mut pattern = TriggerPattern::new(
             r"(?i)(error|exception)".to_string(),
             vec!["error".to_string(), "exception".to_string()],
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         pattern.context_boosters = vec!["critical".to_string(), "fatal".to_string()];
 
         let confidence1 = pattern.calculate_confidence("An error occurred");
@@ -515,11 +558,14 @@ mod tests {
         let engine = EventTriggeredScoringEngine::with_default_config();
 
         // Test security trigger
-        let result = engine.analyze_content(
-            "Security vulnerability detected in the authentication system",
-            0.5,
-            None,
-        ).await.unwrap();
+        let result = engine
+            .analyze_content(
+                "Security vulnerability detected in the authentication system",
+                0.5,
+                None,
+            )
+            .await
+            .unwrap();
 
         assert!(result.triggered);
         assert!(matches!(result.trigger_type, Some(TriggerEvent::Security)));
@@ -532,14 +578,20 @@ mod tests {
     async fn test_performance_within_limits() {
         let engine = EventTriggeredScoringEngine::with_default_config();
 
-        let result = engine.analyze_content(
-            "Performance bottleneck detected in database queries",
-            0.6,
-            None,
-        ).await.unwrap();
+        let result = engine
+            .analyze_content(
+                "Performance bottleneck detected in database queries",
+                0.6,
+                None,
+            )
+            .await
+            .unwrap();
 
         assert!(result.triggered);
-        assert!(matches!(result.trigger_type, Some(TriggerEvent::Performance)));
+        assert!(matches!(
+            result.trigger_type,
+            Some(TriggerEvent::Performance)
+        ));
         assert!(result.processing_time.as_millis() < 50);
     }
 
@@ -548,14 +600,25 @@ mod tests {
         let engine = EventTriggeredScoringEngine::with_default_config();
 
         // Process several samples
-        let _result1 = engine.analyze_content("Error in system", 0.5, None).await.unwrap();
-        let _result2 = engine.analyze_content("Normal content", 0.5, None).await.unwrap();
-        let _result3 = engine.analyze_content("Security breach", 0.5, None).await.unwrap();
+        let _result1 = engine
+            .analyze_content("Error in system", 0.5, None)
+            .await
+            .unwrap();
+        let _result2 = engine
+            .analyze_content("Normal content", 0.5, None)
+            .await
+            .unwrap();
+        let _result3 = engine
+            .analyze_content("Security breach", 0.5, None)
+            .await
+            .unwrap();
 
         let metrics = engine.get_metrics().await;
         assert_eq!(metrics.total_memories_processed, 3);
         assert_eq!(metrics.total_triggered_memories, 2);
         assert!(metrics.triggers_by_type.contains_key(&TriggerEvent::Error));
-        assert!(metrics.triggers_by_type.contains_key(&TriggerEvent::Security));
+        assert!(metrics
+            .triggers_by_type
+            .contains_key(&TriggerEvent::Security));
     }
 }

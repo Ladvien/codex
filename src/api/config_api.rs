@@ -1,13 +1,9 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::memory::{SilentHarvesterConfig, MemoryPatternType};
 use super::AppState;
+use crate::memory::{MemoryPatternType, SilentHarvesterConfig};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HarvesterConfigResponse {
@@ -52,9 +48,11 @@ pub struct UpdateConfigRequest {
 }
 
 /// Get current harvester configuration
-pub async fn get_harvester_config(State(state): State<AppState>) -> Result<Json<HarvesterConfigResponse>, StatusCode> {
+pub async fn get_harvester_config(
+    State(state): State<AppState>,
+) -> Result<Json<HarvesterConfigResponse>, StatusCode> {
     let config = get_current_config(&state).await?;
-    
+
     let pattern_types = vec![
         PatternTypeConfig {
             pattern_type: MemoryPatternType::Preference,
@@ -137,7 +135,7 @@ pub async fn update_harvester_config(
     if let Some(enabled) = update.enabled {
         config.silent_mode = !enabled; // Inverse relationship
     }
-    
+
     if let Some(threshold) = update.confidence_threshold {
         if threshold >= 0.5 && threshold <= 0.9 {
             config.confidence_threshold = threshold;
@@ -145,7 +143,7 @@ pub async fn update_harvester_config(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     if let Some(threshold) = update.deduplication_threshold {
         if threshold >= 0.5 && threshold <= 1.0 {
             config.deduplication_threshold = threshold;
@@ -153,7 +151,7 @@ pub async fn update_harvester_config(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     if let Some(count) = update.message_trigger_count {
         if count > 0 && count <= 1000 {
             config.message_trigger_count = count;
@@ -161,15 +159,16 @@ pub async fn update_harvester_config(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     if let Some(minutes) = update.time_trigger_minutes {
-        if minutes > 0 && minutes <= 1440 { // Max 24 hours
+        if minutes > 0 && minutes <= 1440 {
+            // Max 24 hours
             config.time_trigger_minutes = minutes;
         } else {
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     if let Some(batch_size) = update.max_batch_size {
         if batch_size > 0 && batch_size <= 1000 {
             config.max_batch_size = batch_size;
@@ -177,11 +176,11 @@ pub async fn update_harvester_config(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     if let Some(silent_mode) = update.silent_mode {
         config.silent_mode = silent_mode;
     }
-    
+
     // Update pattern configurations
     if let Some(pattern_types) = update.pattern_types {
         for pattern_type in pattern_types {
@@ -190,46 +189,46 @@ pub async fn update_harvester_config(
                     if pattern_type.enabled {
                         config.pattern_config.preference_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Fact => {
                     if pattern_type.enabled {
                         config.pattern_config.fact_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Decision => {
                     if pattern_type.enabled {
                         config.pattern_config.decision_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Correction => {
                     if pattern_type.enabled {
                         config.pattern_config.correction_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Emotion => {
                     if pattern_type.enabled {
                         config.pattern_config.emotion_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Goal => {
                     if pattern_type.enabled {
                         config.pattern_config.goal_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Relationship => {
                     if pattern_type.enabled {
                         config.pattern_config.relationship_patterns = pattern_type.patterns;
                     }
-                },
+                }
                 MemoryPatternType::Skill => {
                     if pattern_type.enabled {
                         config.pattern_config.skill_patterns = pattern_type.patterns;
                     }
-                },
+                }
             }
         }
     }
-    
+
     // TODO: Persist configuration changes
     save_config(&state, &config).await?;
 

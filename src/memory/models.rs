@@ -599,7 +599,10 @@ impl Serialize for FrozenMemory {
         state.serialize_field("compressed_content", &self.compressed_content)?;
         state.serialize_field("original_metadata", &self.original_metadata)?;
         state.serialize_field("original_content_hash", &self.original_content_hash)?;
-        state.serialize_field("original_embedding", &self.original_embedding.as_ref().map(|v| v.as_slice()))?;
+        state.serialize_field(
+            "original_embedding",
+            &self.original_embedding.as_ref().map(|v| v.as_slice()),
+        )?;
         state.serialize_field("original_tier", &self.original_tier)?;
         state.serialize_field("freeze_reason", &self.freeze_reason)?;
         state.serialize_field("frozen_at", &self.frozen_at)?;

@@ -46,19 +46,18 @@ impl ZstdCompressionEngine {
             original_size: content.len() as u64,
         };
 
-        let serialized = serde_json::to_vec(&memory_data)
-            .map_err(|e| MemoryError::SerializationError {
+        let serialized =
+            serde_json::to_vec(&memory_data).map_err(|e| MemoryError::SerializationError {
                 message: format!("Failed to serialize memory data: {}", e),
             })?;
 
         // Compress using zstd
-        let compressed = zstd::encode_all(
-            std::io::Cursor::new(&serialized),
-            self.compression_level,
-        )
-        .map_err(|e| MemoryError::CompressionError {
-            message: format!("zstd compression failed: {}", e),
-        })?;
+        let compressed =
+            zstd::encode_all(std::io::Cursor::new(&serialized), self.compression_level).map_err(
+                |e| MemoryError::CompressionError {
+                    message: format!("zstd compression failed: {}", e),
+                },
+            )?;
 
         let original_size = serialized.len() as u64;
         let compressed_size = compressed.len() as u64;
@@ -73,7 +72,8 @@ impl ZstdCompressionEngine {
         if compression_ratio < 5.0 {
             warn!(
                 "Compression ratio {:.2}:1 is below target 5:1 for content length {}",
-                compression_ratio, content.len()
+                compression_ratio,
+                content.len()
             );
         }
 
@@ -88,17 +88,22 @@ impl ZstdCompressionEngine {
     /// Decompress memory data back to original content and metadata
     /// Includes integrity validation
     pub fn decompress_memory_data(&self, compressed_data: &[u8]) -> Result<MemoryData> {
-        debug!("Decompressing memory data: compressed_size={}B", compressed_data.len());
+        debug!(
+            "Decompressing memory data: compressed_size={}B",
+            compressed_data.len()
+        );
 
         // Decompress using zstd
-        let decompressed = zstd::decode_all(std::io::Cursor::new(compressed_data))
-            .map_err(|e| MemoryError::DecompressionError {
-                message: format!("zstd decompression failed: {}", e),
+        let decompressed =
+            zstd::decode_all(std::io::Cursor::new(compressed_data)).map_err(|e| {
+                MemoryError::DecompressionError {
+                    message: format!("zstd decompression failed: {}", e),
+                }
             })?;
 
         // Deserialize the memory data
-        let memory_data: MemoryData = serde_json::from_slice(&decompressed)
-            .map_err(|e| MemoryError::SerializationError {
+        let memory_data: MemoryData =
+            serde_json::from_slice(&decompressed).map_err(|e| MemoryError::SerializationError {
                 message: format!("Failed to deserialize memory data: {}", e),
             })?;
 
@@ -122,12 +127,9 @@ impl ZstdCompressionEngine {
     }
 
     /// Batch compress multiple memories for efficient processing
-    pub fn batch_compress(
-        &self,
-        memories: Vec<(&str, &Value)>,
-    ) -> Result<Vec<CompressionResult>> {
+    pub fn batch_compress(&self, memories: Vec<(&str, &Value)>) -> Result<Vec<CompressionResult>> {
         debug!("Starting batch compression of {} memories", memories.len());
-        
+
         let mut results = Vec::with_capacity(memories.len());
         let mut total_original = 0u64;
         let mut total_compressed = 0u64;
@@ -149,7 +151,8 @@ impl ZstdCompressionEngine {
         let overall_ratio = total_original as f64 / total_compressed as f64;
         debug!(
             "Batch compression completed: {} memories, overall ratio {:.2}:1",
-            results.len(), overall_ratio
+            results.len(),
+            overall_ratio
         );
 
         Ok(results)
@@ -159,7 +162,7 @@ impl ZstdCompressionEngine {
     pub fn estimate_compression_ratio(&self, content: &str) -> f64 {
         // Quick heuristic based on content characteristics
         let content_len = content.len() as f64;
-        
+
         // Base ratio estimates for different content types
         let estimated_ratio = if content_len < 100.0 {
             // Very short content compresses poorly
@@ -235,13 +238,13 @@ impl CompressionStats {
         self.total_original_bytes += result.original_size;
         self.total_compressed_bytes += result.compressed_size;
         self.total_space_saved_bytes = self.total_original_bytes - self.total_compressed_bytes;
-        
+
         self.average_compression_ratio = if self.total_compressed_bytes > 0 {
             self.total_original_bytes as f64 / self.total_compressed_bytes as f64
         } else {
             0.0
         };
-        
+
         self.compression_efficiency_percent = if self.total_original_bytes > 0 {
             (self.total_space_saved_bytes as f64 / self.total_original_bytes as f64) * 100.0
         } else {
@@ -305,10 +308,7 @@ impl FrozenMemoryCompression {
     }
 
     /// Calculate storage savings from compression
-    pub fn calculate_storage_savings(
-        original_size: u64,
-        compressed_size: u64,
-    ) -> StorageSavings {
+    pub fn calculate_storage_savings(original_size: u64, compressed_size: u64) -> StorageSavings {
         let space_saved = original_size.saturating_sub(compressed_size);
         let compression_ratio = if compressed_size > 0 {
             original_size as f64 / compressed_size as f64
@@ -357,14 +357,16 @@ mod tests {
 
         // Compress
         let result = engine.compress_memory_data(&content, &metadata).unwrap();
-        
+
         // Should achieve good compression ratio
         assert!(result.compression_ratio > 3.0);
         assert!(result.compressed_size < result.original_size);
 
         // Decompress
-        let decompressed = engine.decompress_memory_data(&result.compressed_data).unwrap();
-        
+        let decompressed = engine
+            .decompress_memory_data(&result.compressed_data)
+            .unwrap();
+
         // Verify data integrity
         assert_eq!(decompressed.content, content);
         assert_eq!(decompressed.metadata, metadata);
@@ -374,7 +376,7 @@ mod tests {
     #[test]
     fn test_compression_ratio_estimation() {
         let engine = ZstdCompressionEngine::new();
-        
+
         // Long repetitive content should have high estimated ratio
         let repetitive_content = "Hello world! ".repeat(100);
         let ratio = engine.estimate_compression_ratio(&repetitive_content);
@@ -390,15 +392,18 @@ mod tests {
     fn test_batch_compression() {
         let engine = ZstdCompressionEngine::new();
         let metadata = json!({"test": true});
-        
+
         let memories = vec![
             ("First memory content", &metadata),
             ("Second memory content with different text", &metadata),
-            ("Third memory content for testing batch processing", &metadata),
+            (
+                "Third memory content for testing batch processing",
+                &metadata,
+            ),
         ];
 
         let results = engine.batch_compress(memories).unwrap();
-        
+
         assert_eq!(results.len(), 3);
         for result in results {
             assert!(result.compression_ratio > 1.0);
@@ -410,10 +415,10 @@ mod tests {
     fn test_compression_validation() {
         // Valid compression should pass
         assert!(FrozenMemoryCompression::validate_compression_quality(5.0, 1000).is_ok());
-        
+
         // Below minimum ratio should fail
         assert!(FrozenMemoryCompression::validate_compression_quality(1.5, 1000).is_err());
-        
+
         // Too short content should fail
         assert!(FrozenMemoryCompression::validate_compression_quality(5.0, 10).is_err());
     }
@@ -421,7 +426,7 @@ mod tests {
     #[test]
     fn test_storage_savings_calculation() {
         let savings = FrozenMemoryCompression::calculate_storage_savings(1000, 200);
-        
+
         assert_eq!(savings.original_size, 1000);
         assert_eq!(savings.compressed_size, 200);
         assert_eq!(savings.space_saved, 800);
@@ -432,7 +437,7 @@ mod tests {
     #[test]
     fn test_compression_stats_tracking() {
         let mut stats = CompressionStats::new();
-        
+
         let result = CompressionResult {
             compressed_data: vec![1, 2, 3],
             original_size: 1000,
@@ -441,7 +446,7 @@ mod tests {
         };
 
         stats.add_compression(&result);
-        
+
         assert_eq!(stats.total_memories_compressed, 1);
         assert_eq!(stats.total_original_bytes, 1000);
         assert_eq!(stats.total_compressed_bytes, 200);

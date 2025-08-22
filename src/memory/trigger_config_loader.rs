@@ -35,22 +35,21 @@ impl TriggerConfigLoader {
     /// Enable hot-reloading with specified check interval
     pub fn enable_hot_reload(&mut self, check_interval: Duration) {
         self.hot_reload_enabled = true;
-        
+
         let config_path = self.config_path.clone();
         let last_modified = self.last_modified.clone();
         let current_config = self.current_config.clone();
 
         tokio::spawn(async move {
             let mut timer = interval(check_interval);
-            
+
             loop {
                 timer.tick().await;
-                
-                if let Err(e) = Self::check_and_reload_config(
-                    &config_path,
-                    &last_modified,
-                    &current_config,
-                ).await {
+
+                if let Err(e) =
+                    Self::check_and_reload_config(&config_path, &last_modified, &current_config)
+                        .await
+                {
                     error!("Failed to check/reload config: {}", e);
                 }
             }
@@ -60,20 +59,20 @@ impl TriggerConfigLoader {
     /// Load configuration from file
     pub async fn load_config(&self) -> Result<TriggerConfig> {
         let config = Self::load_config_from_file(&self.config_path).await?;
-        
+
         // Update current config and last modified time
         {
             let mut current = self.current_config.write().await;
             *current = config.clone();
         }
-        
+
         if let Ok(metadata) = fs::metadata(&self.config_path) {
             if let Ok(modified) = metadata.modified() {
                 let mut last_mod = self.last_modified.write().await;
                 *last_mod = Some(modified);
             }
         }
-        
+
         Ok(config)
     }
 
@@ -85,13 +84,13 @@ impl TriggerConfigLoader {
     /// Save configuration to file
     pub async fn save_config(&self, config: &TriggerConfig) -> Result<()> {
         Self::save_config_to_file(&self.config_path, config).await?;
-        
+
         // Update current config
         {
             let mut current = self.current_config.write().await;
             *current = config.clone();
         }
-        
+
         Ok(())
     }
 
@@ -114,7 +113,10 @@ impl TriggerConfigLoader {
         })?;
 
         let json_value: Value = serde_json::from_str(&content).map_err(|e| {
-            MemoryError::Configuration(format!("Invalid JSON in config file {}: {}", config_path, e))
+            MemoryError::Configuration(format!(
+                "Invalid JSON in config file {}: {}",
+                config_path, e
+            ))
         })?;
 
         Self::parse_config_from_json(json_value).await
@@ -153,7 +155,8 @@ impl TriggerConfigLoader {
 
         // Parse user customizations
         let mut user_customizations = HashMap::new();
-        if let Some(customizations_obj) = obj.get("user_customizations").and_then(|v| v.as_object()) {
+        if let Some(customizations_obj) = obj.get("user_customizations").and_then(|v| v.as_object())
+        {
             for (user_id, user_patterns_value) in customizations_obj {
                 if let Some(user_patterns_obj) = user_patterns_value.as_object() {
                     let mut user_patterns = HashMap::new();
@@ -202,9 +205,8 @@ impl TriggerConfigLoader {
             .to_string();
 
         // Validate regex
-        Regex::new(&regex).map_err(|e| {
-            MemoryError::Configuration(format!("Invalid regex pattern: {}", e))
-        })?;
+        Regex::new(&regex)
+            .map_err(|e| MemoryError::Configuration(format!("Invalid regex pattern: {}", e)))?;
 
         let keywords = pattern_obj
             .get("keywords")
@@ -253,7 +255,10 @@ impl TriggerConfigLoader {
         })?;
 
         fs::write(config_path, content).map_err(|e| {
-            MemoryError::Configuration(format!("Failed to write config file {}: {}", config_path, e))
+            MemoryError::Configuration(format!(
+                "Failed to write config file {}: {}",
+                config_path, e
+            ))
         })?;
 
         info!("Configuration saved to: {}", config_path);
@@ -265,7 +270,7 @@ impl TriggerConfigLoader {
         for (trigger_event, pattern) in &config.patterns {
             let trigger_name = match trigger_event {
                 TriggerEvent::Security => "Security",
-                TriggerEvent::Error => "Error", 
+                TriggerEvent::Error => "Error",
                 TriggerEvent::Performance => "Performance",
                 TriggerEvent::BusinessCritical => "BusinessCritical",
                 TriggerEvent::UserExperience => "UserExperience",
@@ -289,7 +294,7 @@ impl TriggerConfigLoader {
                 let trigger_name = match trigger_event {
                     TriggerEvent::Security => "Security",
                     TriggerEvent::Error => "Error",
-                    TriggerEvent::Performance => "Performance", 
+                    TriggerEvent::Performance => "Performance",
                     TriggerEvent::BusinessCritical => "BusinessCritical",
                     TriggerEvent::UserExperience => "UserExperience",
                 };
@@ -379,17 +384,17 @@ mod tests {
     async fn test_load_default_config() {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         // Remove the temp file so loader creates default
         std::fs::remove_file(&config_path).unwrap();
-        
+
         let loader = TriggerConfigLoader::new(config_path.clone());
         let config = loader.load_config().await.unwrap();
-        
+
         assert_eq!(config.importance_multiplier, 2.0);
         assert_eq!(config.max_processing_time_ms, 50);
         assert_eq!(config.patterns.len(), 5);
-        
+
         // Verify file was created
         assert!(Path::new(&config_path).exists());
     }
@@ -398,7 +403,7 @@ mod tests {
     async fn test_load_custom_config() {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         let custom_config = r#"{
             "importance_multiplier": 3.0,
             "max_processing_time_ms": 100,
@@ -414,12 +419,12 @@ mod tests {
             },
             "user_customizations": {}
         }"#;
-        
+
         std::fs::write(&config_path, custom_config).unwrap();
-        
+
         let loader = TriggerConfigLoader::new(config_path);
         let config = loader.load_config().await.unwrap();
-        
+
         assert_eq!(config.importance_multiplier, 3.0);
         assert_eq!(config.max_processing_time_ms, 100);
         assert!(config.enable_ab_testing);
@@ -430,20 +435,20 @@ mod tests {
     async fn test_save_and_reload() {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         let loader = TriggerConfigLoader::new(config_path.clone());
-        
+
         // Create a custom config
         let mut config = TriggerConfig::default();
         config.importance_multiplier = 4.0;
-        
+
         // Save it
         loader.save_config(&config).await.unwrap();
-        
+
         // Create new loader and load
         let new_loader = TriggerConfigLoader::new(config_path);
         let loaded_config = new_loader.load_config().await.unwrap();
-        
+
         assert_eq!(loaded_config.importance_multiplier, 4.0);
     }
 
@@ -451,10 +456,10 @@ mod tests {
     async fn test_config_validation() {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         // Write invalid JSON
         std::fs::write(&config_path, "invalid json").unwrap();
-        
+
         let loader = TriggerConfigLoader::new(config_path);
         assert!(loader.validate_config_file().await.is_err());
     }
@@ -463,7 +468,7 @@ mod tests {
     async fn test_hot_reload() {
         let temp_file = NamedTempFile::new().unwrap();
         let config_path = temp_file.path().to_str().unwrap().to_string();
-        
+
         // Initial config
         let initial_config = r#"{
             "importance_multiplier": 2.0,
@@ -473,17 +478,17 @@ mod tests {
             "user_customizations": {}
         }"#;
         std::fs::write(&config_path, initial_config).unwrap();
-        
+
         let mut loader = TriggerConfigLoader::new(config_path.clone());
         loader.enable_hot_reload(Duration::from_millis(50));
-        
+
         // Load initial config
         let config = loader.load_config().await.unwrap();
         assert_eq!(config.importance_multiplier, 2.0);
-        
+
         // Wait a bit for hot-reload timer to start
         sleep(Duration::from_millis(100)).await;
-        
+
         // Update config file
         let updated_config = r#"{
             "importance_multiplier": 5.0,
@@ -493,10 +498,10 @@ mod tests {
             "user_customizations": {}
         }"#;
         std::fs::write(&config_path, updated_config).unwrap();
-        
+
         // Wait for hot-reload to pick up changes
         sleep(Duration::from_millis(200)).await;
-        
+
         let current_config = loader.get_current_config().await;
         assert_eq!(current_config.importance_multiplier, 5.0);
     }

@@ -1,7 +1,7 @@
 use super::error::{MemoryError, Result};
+use super::models::CreateMemoryRequest;
 use super::models::*;
 use super::repository::MemoryRepository;
-use super::models::CreateMemoryRequest;
 use crate::embedding::EmbeddingService;
 use chrono::{DateTime, Duration, Utc};
 use pgvector::Vector;

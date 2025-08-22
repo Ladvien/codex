@@ -61,31 +61,31 @@ use uuid::Uuid;
 pub struct EnhancedRetrievalConfig {
     /// Boost multiplier for recently consolidated memories
     pub consolidation_boost_multiplier: f64,
-    
+
     /// Hours within which consolidation is considered "recent"
     pub recent_consolidation_threshold_hours: i64,
-    
+
     /// Maximum depth for memory lineage traversal
     pub max_lineage_depth: usize,
-    
+
     /// Include reflection/insight memories in results
     pub include_insights: bool,
-    
+
     /// Enable query pattern caching
     pub enable_query_caching: bool,
-    
+
     /// Cache TTL in seconds
     pub cache_ttl_seconds: u64,
-    
+
     /// Maximum cache size (number of entries)
     pub max_cache_size: usize,
-    
+
     /// Performance target for p95 latency (milliseconds)
     pub p95_latency_target_ms: u64,
-    
+
     /// Minimum confidence threshold for insights
     pub insight_confidence_threshold: f64,
-    
+
     /// Weight for insight importance in scoring
     pub insight_importance_weight: f64,
 }
@@ -294,19 +294,19 @@ impl QueryPatternCache {
         use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
-        
+
         // Hash query text
         if let Some(query_text) = &request.base_request.query_text {
             query_text.hash(&mut hasher);
         }
-        
+
         // Hash query embedding (simplified - hash first few components)
         if let Some(embedding) = &request.base_request.query_embedding {
             embedding.iter().take(10).for_each(|f| {
                 ((*f * 1000.0) as i32).hash(&mut hasher);
             });
         }
-        
+
         // Hash other search parameters
         request.base_request.tier.hash(&mut hasher);
         request.base_request.search_type.hash(&mut hasher);
@@ -321,14 +321,14 @@ impl QueryPatternCache {
     pub async fn get(&self, cache_key: &str) -> Option<Vec<MemoryAwareSearchResult>> {
         {
             let cache = self.cache.read().await;
-            
+
             if let Some(entry) = cache.get(cache_key) {
                 let age = Utc::now().signed_duration_since(entry.created_at);
-                
+
                 if age.num_seconds() < self.config.cache_ttl_seconds as i64 {
                     let results = entry.results.clone();
                     drop(cache);
-                    
+
                     // Update access metrics
                     {
                         let mut cache_write = self.cache.write().await;
@@ -337,43 +337,44 @@ impl QueryPatternCache {
                             entry.last_accessed = Utc::now();
                         }
                     }
-                    
+
                     // Update metrics
                     {
                         let mut metrics = self.metrics.write().await;
                         metrics.hits += 1;
-                        metrics.hit_ratio = metrics.hits as f64 / (metrics.hits + metrics.misses) as f64;
+                        metrics.hit_ratio =
+                            metrics.hits as f64 / (metrics.hits + metrics.misses) as f64;
                     }
-                    
+
                     return Some(results);
                 }
             }
         }
-        
+
         // Cache miss
         let mut metrics = self.metrics.write().await;
         metrics.misses += 1;
         metrics.hit_ratio = metrics.hits as f64 / (metrics.hits + metrics.misses) as f64;
-        
+
         None
     }
 
     /// Store results in cache
     pub async fn set(&self, cache_key: String, results: Vec<MemoryAwareSearchResult>) {
         let mut cache = self.cache.write().await;
-        
+
         // Implement LRU eviction if cache is full
         if cache.len() >= self.config.max_cache_size {
             self.evict_lru(&mut cache).await;
         }
-        
+
         let entry = CacheEntry {
             results,
             created_at: Utc::now(),
             access_count: 0,
             last_accessed: Utc::now(),
         };
-        
+
         cache.insert(cache_key, entry);
     }
 
@@ -385,7 +386,7 @@ impl QueryPatternCache {
             .map(|(k, v)| (k.clone(), v.clone()))
         {
             cache.remove(&oldest_key);
-            
+
             // Update metrics
             let mut metrics = self.metrics.write().await;
             metrics.evictions += 1;
@@ -402,7 +403,7 @@ impl QueryPatternCache {
         let mut cache = self.cache.write().await;
         let now = Utc::now();
         let ttl_duration = Duration::seconds(self.config.cache_ttl_seconds as i64);
-        
+
         let expired_keys: Vec<String> = cache
             .iter()
             .filter_map(|(key, entry)| {
@@ -413,12 +414,12 @@ impl QueryPatternCache {
                 }
             })
             .collect();
-        
+
         let count = expired_keys.len();
         for key in expired_keys {
             cache.remove(&key);
         }
-        
+
         count
     }
 }
@@ -452,7 +453,10 @@ impl MemoryAwareRetrievalEngine {
     }
 
     /// Execute memory-aware search with all enhancements
-    pub async fn search(&self, request: MemoryAwareSearchRequest) -> Result<MemoryAwareSearchResponse> {
+    pub async fn search(
+        &self,
+        request: MemoryAwareSearchRequest,
+    ) -> Result<MemoryAwareSearchResponse> {
         let start_time = Instant::now();
         let mut performance_metrics = PerformanceMetrics {
             database_query_time_ms: 0,
@@ -499,7 +503,10 @@ impl MemoryAwareRetrievalEngine {
 
         // Execute base search
         let db_start = Instant::now();
-        let base_response = self.repository.search_memories(request.base_request.clone()).await?;
+        let base_response = self
+            .repository
+            .search_memories(request.base_request.clone())
+            .await?;
         performance_metrics.database_query_time_ms = db_start.elapsed().as_millis() as u64;
         performance_metrics.total_memories_analyzed = base_response.results.len();
 
@@ -510,16 +517,20 @@ impl MemoryAwareRetrievalEngine {
         // Process each result with memory-aware enhancements
         for base_result in base_response.results {
             let consolidation_start = Instant::now();
-            
+
             // Check if recently consolidated
-            let is_recently_consolidated = self.is_recently_consolidated(&base_result.memory).await?;
+            let is_recently_consolidated =
+                self.is_recently_consolidated(&base_result.memory).await?;
             if is_recently_consolidated {
                 recently_consolidated_count += 1;
             }
 
             // Calculate consolidation boost
-            let consolidation_boost = if request.include_consolidation_boost.unwrap_or(true) && is_recently_consolidated {
-                self.calculate_consolidation_boost(&base_result.memory).await?
+            let consolidation_boost = if request.include_consolidation_boost.unwrap_or(true)
+                && is_recently_consolidated
+            {
+                self.calculate_consolidation_boost(&base_result.memory)
+                    .await?
             } else {
                 1.0
             };
@@ -530,19 +541,26 @@ impl MemoryAwareRetrievalEngine {
                 insights_included += 1;
             }
 
-            performance_metrics.consolidation_analysis_time_ms += consolidation_start.elapsed().as_millis() as u64;
+            performance_metrics.consolidation_analysis_time_ms +=
+                consolidation_start.elapsed().as_millis() as u64;
 
             // Get memory lineage if requested
             let lineage_start = Instant::now();
             let lineage = if request.include_lineage.unwrap_or(false) {
-                Some(self.get_memory_lineage(
-                    &base_result.memory,
-                    request.lineage_depth.unwrap_or(self.config.max_lineage_depth),
-                ).await?)
+                Some(
+                    self.get_memory_lineage(
+                        &base_result.memory,
+                        request
+                            .lineage_depth
+                            .unwrap_or(self.config.max_lineage_depth),
+                    )
+                    .await?,
+                )
             } else {
                 None
             };
-            performance_metrics.lineage_analysis_time_ms += lineage_start.elapsed().as_millis() as u64;
+            performance_metrics.lineage_analysis_time_ms +=
+                lineage_start.elapsed().as_millis() as u64;
 
             // Calculate final score with boosting
             let final_score = (base_result.combined_score as f64) * consolidation_boost;
@@ -551,11 +569,16 @@ impl MemoryAwareRetrievalEngine {
             let boost_explanation = if request.explain_boosting.unwrap_or(false) {
                 Some(BoostExplanation {
                     consolidation_boost_applied: consolidation_boost,
-                    insight_boost_applied: if is_insight { self.config.insight_importance_weight } else { 1.0 },
+                    insight_boost_applied: if is_insight {
+                        self.config.insight_importance_weight
+                    } else {
+                        1.0
+                    },
                     lineage_boost_applied: 1.0, // Could implement lineage-based boosting
                     recent_consolidation_factor: if is_recently_consolidated { 1.0 } else { 0.0 },
                     total_boost_multiplier: consolidation_boost,
-                    boost_reasons: self.generate_boost_reasons(is_recently_consolidated, is_insight),
+                    boost_reasons: self
+                        .generate_boost_reasons(is_recently_consolidated, is_insight),
                 })
             } else {
                 None
@@ -575,7 +598,11 @@ impl MemoryAwareRetrievalEngine {
         }
 
         // Sort by final score
-        enhanced_results.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
+        enhanced_results.sort_by(|a, b| {
+            b.final_score
+                .partial_cmp(&a.final_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Include insights if configured
         if self.config.include_insights && request.include_insights.unwrap_or(true) {
@@ -588,9 +615,14 @@ impl MemoryAwareRetrievalEngine {
         // Cache results if enabled
         let cache_store_start = Instant::now();
         if let Some(cache_key) = cache_key {
-            self.cache.as_ref().unwrap().set(cache_key, enhanced_results.clone()).await;
+            self.cache
+                .as_ref()
+                .unwrap()
+                .set(cache_key, enhanced_results.clone())
+                .await;
         }
-        performance_metrics.cache_operation_time_ms += cache_store_start.elapsed().as_millis() as u64;
+        performance_metrics.cache_operation_time_ms +=
+            cache_store_start.elapsed().as_millis() as u64;
 
         // Get cache metrics
         if let Some(cache) = &self.cache {
@@ -612,7 +644,9 @@ impl MemoryAwareRetrievalEngine {
             total_count: base_response.total_count,
             insights_included,
             recently_consolidated_count,
-            lineage_depth_analyzed: request.lineage_depth.unwrap_or(self.config.max_lineage_depth),
+            lineage_depth_analyzed: request
+                .lineage_depth
+                .unwrap_or(self.config.max_lineage_depth),
             cache_hit_ratio: performance_metrics.cache_operations.hit_ratio,
             execution_time_ms: execution_time,
             performance_metrics,
@@ -621,8 +655,9 @@ impl MemoryAwareRetrievalEngine {
 
     /// Check if memory has been recently consolidated
     async fn is_recently_consolidated(&self, memory: &Memory) -> Result<bool> {
-        let cutoff_time = Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
-        
+        let cutoff_time =
+            Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
+
         // Check consolidation log for recent activity
         let recent_events = sqlx::query_as::<_, MemoryConsolidationLog>(
             "SELECT * FROM memory_consolidation_log WHERE memory_id = $1 AND created_at > $2 ORDER BY created_at DESC LIMIT 1"
@@ -637,8 +672,9 @@ impl MemoryAwareRetrievalEngine {
 
     /// Calculate consolidation boost for recently consolidated memory
     async fn calculate_consolidation_boost(&self, memory: &Memory) -> Result<f64> {
-        let cutoff_time = Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
-        
+        let cutoff_time =
+            Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
+
         // Get most recent consolidation event
         let recent_event = sqlx::query_as::<_, MemoryConsolidationLog>(
             "SELECT * FROM memory_consolidation_log WHERE memory_id = $1 AND created_at > $2 ORDER BY created_at DESC LIMIT 1"
@@ -650,11 +686,17 @@ impl MemoryAwareRetrievalEngine {
 
         if let Some(event) = recent_event {
             // Calculate boost based on time since consolidation and strength change
-            let hours_since = Utc::now().signed_duration_since(event.created_at).num_hours() as f64;
+            let hours_since = Utc::now()
+                .signed_duration_since(event.created_at)
+                .num_hours() as f64;
             let time_factor = (-hours_since / 24.0).exp(); // Exponential decay over 24 hours
-            let strength_factor = (event.new_consolidation_strength - event.previous_consolidation_strength).max(0.0);
-            
-            let boost = 1.0 + (self.config.consolidation_boost_multiplier - 1.0) * time_factor * (1.0 + strength_factor);
+            let strength_factor =
+                (event.new_consolidation_strength - event.previous_consolidation_strength).max(0.0);
+
+            let boost = 1.0
+                + (self.config.consolidation_boost_multiplier - 1.0)
+                    * time_factor
+                    * (1.0 + strength_factor);
             Ok(boost.min(self.config.consolidation_boost_multiplier))
         } else {
             Ok(1.0)
@@ -664,8 +706,12 @@ impl MemoryAwareRetrievalEngine {
     /// Check if memory is an insight/reflection memory
     fn is_insight_memory(&self, memory: &Memory) -> bool {
         if let Some(metadata_obj) = memory.metadata.as_object() {
-            metadata_obj.get("is_meta_memory").and_then(|v| v.as_bool()).unwrap_or(false)
-                || metadata_obj.get("generated_by").and_then(|v| v.as_str()) == Some("reflection_engine")
+            metadata_obj
+                .get("is_meta_memory")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+                || metadata_obj.get("generated_by").and_then(|v| v.as_str())
+                    == Some("reflection_engine")
         } else {
             false
         }
@@ -679,11 +725,13 @@ impl MemoryAwareRetrievalEngine {
         let _consolidation_chain: Vec<ConsolidationEvent> = Vec::new();
 
         // Get ancestors (parent memories)
-        self.traverse_ancestors(memory.id, max_depth, 0, &mut ancestors, &mut visited).await?;
+        self.traverse_ancestors(memory.id, max_depth, 0, &mut ancestors, &mut visited)
+            .await?;
 
         // Get descendants (child memories)
         visited.clear();
-        self.traverse_descendants(memory.id, max_depth, 0, &mut descendants, &mut visited).await?;
+        self.traverse_descendants(memory.id, max_depth, 0, &mut descendants, &mut visited)
+            .await?;
 
         // Get consolidation history
         let consolidation_chain = self.get_consolidation_chain(memory.id).await?;
@@ -714,14 +762,14 @@ impl MemoryAwareRetrievalEngine {
         visited: &mut HashSet<Uuid>,
     ) -> Result<()> {
         let mut stack = vec![(memory_id, 0)];
-        
+
         while let Some((current_id, depth)) = stack.pop() {
             if depth >= max_depth || visited.contains(&current_id) {
                 continue;
             }
-            
+
             visited.insert(current_id);
-            
+
             // Find parent memories
             let parent_memories = sqlx::query_as::<_, Memory>(
                 "SELECT * FROM memories WHERE id = (SELECT parent_id FROM memories WHERE id = $1) AND parent_id IS NOT NULL"
@@ -729,7 +777,7 @@ impl MemoryAwareRetrievalEngine {
             .bind(current_id)
             .fetch_all(self.repository.pool())
             .await?;
-            
+
             for parent in parent_memories {
                 ancestors.push(MemoryAncestor {
                     memory_id: parent.id,
@@ -738,12 +786,12 @@ impl MemoryAwareRetrievalEngine {
                     strength: parent.importance_score,
                     created_at: parent.created_at,
                 });
-                
+
                 // Add parent to stack for further traversal
                 stack.push((parent.id, depth + 1));
             }
         }
-        
+
         Ok(())
     }
 
@@ -757,22 +805,22 @@ impl MemoryAwareRetrievalEngine {
         visited: &mut HashSet<Uuid>,
     ) -> Result<()> {
         let mut stack = vec![(memory_id, 0)];
-        
+
         while let Some((current_id, depth)) = stack.pop() {
             if depth >= max_depth || visited.contains(&current_id) {
                 continue;
             }
-            
+
             visited.insert(current_id);
-            
+
             // Find child memories
             let child_memories = sqlx::query_as::<_, Memory>(
-                "SELECT * FROM memories WHERE parent_id = $1 AND status = 'active'"
+                "SELECT * FROM memories WHERE parent_id = $1 AND status = 'active'",
             )
             .bind(current_id)
             .fetch_all(self.repository.pool())
             .await?;
-            
+
             for child in child_memories {
                 descendants.push(MemoryDescendant {
                     memory_id: child.id,
@@ -781,12 +829,12 @@ impl MemoryAwareRetrievalEngine {
                     strength: child.importance_score,
                     created_at: child.created_at,
                 });
-                
+
                 // Add child to stack for further traversal
                 stack.push((child.id, depth + 1));
             }
         }
-        
+
         Ok(())
     }
 
@@ -821,7 +869,7 @@ impl MemoryAwareRetrievalEngine {
             WHERE status = 'active' 
             AND metadata->>'is_meta_memory' = 'true'
             AND metadata->'source_memory_ids' ? $1::text
-            "#
+            "#,
         )
         .bind(memory_id.to_string())
         .fetch_all(self.repository.pool())
@@ -846,7 +894,10 @@ impl MemoryAwareRetrievalEngine {
     }
 
     /// Get relevant insights for the search query
-    async fn get_relevant_insights(&self, request: &MemoryAwareSearchRequest) -> Result<Vec<MemoryAwareSearchResult>> {
+    async fn get_relevant_insights(
+        &self,
+        request: &MemoryAwareSearchRequest,
+    ) -> Result<Vec<MemoryAwareSearchResult>> {
         // Search for insight memories
         let insight_search = SearchRequest {
             query_text: request.base_request.query_text.clone(),
@@ -857,7 +908,7 @@ impl MemoryAwareRetrievalEngine {
         };
 
         let insight_response = self.repository.search_memories(insight_search).await?;
-        
+
         let mut insight_results = Vec::new();
         for result in insight_response.results {
             if self.is_insight_memory(&result.memory) {
@@ -883,13 +934,17 @@ impl MemoryAwareRetrievalEngine {
     }
 
     /// Generate boost explanation reasons
-    fn generate_boost_reasons(&self, is_recently_consolidated: bool, is_insight: bool) -> Vec<String> {
+    fn generate_boost_reasons(
+        &self,
+        is_recently_consolidated: bool,
+        is_insight: bool,
+    ) -> Vec<String> {
         let mut reasons = Vec::new();
-        
+
         if is_recently_consolidated {
             reasons.push("Recently consolidated memory - enhanced retrieval strength".to_string());
         }
-        
+
         if is_insight {
             reasons.push("Insight/reflection memory - meta-cognitive content".to_string());
         }
@@ -955,18 +1010,18 @@ mod tests {
     async fn test_cache_expiration() {
         let mut config = EnhancedRetrievalConfig::default();
         config.cache_ttl_seconds = 1; // 1 second for testing
-        
+
         let cache = QueryPatternCache::new(config);
         let results = vec![]; // Empty for testing
-        
+
         cache.set("test_key".to_string(), results).await;
-        
+
         // Should be available immediately
         assert!(cache.get("test_key").await.is_some());
-        
+
         // Wait for expiration
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        
+
         // Should be expired now
         assert!(cache.get("test_key").await.is_none());
     }

@@ -15,14 +15,14 @@ pub mod simple_consolidation;
 pub mod cognitive_consolidation;
 pub mod cognitive_memory_system;
 pub mod event_triggers;
-pub mod trigger_config_loader;
 pub mod insight_loop_prevention;
 pub mod reflection_engine;
 pub mod silent_harvester;
 pub mod three_component_scoring;
+pub mod trigger_config_loader;
 
 pub use compression::{
-    CompressionResult as ZstdCompressionResult, CompressionStats, FrozenMemoryCompression, 
+    CompressionResult as ZstdCompressionResult, CompressionStats, FrozenMemoryCompression,
     MemoryData, StorageSavings, ZstdCompressionEngine,
 };
 pub use consolidation_job::{
@@ -31,7 +31,9 @@ pub use consolidation_job::{
 };
 pub use error::MemoryError;
 pub use math_engine::{MathEngine, MathEngineConfig, MemoryParameters};
-pub use models::{CreateMemoryRequest, Memory, MemoryStatus, MemoryTier, SearchRequest, SearchType};
+pub use models::{
+    CreateMemoryRequest, Memory, MemoryStatus, MemoryTier, SearchRequest, SearchType,
+};
 pub use repository::MemoryRepository;
 pub use simple_consolidation::{
     ConsolidationBatchResult, ConsolidationProcessor, SimpleConsolidationConfig,
@@ -93,7 +95,8 @@ pub use semantic_deduplication::{
 
 // Enhanced retrieval exports
 pub use enhanced_retrieval::{
-    BoostExplanation, ConsolidationEvent, EnhancedRetrievalConfig, MemoryAncestor, MemoryAwareRetrievalEngine,
-    MemoryAwareSearchRequest, MemoryAwareSearchResponse, MemoryAwareSearchResult, MemoryDescendant,
-    MemoryLineage, PerformanceMetrics, ProvenanceMetadata, QueryPatternCache, RelationshipType,
+    BoostExplanation, ConsolidationEvent, EnhancedRetrievalConfig, MemoryAncestor,
+    MemoryAwareRetrievalEngine, MemoryAwareSearchRequest, MemoryAwareSearchResponse,
+    MemoryAwareSearchResult, MemoryDescendant, MemoryLineage, PerformanceMetrics,
+    ProvenanceMetadata, QueryPatternCache, RelationshipType,
 };

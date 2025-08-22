@@ -25,22 +25,30 @@ pub fn create_api_router(state: AppState) -> Router {
     Router::new()
         // Health check endpoint
         .route("/api/health", get(health_check))
-        
         // Configuration API routes
-        .route("/api/config/harvester", get(config_api::get_harvester_config))
-        .route("/api/config/harvester", put(config_api::update_harvester_config))
-        
+        .route(
+            "/api/config/harvester",
+            get(config_api::get_harvester_config),
+        )
+        .route(
+            "/api/config/harvester",
+            put(config_api::update_harvester_config),
+        )
         // Harvester API routes
         .route("/api/harvester/status", get(harvester_api::get_status))
-        .route("/api/harvester/toggle", post(harvester_api::toggle_harvester))
+        .route(
+            "/api/harvester/toggle",
+            post(harvester_api::toggle_harvester),
+        )
         .route("/api/harvester/stats", get(harvester_api::get_statistics))
-        .route("/api/harvester/recent", get(harvester_api::get_recent_memories))
+        .route(
+            "/api/harvester/recent",
+            get(harvester_api::get_recent_memories),
+        )
         .route("/api/harvester/export", get(harvester_api::export_history))
-        
         // Serve static files (HTML, CSS, JS)
         .nest_service("/", ServeDir::new("static"))
         .route("/", get(serve_dashboard))
-        
         .with_state(state)
         .layer(CorsLayer::permissive())
 }

@@ -5,8 +5,8 @@ use codex_memory::{
     Config as CodexConfig,
 };
 use std::sync::Arc;
-use tracing::{info, warn};
 use tokio::net::TcpListener;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,10 +44,13 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(3001);
 
     let addr = format!("0.0.0.0:{}", port);
-    
+
     info!("🌐 Web UI server starting on http://{}", addr);
     info!("📊 Dashboard available at http://{}/", addr);
-    info!("🔧 Configuration API available at http://{}/api/config/harvester", addr);
+    info!(
+        "🔧 Configuration API available at http://{}/api/config/harvester",
+        addr
+    );
 
     // Start server
     let listener = TcpListener::bind(&addr).await?;

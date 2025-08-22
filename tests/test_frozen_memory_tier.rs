@@ -22,11 +22,14 @@ async fn create_test_memories_with_low_recall(
     count: usize,
 ) -> Vec<Uuid> {
     let mut memory_ids = Vec::new();
-    
+
     for i in 0..count {
         let memory = repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Low recall test memory {} that should be frozen due to low probability", i),
+                content: format!(
+                    "Low recall test memory {} that should be frozen due to low probability",
+                    i
+                ),
                 embedding: Some(vec![0.1, 0.2, 0.3, 0.4, 0.5]),
                 tier: Some(MemoryTier::Cold),
                 importance_score: Some(0.3),
@@ -47,7 +50,7 @@ async fn create_test_memories_with_low_recall(
 
         memory_ids.push(memory.id);
     }
-    
+
     memory_ids
 }
 
@@ -117,7 +120,10 @@ async fn test_batch_freeze_by_recall_probability() {
     assert!(batch_result.total_space_saved_bytes > 0);
     assert!(batch_result.average_compression_ratio >= 5.0); // Should achieve >5:1 compression
     assert!(batch_result.processing_time_ms > 0);
-    assert_eq!(batch_result.frozen_memory_ids.len(), batch_result.memories_frozen as usize);
+    assert_eq!(
+        batch_result.frozen_memory_ids.len(),
+        batch_result.memories_frozen as usize
+    );
 
     println!(
         "Batch freeze: {} memories frozen, {:.1}:1 compression ratio, {}ms processing time",
@@ -150,8 +156,9 @@ async fn test_large_batch_freeze_100k() {
     assert!(batch_result.average_compression_ratio >= 5.0);
 
     // Verify storage savings (requirement: 80% less storage)
-    let space_saved_percentage = batch_result.total_space_saved_bytes as f64 
-        / (batch_result.total_space_saved_bytes + (batch_result.total_space_saved_bytes / 4)) as f64; // Approximate original size
+    let space_saved_percentage = batch_result.total_space_saved_bytes as f64
+        / (batch_result.total_space_saved_bytes + (batch_result.total_space_saved_bytes / 4))
+            as f64; // Approximate original size
     assert!(space_saved_percentage >= 0.8);
 
     println!(
@@ -211,7 +218,8 @@ async fn test_compression_ratio_requirement() {
     let repository = MemoryRepository::new(pool);
 
     // Create memory with substantial text content
-    let large_content = "This is a substantial piece of text content that should compress well. ".repeat(100);
+    let large_content =
+        "This is a substantial piece of text content that should compress well. ".repeat(100);
     let memory = repository
         .create_memory(CreateMemoryRequest {
             content: large_content.clone(),
@@ -295,14 +303,17 @@ async fn test_frozen_memory_search_exclusion() {
         limit: Some(10),
         ..Default::default()
     };
-    let search_response = repository
-        .search_memories(search_request)
-        .await
-        .unwrap();
+    let search_response = repository.search_memories(search_request).await.unwrap();
 
     // Verify the frozen memory is not in search results
-    let found_memory = search_response.results.iter().find(|r| r.memory.id == memory.id);
-    assert!(found_memory.is_none(), "Frozen memory should be excluded from search results");
+    let found_memory = search_response
+        .results
+        .iter()
+        .find(|r| r.memory.id == memory.id);
+    assert!(
+        found_memory.is_none(),
+        "Frozen memory should be excluded from search results"
+    );
 
     // Test explicit frozen memory search
     let frozen_results = repository
@@ -376,7 +387,8 @@ async fn test_data_integrity_after_freeze_unfreeze() {
     let pool = setup_test_pool().await;
     let repository = MemoryRepository::new(pool);
 
-    let original_content = "Critical data that must maintain integrity through freeze/unfreeze cycle";
+    let original_content =
+        "Critical data that must maintain integrity through freeze/unfreeze cycle";
     let original_metadata = serde_json::json!({
         "type": "critical_data",
         "version": "1.0",
@@ -450,19 +462,34 @@ async fn test_frozen_tier_enum_exists() {
 async fn test_batch_operations_performance_benchmarks() {
     // Test that batch operations meet performance requirements
     // This is a unit test that doesn't require database connection
-    
+
     // Verify batch size constants
     const MAX_BATCH_SIZE: usize = 100_000;
     const CHUNK_SIZE: usize = 1_000;
-    
-    assert!(MAX_BATCH_SIZE >= 100_000, "Must support 100K batch operations");
-    assert!(CHUNK_SIZE <= MAX_BATCH_SIZE, "Chunk size must be reasonable");
-    
+
+    assert!(
+        MAX_BATCH_SIZE >= 100_000,
+        "Must support 100K batch operations"
+    );
+    assert!(
+        CHUNK_SIZE <= MAX_BATCH_SIZE,
+        "Chunk size must be reasonable"
+    );
+
     // Verify delay requirements
     const MIN_DELAY_SECONDS: u64 = 2;
     const MAX_DELAY_SECONDS: u64 = 5;
-    
-    assert!(MIN_DELAY_SECONDS >= 2, "Minimum delay must be at least 2 seconds");
-    assert!(MAX_DELAY_SECONDS <= 5, "Maximum delay must not exceed 5 seconds");
-    assert!(MAX_DELAY_SECONDS > MIN_DELAY_SECONDS, "Max delay must be greater than min");
+
+    assert!(
+        MIN_DELAY_SECONDS >= 2,
+        "Minimum delay must be at least 2 seconds"
+    );
+    assert!(
+        MAX_DELAY_SECONDS <= 5,
+        "Maximum delay must not exceed 5 seconds"
+    );
+    assert!(
+        MAX_DELAY_SECONDS > MIN_DELAY_SECONDS,
+        "Max delay must be greater than min"
+    );
 }

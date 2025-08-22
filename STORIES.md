@@ -2,45 +2,6 @@
 
 ---
 
-## CRITICAL-001: Add Frozen Tier Support to Database Schema
-
-**Story Type:** Bug  
-**Priority:** Critical  
-**Components:** Database Layer, Memory Repository  
-**Estimated Points:** 5  
-
-### Description
-The database schema currently only supports three memory tiers (working, warm, cold) but the architecture specification requires four tiers including frozen. This violation prevents the system from implementing the complete hierarchical memory management system as designed.
-
-### Acceptance Criteria
-- [ ] Database enum `memory_tier` includes four values: working, warm, cold, and frozen
-- [ ] All existing queries that reference memory tiers support the frozen tier
-- [ ] Migration script successfully updates existing database without data loss
-- [ ] Frozen tier properly supports 5:1 compression ratio requirement
-- [ ] Storage format for frozen tier uses BYTEA with zstd compression, not JSONB
-- [ ] Compression algorithm field exists to track compression method
-- [ ] Original size field exists to measure compression effectiveness
-- [ ] System can successfully migrate memories to frozen tier based on P(r) < 0.2 threshold
-- [ ] Frozen tier retrieval maintains 2-5 second intentional delay as specified
-- [ ] Integration tests verify all four tiers operate correctly
-
-### References
-- Architecture Document: 4-Tier Memory Storage System (Section 3.2)
-- MemGPT-inspired hierarchical memory design patterns
-- Postgres-vector-optimizer audit findings from 2025-08-22
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
-
 ## CRITICAL-002: Implement Combined Score as Generated Column
 
 **Story Type:** Performance  

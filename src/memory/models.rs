@@ -235,7 +235,7 @@ pub struct MigrationHistoryEntry {
     pub error_message: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateMemoryRequest {
     pub content: String,
     pub embedding: Option<Vec<f32>>,
@@ -286,7 +286,7 @@ pub struct SearchRequest {
     pub explain_score: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub enum SearchType {
     Semantic,
     Temporal,
@@ -678,4 +678,23 @@ pub struct ConsolidationSearchRequest {
     pub tier: Option<MemoryTier>,
     pub limit: Option<i32>,
     pub offset: Option<i64>,
+}
+
+// Batch operations for frozen memory tier
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchFreezeResult {
+    pub memories_frozen: u32,
+    pub total_space_saved_bytes: u64,
+    pub average_compression_ratio: f32,
+    pub processing_time_ms: u64,
+    pub frozen_memory_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchUnfreezeResult {
+    pub memories_unfrozen: u32,
+    pub total_processing_time_ms: u64,
+    pub average_delay_seconds: f32,
+    pub unfrozen_memory_ids: Vec<Uuid>,
 }

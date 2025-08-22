@@ -1,0 +1,143 @@
+{
+  "importance_multiplier": 2.0,
+  "max_processing_time_ms": 50,
+  "enable_ab_testing": true,
+  "patterns": {
+    "Security": {
+      "regex": "(?i)(vulnerability|exploit|attack|breach|security|threat|malware|phishing|injection|xss|csrf)",
+      "keywords": [
+        "vulnerability",
+        "exploit",
+        "attack",
+        "breach",
+        "security",
+        "threat",
+        "malware",
+        "phishing",
+        "injection",
+        "authentication",
+        "authorization",
+        "encryption"
+      ],
+      "context_boosters": [
+        "critical",
+        "urgent",
+        "immediate",
+        "patch",
+        "fix",
+        "emergency"
+      ],
+      "confidence_threshold": 0.8,
+      "enabled": true
+    },
+    "Error": {
+      "regex": "(?i)(error|exception|failure|crash|panic|fatal|critical|bug|null|undefined)",
+      "keywords": [
+        "error",
+        "exception",
+        "failure",
+        "crash",
+        "panic",
+        "fatal",
+        "critical",
+        "bug",
+        "null",
+        "undefined",
+        "timeout",
+        "overflow"
+      ],
+      "context_boosters": [
+        "production",
+        "live",
+        "customer",
+        "impact",
+        "widespread",
+        "urgent"
+      ],
+      "confidence_threshold": 0.75,
+      "enabled": true
+    },
+    "Performance": {
+      "regex": "(?i)(slow|latency|bottleneck|performance|optimization|memory leak|timeout|lag|delay)",
+      "keywords": [
+        "slow",
+        "latency",
+        "bottleneck",
+        "performance",
+        "optimization",
+        "memory leak",
+        "timeout",
+        "lag",
+        "delay",
+        "inefficient",
+        "scaling",
+        "load"
+      ],
+      "context_boosters": [
+        "degraded",
+        "unacceptable",
+        "user complaints",
+        "sla",
+        "benchmark",
+        "regression"
+      ],
+      "confidence_threshold": 0.7,
+      "enabled": true
+    },
+    "BusinessCritical": {
+      "regex": "(?i)(revenue|profit|loss|critical|strategic|decision|customer|retention|conversion|churn)",
+      "keywords": [
+        "revenue",
+        "profit",
+        "loss",
+        "critical",
+        "strategic",
+        "decision",
+        "customer",
+        "retention",
+        "conversion",
+        "churn",
+        "roi",
+        "kpi"
+      ],
+      "context_boosters": [
+        "urgent",
+        "executive",
+        "board",
+        "stakeholder",
+        "priority",
+        "deadline"
+      ],
+      "confidence_threshold": 0.85,
+      "enabled": true
+    },
+    "UserExperience": {
+      "regex": "(?i)(user|usability|feedback|complaint|satisfaction|experience|ui|ux|accessibility|confusing)",
+      "keywords": [
+        "user",
+        "usability",
+        "feedback",
+        "complaint",
+        "satisfaction",
+        "experience",
+        "ui",
+        "ux",
+        "accessibility",
+        "confusing",
+        "intuitive",
+        "workflow"
+      ],
+      "context_boosters": [
+        "frustrated",
+        "abandon",
+        "support ticket",
+        "negative",
+        "improvement",
+        "survey"
+      ],
+      "confidence_threshold": 0.7,
+      "enabled": true
+    }
+  },
+  "user_customizations": {}
+}

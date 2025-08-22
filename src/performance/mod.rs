@@ -2,6 +2,7 @@
 
 pub mod benchmarks;
 pub mod capacity_planning;
+pub mod dashboard;
 pub mod load_testing;
 pub mod metrics;
 pub mod optimization;

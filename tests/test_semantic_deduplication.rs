@@ -1,9 +1,9 @@
 use codex_memory::{
+    embedding::SimpleEmbedder,
     memory::{
         models::CreateMemoryRequest, MemoryRepository, MemoryTier, SemanticDeduplicationConfig,
         SemanticDeduplicationEngine,
     },
-    embedding::SimpleEmbedder,
 };
 use pgvector::Vector;
 use sqlx::PgPool;

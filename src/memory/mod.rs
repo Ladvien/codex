@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod consolidation_job;
+pub mod enhanced_retrieval;
 pub mod error;
 pub mod importance_assessment;
 pub mod importance_assessment_config;
@@ -12,6 +13,8 @@ pub mod simple_consolidation;
 // Cognitive enhancement modules
 pub mod cognitive_consolidation;
 pub mod cognitive_memory_system;
+pub mod event_triggers;
+pub mod trigger_config_loader;
 pub mod insight_loop_prevention;
 pub mod reflection_engine;
 pub mod silent_harvester;
@@ -23,7 +26,7 @@ pub use consolidation_job::{
 };
 pub use error::MemoryError;
 pub use math_engine::{MathEngine, MathEngineConfig, MemoryParameters};
-pub use models::{Memory, MemoryStatus, MemoryTier};
+pub use models::{CreateMemoryRequest, Memory, MemoryStatus, MemoryTier, SearchRequest, SearchType};
 pub use repository::MemoryRepository;
 pub use simple_consolidation::{
     ConsolidationBatchResult, ConsolidationProcessor, SimpleConsolidationConfig,
@@ -52,6 +55,13 @@ pub use three_component_scoring::{
     ThreeComponentConfig, ThreeComponentEngine,
 };
 
+// Event triggers exports
+pub use event_triggers::{
+    EventTriggeredScoringEngine, TriggerConfig, TriggerDetectionResult, TriggerEvent,
+    TriggerMetrics, TriggerPattern,
+};
+pub use trigger_config_loader::TriggerConfigLoader;
+
 // Silent harvester exports
 pub use silent_harvester::{
     ConversationMessage, DeduplicationService, ExtractedMemoryPattern, HarvestResult,
@@ -74,4 +84,11 @@ pub use semantic_deduplication::{
     DeduplicationMetrics, DeduplicationResult, GroupMergeResult, HeadroomMaintenanceResult,
     MemoryMerger, MemoryStatistics, MergeResult, MergeStrategy, PruningResult, ReversibleOperation,
     SemanticDeduplicationConfig, SemanticDeduplicationEngine, SimilarMemoryGroup,
+};
+
+// Enhanced retrieval exports
+pub use enhanced_retrieval::{
+    BoostExplanation, ConsolidationEvent, EnhancedRetrievalConfig, MemoryAncestor, MemoryAwareRetrievalEngine,
+    MemoryAwareSearchRequest, MemoryAwareSearchResponse, MemoryAwareSearchResult, MemoryDescendant,
+    MemoryLineage, PerformanceMetrics, ProvenanceMetadata, QueryPatternCache, RelationshipType,
 };

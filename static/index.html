@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Harvester Configuration</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 Memory Harvester Configuration</h1>
+            <div class="status-indicator" id="status-indicator">
+                <span id="status-text">Checking status...</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Navigation Tabs -->
+            <nav class="tab-nav">
+                <button class="tab-button active" data-tab="configuration">Configuration</button>
+                <button class="tab-button" data-tab="statistics">Statistics</button>
+                <button class="tab-button" data-tab="recent-memories">Recent Memories</button>
+                <button class="tab-button" data-tab="export">Export</button>
+            </nav>
+
+            <!-- Configuration Tab -->
+            <div class="tab-content active" id="configuration">
+                <section class="config-section">
+                    <h2>General Settings</h2>
+                    
+                    <div class="toggle-group">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="harvester-enabled" checked>
+                            <span class="slider"></span>
+                            <span class="label">Enable Memory Harvesting</span>
+                        </label>
+                    </div>
+
+                    <div class="toggle-group">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="privacy-mode">
+                            <span class="slider"></span>
+                            <span class="label">Privacy Mode (Disable all harvesting)</span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="config-section">
+                    <h2>Confidence Threshold</h2>
+                    <div class="slider-group">
+                        <label for="confidence-threshold">Minimum confidence for auto-storage:</label>
+                        <input type="range" id="confidence-threshold" min="0.5" max="0.9" step="0.05" value="0.7">
+                        <span class="slider-value" id="confidence-value">0.7</span>
+                    </div>
+                    <p class="help-text">Memories with confidence below this threshold will not be automatically stored.</p>
+                </section>
+
+                <section class="config-section">
+                    <h2>Harvest Frequency</h2>
+                    <div class="form-group">
+                        <label for="message-count">Trigger every N messages:</label>
+                        <input type="number" id="message-count" min="1" max="1000" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="time-interval">Or every N minutes:</label>
+                        <input type="number" id="time-interval" min="1" max="1440" value="5">
+                    </div>
+                </section>
+
+                <section class="config-section">
+                    <h2>Pattern Selection</h2>
+                    <div class="pattern-grid" id="pattern-grid">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </section>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" id="save-config">Save Configuration</button>
+                    <button class="btn btn-secondary" id="reset-config">Reset to Defaults</button>
+                </div>
+            </div>
+
+            <!-- Statistics Tab -->
+            <div class="tab-content" id="statistics">
+                <section class="stats-section">
+                    <h2>Harvester Performance</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Messages Processed</h3>
+                            <div class="stat-value" id="messages-processed">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Patterns Extracted</h3>
+                            <div class="stat-value" id="patterns-extracted">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Memories Stored</h3>
+                            <div class="stat-value" id="memories-stored">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Duplicates Filtered</h3>
+                            <div class="stat-value" id="duplicates-filtered">-</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="stats-section">
+                    <h2>Pattern Type Breakdown</h2>
+                    <div class="chart-container">
+                        <canvas id="pattern-chart"></canvas>
+                    </div>
+                </section>
+
+                <section class="stats-section">
+                    <h2>Confidence Score Distribution</h2>
+                    <div class="confidence-bars">
+                        <div class="confidence-bar">
+                            <label>High Confidence (>0.8)</label>
+                            <div class="bar-container">
+                                <div class="bar high-confidence" id="high-confidence-bar"></div>
+                                <span class="bar-value" id="high-confidence-value">-</span>
+                            </div>
+                        </div>
+                        <div class="confidence-bar">
+                            <label>Medium Confidence (0.6-0.8)</label>
+                            <div class="bar-container">
+                                <div class="bar medium-confidence" id="medium-confidence-bar"></div>
+                                <span class="bar-value" id="medium-confidence-value">-</span>
+                            </div>
+                        </div>
+                        <div class="confidence-bar">
+                            <label>Low Confidence (<0.6)</label>
+                            <div class="bar-container">
+                                <div class="bar low-confidence" id="low-confidence-bar"></div>
+                                <span class="bar-value" id="low-confidence-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Recent Memories Tab -->
+            <div class="tab-content" id="recent-memories">
+                <section class="memories-section">
+                    <div class="section-header">
+                        <h2>Recently Harvested Memories</h2>
+                        <button class="btn btn-secondary" id="refresh-memories">Refresh</button>
+                    </div>
+                    
+                    <div class="filters">
+                        <select id="pattern-filter">
+                            <option value="">All Pattern Types</option>
+                            <option value="Preference">Preferences</option>
+                            <option value="Fact">Facts</option>
+                            <option value="Decision">Decisions</option>
+                            <option value="Goal">Goals</option>
+                            <option value="Skill">Skills</option>
+                            <option value="Emotion">Emotions</option>
+                            <option value="Relationship">Relationships</option>
+                            <option value="Correction">Corrections</option>
+                        </select>
+                        
+                        <input type="range" id="confidence-filter" min="0" max="1" step="0.1" value="0">
+                        <span>Min Confidence: <span id="confidence-filter-value">0.0</span></span>
+                    </div>
+
+                    <div class="memories-list" id="memories-list">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- Export Tab -->
+            <div class="tab-content" id="export">
+                <section class="export-section">
+                    <h2>Export Memory History</h2>
+                    <p>Download your complete memory harvesting history with all metadata.</p>
+                    
+                    <div class="export-options">
+                        <div class="form-group">
+                            <label>
+                                <input type="radio" name="export-format" value="json" checked>
+                                JSON (Complete data with metadata)
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="radio" name="export-format" value="csv">
+                                CSV (Tabular format for spreadsheets)
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="include-metadata" checked>
+                                Include technical metadata
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="anonymize-data">
+                                Anonymize personal information
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="export-stats" id="export-stats">
+                        <!-- Will be populated with export preview -->
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" id="download-export">Download Export</button>
+                        <button class="btn btn-secondary" id="preview-export">Preview Data</button>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Toast notifications -->
+        <div class="toast" id="toast">
+            <span id="toast-message"></span>
+            <button class="toast-close" id="toast-close">&times;</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

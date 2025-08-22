@@ -38,7 +38,7 @@ serde_json = "1.0"
 axum = "0.7"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors", "timeout", "auth", "limit", "validate-request"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout", "auth", "limit", "validate-request", "fs"] }
 
 # Security dependencies
 rustls = "0.23"

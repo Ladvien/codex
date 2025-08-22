@@ -1,21 +1,34 @@
 use super::error::{MemoryError, Result};
+use super::event_triggers::EventTriggeredScoringEngine;
 use super::models::*;
 use chrono::Utc;
 use pgvector::Vector;
 use sqlx::postgres::types::PgInterval;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct MemoryRepository {
     pool: PgPool,
+    trigger_engine: Option<Arc<EventTriggeredScoringEngine>>,
 }
 
 impl MemoryRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self { 
+            pool,
+            trigger_engine: None,
+        }
+    }
+
+    pub fn with_trigger_engine(pool: PgPool, trigger_engine: Arc<EventTriggeredScoringEngine>) -> Self {
+        Self {
+            pool,
+            trigger_engine: Some(trigger_engine),
+        }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -23,6 +36,10 @@ impl MemoryRepository {
     }
 
     pub async fn create_memory(&self, request: CreateMemoryRequest) -> Result<Memory> {
+        self.create_memory_with_user_context(request, None).await
+    }
+
+    pub async fn create_memory_with_user_context(&self, request: CreateMemoryRequest, user_id: Option<&str>) -> Result<Memory> {
         let id = Uuid::new_v4();
         let content_hash = Memory::calculate_content_hash(&request.content);
         let tier = request.tier.unwrap_or(MemoryTier::Working);
@@ -47,7 +64,47 @@ impl MemoryRepository {
             }
         }
 
+        // Apply event-triggered scoring if available
+        let (final_importance_score, trigger_result) = if let Some(trigger_engine) = &self.trigger_engine {
+            let original_importance = request.importance_score.unwrap_or(0.5);
+            
+            match trigger_engine.analyze_content(&request.content, original_importance, user_id).await {
+                Ok(result) => {
+                    if result.triggered {
+                        info!(
+                            "Memory triggered event: {:?} (confidence: {:.2}, boosted: {:.2} -> {:.2})",
+                            result.trigger_type, result.confidence, result.original_importance, result.boosted_importance
+                        );
+                        (result.boosted_importance, Some(result))
+                    } else {
+                        (original_importance, Some(result))
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to analyze content for triggers: {}", e);
+                    (request.importance_score.unwrap_or(0.5), None)
+                }
+            }
+        } else {
+            (request.importance_score.unwrap_or(0.5), None)
+        };
+
         let embedding = request.embedding.map(Vector::from);
+
+        // Add trigger metadata if triggered
+        let mut metadata = request.metadata.unwrap_or(serde_json::json!({}));
+        if let Some(trigger_result) = &trigger_result {
+            if trigger_result.triggered {
+                metadata["trigger_info"] = serde_json::json!({
+                    "triggered": true,
+                    "trigger_type": trigger_result.trigger_type,
+                    "confidence": trigger_result.confidence,
+                    "original_importance": trigger_result.original_importance,
+                    "boosted_importance": trigger_result.boosted_importance,
+                    "processing_time_ms": trigger_result.processing_time.as_millis()
+                });
+            }
+        }
 
         let memory = sqlx::query_as::<_, Memory>(
             r#"
@@ -66,8 +123,8 @@ impl MemoryRepository {
         .bind(embedding)
         .bind(tier)
         .bind(MemoryStatus::Active)
-        .bind(request.importance_score.unwrap_or(0.5))
-        .bind(request.metadata.unwrap_or(serde_json::json!({})))
+        .bind(final_importance_score)
+        .bind(metadata)
         .bind(request.parent_id)
         .bind(request.expires_at)
         .bind(1.0_f64) // Default consolidation_strength
@@ -75,7 +132,7 @@ impl MemoryRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        info!("Created memory {} in tier {:?}", memory.id, memory.tier);
+        info!("Created memory {} in tier {:?} with importance {:.2}", memory.id, memory.tier, final_importance_score);
         Ok(memory)
     }
 
@@ -176,6 +233,20 @@ impl MemoryRepository {
 
         info!("Soft deleted memory {}", id);
         Ok(())
+    }
+
+    /// Enhanced search method with memory-aware features for Story 9
+    pub async fn search_memories_enhanced(&self, request: crate::memory::enhanced_retrieval::MemoryAwareSearchRequest) -> Result<crate::memory::enhanced_retrieval::MemoryAwareSearchResponse> {
+        use crate::memory::enhanced_retrieval::*;
+        
+        let config = EnhancedRetrievalConfig::default();
+        let retrieval_engine = MemoryAwareRetrievalEngine::new(
+            config,
+            std::sync::Arc::new(MemoryRepository::new(self.pool.clone())),
+            None,
+        );
+        
+        retrieval_engine.search(request).await
     }
 
     pub async fn search_memories(&self, request: SearchRequest) -> Result<SearchResponse> {
@@ -994,6 +1065,9 @@ impl MemoryRepository {
         frozen_id: Uuid,
         target_tier: Option<MemoryTier>,
     ) -> Result<UnfreezeMemoryResponse> {
+        use rand::Rng;
+        use tokio::time::{sleep, Duration};
+        
         let mut tx = self.pool.begin().await?;
 
         // Get the frozen memory details first
@@ -1002,6 +1076,13 @@ impl MemoryRepository {
                 .bind(frozen_id)
                 .fetch_one(&mut *tx)
                 .await?;
+
+        // Implement intentional 2-5 second delay for frozen memory retrieval
+        let mut rng = rand::thread_rng();
+        let delay_seconds = rng.gen_range(2..=5);
+        
+        info!("Unfreezing memory {} with {}-second intentional delay", frozen_id, delay_seconds);
+        sleep(Duration::from_secs(delay_seconds)).await;
 
         // Call the database function to unfreeze the memory
         let memory_row = sqlx::query("SELECT unfreeze_memory($1) as memory_id")
@@ -1027,7 +1108,7 @@ impl MemoryRepository {
 
         Ok(UnfreezeMemoryResponse {
             memory_id,
-            retrieval_delay_seconds: 0, // Default, could be calculated based on storage tier
+            retrieval_delay_seconds: delay_seconds as i32,
             restoration_tier,
             unfrozen_at: Utc::now(),
         })
@@ -1508,6 +1589,173 @@ impl MemoryRepository {
         .await?;
 
         Ok(stats)
+    }
+
+    /// Get trigger metrics if trigger engine is available
+    pub async fn get_trigger_metrics(&self) -> Option<super::event_triggers::TriggerMetrics> {
+        if let Some(trigger_engine) = &self.trigger_engine {
+            Some(trigger_engine.get_metrics().await)
+        } else {
+            None
+        }
+    }
+
+    /// Reset trigger metrics if trigger engine is available
+    pub async fn reset_trigger_metrics(&self) -> Result<()> {
+        if let Some(trigger_engine) = &self.trigger_engine {
+            trigger_engine.reset_metrics().await?;
+        }
+        Ok(())
+    }
+
+    /// Add user-specific trigger customization
+    pub async fn add_user_trigger_customization(
+        &self,
+        user_id: String,
+        customizations: std::collections::HashMap<super::event_triggers::TriggerEvent, super::event_triggers::TriggerPattern>,
+    ) -> Result<()> {
+        if let Some(trigger_engine) = &self.trigger_engine {
+            trigger_engine.add_user_customization(user_id, customizations).await?;
+        }
+        Ok(())
+    }
+
+    /// Check if trigger engine is enabled
+    pub fn has_trigger_engine(&self) -> bool {
+        self.trigger_engine.is_some()
+    }
+
+    /// Batch freeze memories that meet migration criteria (P(recall) < 0.2)
+    pub async fn batch_freeze_by_recall_probability(
+        &self,
+        max_batch_size: Option<usize>,
+    ) -> Result<BatchFreezeResult> {
+        use std::time::Instant;
+        
+        let start_time = Instant::now();
+        let batch_size = max_batch_size.unwrap_or(100_000); // Default to 100K as per requirements
+        
+        // Find memories in Cold tier with P(recall) < 0.2
+        let candidates = sqlx::query_as::<_, Memory>(
+            r#"
+            SELECT * FROM memories 
+            WHERE tier = 'cold' 
+            AND status = 'active'
+            AND COALESCE(recall_probability, 0) < 0.2
+            ORDER BY recall_probability ASC, last_accessed_at ASC
+            LIMIT $1
+            "#
+        )
+        .bind(batch_size as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut frozen_ids = Vec::new();
+        let mut total_space_saved = 0u64;
+        let mut compression_ratios = Vec::new();
+
+        info!("Starting batch freeze of {} memories", candidates.len());
+
+        // Process in smaller chunks to avoid transaction timeouts
+        for chunk in candidates.chunks(1000) {
+            let mut tx = self.pool.begin().await?;
+            
+            for memory in chunk {
+                // Call freeze function for each memory
+                match sqlx::query("SELECT freeze_memory($1) as frozen_id")
+                    .bind(memory.id)
+                    .fetch_one(&mut *tx)
+                    .await
+                {
+                    Ok(row) => {
+                        let frozen_id: Uuid = row.get("frozen_id");
+                        frozen_ids.push(frozen_id);
+                        
+                        // Estimate space saved (original content vs compressed)
+                        let original_size = memory.content.len() as u64;
+                        let estimated_compressed_size = original_size / 6; // Assume ~6:1 compression
+                        total_space_saved += original_size - estimated_compressed_size;
+                        compression_ratios.push(6.0);
+                    }
+                    Err(e) => {
+                        warn!("Failed to freeze memory {}: {}", memory.id, e);
+                        continue;
+                    }
+                }
+            }
+            
+            tx.commit().await?;
+        }
+
+        let processing_time = start_time.elapsed();
+        let avg_compression_ratio = if !compression_ratios.is_empty() {
+            compression_ratios.iter().sum::<f32>() / compression_ratios.len() as f32
+        } else {
+            0.0
+        };
+
+        info!(
+            "Batch freeze completed: {} memories frozen in {:?}, avg compression: {:.1}:1",
+            frozen_ids.len(), processing_time, avg_compression_ratio
+        );
+
+        Ok(BatchFreezeResult {
+            memories_frozen: frozen_ids.len() as u32,
+            total_space_saved_bytes: total_space_saved,
+            average_compression_ratio: avg_compression_ratio,
+            processing_time_ms: processing_time.as_millis() as u64,
+            frozen_memory_ids: frozen_ids,
+        })
+    }
+
+    /// Batch unfreeze memories
+    pub async fn batch_unfreeze_memories(
+        &self,
+        frozen_ids: Vec<Uuid>,
+        target_tier: Option<MemoryTier>,
+    ) -> Result<BatchUnfreezeResult> {
+        use std::time::Instant;
+        
+        let start_time = Instant::now();
+        let mut unfrozen_memory_ids = Vec::new();
+        let mut total_delay_seconds = 0i32;
+
+        info!("Starting batch unfreeze of {} memories", frozen_ids.len());
+
+        // Process in smaller chunks to manage delays and transactions
+        for chunk in frozen_ids.chunks(100) {
+            for frozen_id in chunk {
+                match self.unfreeze_memory(*frozen_id, target_tier).await {
+                    Ok(response) => {
+                        unfrozen_memory_ids.push(response.memory_id);
+                        total_delay_seconds += response.retrieval_delay_seconds;
+                    }
+                    Err(e) => {
+                        warn!("Failed to unfreeze memory {}: {}", frozen_id, e);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let processing_time = start_time.elapsed();
+        let avg_delay_seconds = if !unfrozen_memory_ids.is_empty() {
+            total_delay_seconds as f32 / unfrozen_memory_ids.len() as f32
+        } else {
+            0.0
+        };
+
+        info!(
+            "Batch unfreeze completed: {} memories unfrozen in {:?}, avg delay: {:.1}s",
+            unfrozen_memory_ids.len(), processing_time, avg_delay_seconds
+        );
+
+        Ok(BatchUnfreezeResult {
+            memories_unfrozen: unfrozen_memory_ids.len() as u32,
+            total_processing_time_ms: processing_time.as_millis() as u64,
+            average_delay_seconds: avg_delay_seconds,
+            unfrozen_memory_ids,
+        })
     }
 }
 

@@ -182,9 +182,10 @@ impl MCPAuthConfig {
             .to_lowercase()
             == "production";
 
+        // Default to enabled unless explicitly disabled
         let auth_enabled = env::var("MCP_AUTH_ENABLED")
-            .map(|s| s.parse().unwrap_or(is_production))
-            .unwrap_or(is_production);
+            .map(|s| s.parse().unwrap_or(true))
+            .unwrap_or(true);
 
         // Warn if authentication is disabled in production
         if is_production && !auth_enabled {

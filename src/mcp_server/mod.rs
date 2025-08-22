@@ -54,8 +54,8 @@ impl Default for MCPServerConfig {
             enable_circuit_breaker: true,
             circuit_breaker: CircuitBreakerConfig::default(),
             enable_authentication: std::env::var("MCP_AUTH_ENABLED")
-                .map(|s| s.parse().unwrap_or(false))
-                .unwrap_or(false),
+                .map(|s| s.parse().unwrap_or(true))
+                .unwrap_or(true),
             auth: MCPAuthConfig::from_env(),
             enable_rate_limiting: std::env::var("MCP_RATE_LIMIT_ENABLED")
                 .map(|s| s.parse().unwrap_or(true))

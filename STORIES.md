@@ -2,31 +2,6 @@ I'll convert these issues into detailed Jira stories organized by priority. Each
 
 ## P0 - Critical Issues (Production Blockers)
 
-### TICKET-002: Update Vulnerable Dependencies
-**Type:** Security  
-**Priority:** Critical  
-**Component:** Dependencies  
-**Story Points:** 2  
-
-**Description:**
-Three critical CVEs identified in dependencies: protobuf, idna, and RSA libraries.
-
-**Acceptance Criteria:**
-- [ ] protobuf updated to latest secure version
-- [ ] idna updated to patch DNS vulnerability
-- [ ] RSA library updated or replaced with secure alternative
-- [ ] Cargo.lock regenerated and committed
-- [ ] No new breaking changes introduced
-- [ ] Dependency audit passes with zero critical/high findings
-
-**Definition of Done:**
-- `cargo audit` returns 0 vulnerabilities
-- All tests pass with updated dependencies
-- Compatibility testing completed
-- SBOM updated with new versions
-- Security team sign-off obtained
-
----
 
 ### TICKET-003: Enable MCP Authentication by Default
 **Type:** Security  

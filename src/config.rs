@@ -608,7 +608,7 @@ impl Default for SecurityConfiguration {
             tls_cert_path: PathBuf::from("/etc/ssl/certs/codex.crt"),
             tls_key_path: PathBuf::from("/etc/ssl/private/codex.key"),
             tls_port: 8443,
-            auth_enabled: false,
+            auth_enabled: true,
             jwt_secret: "change-me-in-production".to_string(),
             jwt_expiry_hours: 24,
             api_key_enabled: false,

@@ -13,6 +13,7 @@ pub mod cognitive_consolidation;
 pub mod cognitive_memory_system;
 pub mod insight_loop_prevention;
 pub mod reflection_engine;
+pub mod silent_harvester;
 pub mod three_component_scoring;
 
 pub use consolidation_job::{
@@ -48,6 +49,13 @@ pub use reflection_engine::{
 pub use three_component_scoring::{
     EnhancedSearchResult, EnhancedSearchService, ScoringContext, ScoringResult,
     ThreeComponentConfig, ThreeComponentEngine,
+};
+
+// Silent harvester exports
+pub use silent_harvester::{
+    ConversationMessage, DeduplicationService, ExtractedMemoryPattern, HarvestResult,
+    HarvesterError, HarvesterMetrics, HarvesterMetricsSummary, HarvestingEngine, MemoryPatternType,
+    PatternExtractionConfig, PatternMatcher, SilentHarvesterConfig, SilentHarvesterService,
 };
 
 // Importance assessment exports

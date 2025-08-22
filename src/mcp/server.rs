@@ -1,13 +1,17 @@
-use crate::memory::{models::*, MemoryRepository};
+use crate::memory::{
+    models::*, ConversationMessage, ImportanceAssessmentConfig, ImportanceAssessmentPipeline,
+    MemoryRepository, SilentHarvesterService,
+};
 use crate::monitoring::{AlertManager, HealthChecker, MetricsCollector, PerformanceProfiler};
 use crate::SimpleEmbedder;
 use anyhow::Result;
+use chrono::Utc;
 use jsonrpc_core::{IoHandler, Params, Value};
 use jsonrpc_tcp_server::ServerBuilder;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{error, info};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -40,6 +44,7 @@ pub struct MCPServer {
     health_checker: Arc<HealthChecker>,
     alert_manager: Arc<tokio::sync::RwLock<AlertManager>>,
     profiler: Arc<PerformanceProfiler>,
+    harvester_service: Arc<SilentHarvesterService>,
 }
 
 impl MCPServer {
@@ -49,6 +54,24 @@ impl MCPServer {
         let alert_manager = Arc::new(tokio::sync::RwLock::new(AlertManager::new()));
         let profiler = Arc::new(PerformanceProfiler::new());
 
+        // Initialize importance assessment pipeline
+        let importance_config = ImportanceAssessmentConfig::default();
+        let registry = metrics.registry();
+        let importance_pipeline = Arc::new(ImportanceAssessmentPipeline::new(
+            importance_config,
+            embedder.clone(),
+            &registry,
+        )?);
+
+        // Initialize silent harvester service
+        let harvester_service = Arc::new(SilentHarvesterService::new(
+            repository.clone(),
+            importance_pipeline,
+            embedder.clone(),
+            None, // Use default config
+            &registry,
+        )?);
+
         Ok(Self {
             repository,
             embedder,
@@ -56,6 +79,7 @@ impl MCPServer {
             health_checker,
             alert_manager,
             profiler,
+            harvester_service,
         })
     }
 
@@ -311,6 +335,109 @@ impl MCPServer {
                 let binding = alert_manager.read().await;
                 let alerts = binding.get_active_alerts();
                 serde_json::to_value(alerts).map_err(|_| jsonrpc_core::Error::internal_error())
+            })
+        });
+
+        // Silent harvester methods
+        let harvester = self.harvester_service.clone();
+        handler.add_method("background_memory_harvest", move |params: Params| {
+            let harvester = harvester.clone();
+            Box::pin(async move {
+                #[derive(Debug, Deserialize)]
+                struct HarvestRequest {
+                    message: Option<String>,
+                    context: Option<String>,
+                    role: Option<String>,
+                    silent_mode: Option<bool>,
+                    force_harvest: Option<bool>,
+                }
+
+                let request: HarvestRequest = params.parse().unwrap_or(HarvestRequest {
+                    message: None,
+                    context: None,
+                    role: None,
+                    silent_mode: Some(true),
+                    force_harvest: Some(false),
+                });
+
+                // If a message is provided, add it to the queue
+                if let Some(message_content) = request.message {
+                    let conversation_message = ConversationMessage {
+                        id: Uuid::new_v4().to_string(),
+                        content: message_content,
+                        timestamp: Utc::now(),
+                        role: request.role.unwrap_or_else(|| "user".to_string()),
+                        context: request
+                            .context
+                            .unwrap_or_else(|| "conversation".to_string()),
+                    };
+
+                    if let Err(e) = harvester.add_message(conversation_message).await {
+                        error!("Failed to add message to harvester: {}", e);
+                        return Err(jsonrpc_core::Error::internal_error());
+                    }
+                }
+
+                // If force_harvest is requested, trigger immediate harvest
+                if request.force_harvest.unwrap_or(false) {
+                    match harvester.force_harvest().await {
+                        Ok(result) => {
+                            if !request.silent_mode.unwrap_or(true) {
+                                info!("Force harvest completed: {:?}", result);
+                            }
+                            serde_json::to_value(result)
+                                .map_err(|_| jsonrpc_core::Error::internal_error())
+                        }
+                        Err(e) => {
+                            error!("Force harvest failed: {}", e);
+                            Err(jsonrpc_core::Error::internal_error())
+                        }
+                    }
+                } else {
+                    // Silent mode - return success without details
+                    Ok(Value::Object(serde_json::Map::from_iter([
+                        ("status".to_string(), Value::String("queued".to_string())),
+                        (
+                            "silent_mode".to_string(),
+                            Value::Bool(request.silent_mode.unwrap_or(true)),
+                        ),
+                    ])))
+                }
+            })
+        });
+
+        // Harvester metrics
+        let harvester = self.harvester_service.clone();
+        handler.add_method("harvester.metrics", move |_params| {
+            let harvester = harvester.clone();
+            Box::pin(async move {
+                let metrics = harvester.get_metrics().await;
+                serde_json::to_value(metrics).map_err(|_| jsonrpc_core::Error::internal_error())
+            })
+        });
+
+        // Query harvested memories
+        let harvester = self.harvester_service.clone();
+        handler.add_method("harvester.query", move |params: Params| {
+            let harvester = harvester.clone();
+            Box::pin(async move {
+                #[derive(Debug, Deserialize)]
+                struct QueryRequest {
+                    query: Option<String>,
+                }
+
+                let request: QueryRequest = params.parse().unwrap_or(QueryRequest {
+                    query: Some("what did you remember about me".to_string()),
+                });
+
+                // For now, return metrics summary - in future this could search stored memories
+                let metrics = harvester.get_metrics().await;
+                serde_json::to_value(serde_json::json!({
+                    "status": "available",
+                    "query": request.query.unwrap_or_else(|| "default".to_string()),
+                    "metrics": metrics,
+                    "message": "Memory harvesting is active. Use harvester.metrics for detailed information."
+                })).map_err(|_| jsonrpc_core::Error::internal_error())
             })
         });
 

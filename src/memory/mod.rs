@@ -6,6 +6,7 @@ pub mod importance_assessment_config;
 pub mod math_engine;
 pub mod models;
 pub mod repository;
+pub mod semantic_deduplication;
 pub mod simple_consolidation;
 
 // Cognitive enhancement modules
@@ -66,3 +67,11 @@ pub use importance_assessment::{
     StageResult,
 };
 pub use importance_assessment_config::ImportanceAssessmentConfigLoader;
+
+// Semantic deduplication exports
+pub use semantic_deduplication::{
+    AuditEntry, AuditTrail, AutoPruner, CompressionManager, CompressionResult,
+    DeduplicationMetrics, DeduplicationResult, GroupMergeResult, HeadroomMaintenanceResult,
+    MemoryMerger, MemoryStatistics, MergeResult, MergeStrategy, PruningResult, ReversibleOperation,
+    SemanticDeduplicationConfig, SemanticDeduplicationEngine, SimilarMemoryGroup,
+};

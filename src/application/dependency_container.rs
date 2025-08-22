@@ -1,31 +1,30 @@
 use crate::{
-    Config, MemoryRepository, SimpleEmbedder, SetupManager, DatabaseSetup,
-    memory::{
-        tier_manager::TierManager,
-        silent_harvester::SilentHarvesterService,
-        connection::create_pool,
-    },
     backup::BackupManager,
-    monitoring::HealthChecker,
-    mcp_server::{MCPServer, MCPServerConfig},
     manager::ServerManager,
+    mcp_server::{MCPServer, MCPServerConfig},
+    memory::{
+        connection::create_pool, silent_harvester::SilentHarvesterService,
+        tier_manager::TierManager,
+    },
+    monitoring::HealthChecker,
+    Config, DatabaseSetup, MemoryRepository, SetupManager, SimpleEmbedder,
 };
 use anyhow::Result;
-use std::sync::Arc;
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::info;
 
 /// Dependency injection container for the application
 pub struct DependencyContainer {
     // Core configuration
     pub config: Config,
-    
+
     // Database layer
     pub db_pool: Arc<PgPool>,
-    
+
     // Repository layer
     pub memory_repository: Arc<MemoryRepository>,
-    
+
     // Service layer
     pub embedder: Arc<SimpleEmbedder>,
     pub setup_manager: Arc<SetupManager>,
@@ -33,7 +32,7 @@ pub struct DependencyContainer {
     pub backup_manager: Option<Arc<BackupManager>>,
     pub tier_manager: Option<Arc<TierManager>>,
     pub harvester_service: Option<Arc<SilentHarvesterService>>,
-    
+
     // Infrastructure layer
     pub health_checker: Arc<HealthChecker>,
     pub mcp_server: Option<Arc<MCPServer>>,
@@ -43,30 +42,30 @@ pub struct DependencyContainer {
 impl DependencyContainer {
     pub async fn new() -> Result<Self> {
         info!("🔧 Initializing dependency container...");
-        
+
         // Load configuration
         let config = Config::from_env().unwrap_or_else(|_| {
             info!("⚠️  No configuration found, using defaults");
             Config::default()
         });
-        
+
         // Create database connection pool
         let db_pool = Arc::new(
-            create_pool(&config.database_url, config.operational.max_db_connections).await?
+            create_pool(&config.database_url, config.operational.max_db_connections).await?,
         );
-        
-        // Repository layer  
+
+        // Repository layer
         let memory_repository = Arc::new(MemoryRepository::new((*db_pool).clone()));
-        
+
         // Service layer
         let embedder = Arc::new(Self::create_embedder(&config)?);
         let setup_manager = Arc::new(SetupManager::new(config.clone()));
         let database_setup = Arc::new(DatabaseSetup::new(config.database_url.clone()));
-        
+
         // Infrastructure layer
         let health_checker = Arc::new(HealthChecker::new(db_pool.clone()));
         let server_manager = Arc::new(ServerManager::new());
-        
+
         // Optional services
         let backup_manager = if config.backup.enabled {
             let backup_config = crate::backup::BackupConfig::default(); // Use default config for now
@@ -74,7 +73,7 @@ impl DependencyContainer {
         } else {
             None
         };
-        
+
         let tier_manager = if config.tier_manager.enabled {
             Some(Arc::new(TierManager::new(
                 memory_repository.clone(),
@@ -83,7 +82,7 @@ impl DependencyContainer {
         } else {
             None
         };
-        
+
         // TODO: Harvest service requires additional dependencies that need to be properly configured
         // For now, disable until we can implement proper dependency injection
         let harvester_service = None;
@@ -94,9 +93,9 @@ impl DependencyContainer {
         //     Some(config.harvester.clone()),
         //     &prometheus_registry,
         // )?));
-        
+
         info!("✅ Dependency container initialized successfully");
-        
+
         Ok(Self {
             config,
             db_pool,
@@ -112,7 +111,7 @@ impl DependencyContainer {
             server_manager,
         })
     }
-    
+
     fn create_embedder(config: &Config) -> Result<SimpleEmbedder> {
         match config.embedding.provider.as_str() {
             "openai" => Ok(SimpleEmbedder::new(config.embedding.api_key.clone())
@@ -129,19 +128,19 @@ impl DependencyContainer {
             )),
         }
     }
-    
+
     pub async fn create_mcp_server(&self) -> Result<MCPServer> {
         let mcp_config = MCPServerConfig::default();
-        
+
         let server = MCPServer::new(
             self.memory_repository.clone(),
             self.embedder.clone(),
             mcp_config,
         )?;
-        
+
         Ok(server)
     }
-    
+
     pub async fn health_check(&self) -> Result<bool> {
         // Quick health check using our services
         match self.database_setup.health_check().await {

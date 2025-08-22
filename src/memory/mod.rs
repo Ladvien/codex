@@ -111,5 +111,6 @@ pub use enhanced_retrieval::{
 
 // Tier manager exports
 pub use tier_manager::{
-    TierManager, TierManagerMetrics, TierMigrationBatch, TierMigrationCandidate, TierMigrationResult,
+    TierManager, TierManagerMetrics, TierMigrationBatch, TierMigrationCandidate,
+    TierMigrationResult,
 };

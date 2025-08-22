@@ -18,7 +18,10 @@ async fn main() -> anyhow::Result<()> {
     let config = match Config::from_env() {
         Ok(config) => config,
         Err(e) => {
-            warn!("Could not load config from environment, using defaults: {}", e);
+            warn!(
+                "Could not load config from environment, using defaults: {}",
+                e
+            );
             Config::default()
         }
     };

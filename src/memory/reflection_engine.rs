@@ -632,11 +632,14 @@ impl ReflectionEngine {
 
         // Analyze patterns in memory content
         let pattern_frequency = self.analyze_content_patterns(&cluster.memories).await?;
-        
-        if let Some((dominant_pattern, frequency)) = pattern_frequency.iter().max_by_key(|(_, freq)| *freq) {
+
+        if let Some((dominant_pattern, frequency)) =
+            pattern_frequency.iter().max_by_key(|(_, freq)| *freq)
+        {
             if *frequency >= 3 {
-                let confidence_score = ((*frequency as f64) / cluster.memories.len() as f64).min(1.0);
-                
+                let confidence_score =
+                    ((*frequency as f64) / cluster.memories.len() as f64).min(1.0);
+
                 if confidence_score >= 0.6 {
                     let insight = Insight {
                         id: Uuid::new_v4(),
@@ -661,19 +664,16 @@ impl ReflectionEngine {
                             predictive_power: 0.5,
                         },
                     };
-                    
+
                     return Ok(Some(insight));
                 }
             }
         }
-        
+
         Ok(None)
     }
 
-    async fn generate_synthesis_insight(
-        &self,
-        cluster: &MemoryCluster,
-    ) -> Result<Option<Insight>> {
+    async fn generate_synthesis_insight(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
         if cluster.dominant_concepts.len() < 2 {
             return Ok(None);
         }
@@ -715,7 +715,7 @@ impl ReflectionEngine {
     async fn detect_temporal_trends(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
         if let Some((start_time, end_time)) = cluster.temporal_span {
             let duration = end_time.signed_duration_since(start_time);
-            
+
             if duration.num_hours() > 24 {
                 let trend_content = format!(
                     "Temporal trend detected: {} related memories occurred over {} days, suggesting sustained engagement with topic involving: {}",
@@ -724,7 +724,8 @@ impl ReflectionEngine {
                     cluster.dominant_concepts.join(", ")
                 );
 
-                let temporal_density = cluster.memories.len() as f64 / duration.num_days().max(1) as f64;
+                let temporal_density =
+                    cluster.memories.len() as f64 / duration.num_days().max(1) as f64;
                 let confidence_score = (temporal_density / 5.0).min(1.0);
 
                 if confidence_score >= 0.3 {
@@ -746,19 +747,19 @@ impl ReflectionEngine {
                             predictive_power: 0.8,
                         },
                     };
-                    
+
                     return Ok(Some(insight));
                 }
             }
         }
-        
+
         Ok(None)
     }
 
     async fn identify_knowledge_gaps(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
         // Analyze cluster for potential knowledge gaps
         // This is a simplified heuristic-based approach
-        
+
         if cluster.memories.len() >= 5 && cluster.coherence_score < 0.6 {
             // Low coherence in a large cluster might indicate missing connections
             let gap_content = format!(
@@ -769,7 +770,7 @@ impl ReflectionEngine {
             );
 
             let confidence_score = 1.0 - cluster.coherence_score;
-            
+
             if confidence_score >= 0.4 {
                 let insight = Insight {
                     id: Uuid::new_v4(),
@@ -789,18 +790,21 @@ impl ReflectionEngine {
                         predictive_power: 0.9,
                     },
                 };
-                
+
                 return Ok(Some(insight));
             }
         }
-        
+
         Ok(None)
     }
 
     /// Analyze content patterns in a cluster of memories
-    async fn analyze_content_patterns(&self, memories: &[Memory]) -> Result<HashMap<String, usize>> {
+    async fn analyze_content_patterns(
+        &self,
+        memories: &[Memory],
+    ) -> Result<HashMap<String, usize>> {
         let mut pattern_counts = HashMap::new();
-        
+
         for memory in memories {
             // Simple pattern detection based on common words/phrases
             // In production, this would use NLP techniques
@@ -809,15 +813,15 @@ impl ReflectionEngine {
                 .split_whitespace()
                 .filter(|word| word.len() > 4) // Focus on meaningful words
                 .collect();
-            
+
             for word in words {
                 *pattern_counts.entry(word.to_string()).or_insert(0) += 1;
             }
         }
-        
+
         // Filter out patterns that appear in less than 2 memories
         pattern_counts.retain(|_pattern, count| *count >= 2);
-        
+
         Ok(pattern_counts)
     }
 

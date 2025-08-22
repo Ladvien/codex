@@ -51,7 +51,7 @@ nonzero_ext = "0.3"
 headers = "0.4"
 
 # Input validation and sanitization
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 regex = "1.10"
 
 # Audit logging - using tracing for structured logging
@@ -94,7 +94,7 @@ jsonrpc-tcp-server = "18.0"
 async-trait = "0.1"
 
 # Basic metrics (simplified)
-prometheus = { version = "0.13", features = ["process"] }
+prometheus = { version = "0.14", features = ["process"] }
 
 # Performance testing
 sysinfo = "0.30"

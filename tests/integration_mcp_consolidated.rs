@@ -8,13 +8,13 @@
 //! - Error handling and timeouts
 
 use codex_memory::{
-    memory::{connection::create_pool, models::MemoryTier, MemoryRepository},
     mcp_server::{
         circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState},
         handlers::MCPHandlers,
         tools::MCPTools,
         MCPServer, MCPServerConfig,
     },
+    memory::{connection::create_pool, models::MemoryTier, MemoryRepository},
     Config, SimpleEmbedder,
 };
 use serde_json::{json, Value};
@@ -81,13 +81,11 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
     )));
 
     let importance_config = codex_memory::memory::ImportanceAssessmentConfig::default();
-    let importance_pipeline = Arc::new(
-        codex_memory::memory::ImportanceAssessmentPipeline::new(
-            importance_config,
-            embedder.clone(),
-            &prometheus::default_registry(),
-        )?,
-    );
+    let importance_pipeline = Arc::new(codex_memory::memory::ImportanceAssessmentPipeline::new(
+        importance_config,
+        embedder.clone(),
+        &prometheus::default_registry(),
+    )?);
 
     let harvester_service = Arc::new(codex_memory::memory::SilentHarvesterService::new(
         repository.clone(),
@@ -105,16 +103,23 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
     );
 
     // Test initialization request
-    let init_response = handlers.handle_request("initialize", None, Some(&json!(1))).await;
-    
+    let init_response = handlers
+        .handle_request("initialize", None, Some(&json!(1)))
+        .await;
+
     assert_eq!(init_response["jsonrpc"], "2.0");
     assert_eq!(init_response["id"], 1);
     assert_eq!(init_response["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(init_response["result"]["serverInfo"]["name"], "codex-memory");
+    assert_eq!(
+        init_response["result"]["serverInfo"]["name"],
+        "codex-memory"
+    );
 
     // Test tools/list request
-    let tools_response = handlers.handle_request("tools/list", None, Some(&json!(2))).await;
-    
+    let tools_response = handlers
+        .handle_request("tools/list", None, Some(&json!(2)))
+        .await;
+
     assert_eq!(tools_response["jsonrpc"], "2.0");
     assert_eq!(tools_response["id"], 2);
     assert!(tools_response["result"]["tools"].is_array());
@@ -191,7 +196,7 @@ async fn test_search_memory_tool() -> anyhow::Result<()> {
     assert_eq!(search_response["jsonrpc"], "2.0");
     assert_eq!(search_response["id"], 2);
     assert!(search_response.get("error").is_none());
-    
+
     let result_text = search_response["result"]["content"][0]["text"]
         .as_str()
         .unwrap();
@@ -220,10 +225,8 @@ async fn test_get_statistics_tool() -> anyhow::Result<()> {
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 4);
     assert!(response.get("error").is_none());
-    
-    let result_text = response["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+
+    let result_text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert!(result_text.contains("Memory System Statistics"));
 
     Ok(())
@@ -279,10 +282,8 @@ async fn test_harvest_conversation_tool() -> anyhow::Result<()> {
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 6);
     assert!(response.get("error").is_none());
-    
-    let result_text = response["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+
+    let result_text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert!(result_text.contains("queued") || result_text.contains("completed"));
 
     Ok(())
@@ -306,10 +307,8 @@ async fn test_get_harvester_metrics_tool() -> anyhow::Result<()> {
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 7);
     assert!(response.get("error").is_none());
-    
-    let result_text = response["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+
+    let result_text = response["result"]["content"][0]["text"].as_str().unwrap();
     assert!(result_text.contains("Silent Harvester Metrics"));
 
     Ok(())
@@ -451,8 +450,9 @@ async fn test_timeout_handling() -> anyhow::Result<()> {
     // Test that normal operations complete within timeout
     let result = timeout(
         Duration::from_secs(5),
-        handlers.handle_request("tools/list", None, Some(&json!(1)))
-    ).await;
+        handlers.handle_request("tools/list", None, Some(&json!(1))),
+    )
+    .await;
 
     assert!(result.is_ok());
     let response = result.unwrap();
@@ -466,8 +466,9 @@ async fn test_timeout_handling() -> anyhow::Result<()> {
 
 fn test_config() -> Config {
     Config {
-        database_url: std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://test:test@localhost:5432/codex_memory_test".to_string()),
+        database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgresql://test:test@localhost:5432/codex_memory_test".to_string()
+        }),
         embedding: codex_memory::config::EmbeddingConfig {
             provider: "mock".to_string(),
             api_key: "test".to_string(),
@@ -486,11 +487,13 @@ fn test_config() -> Config {
     }
 }
 
-async fn create_test_components(config: Config) -> anyhow::Result<(Arc<MemoryRepository>, Arc<SimpleEmbedder>)> {
+async fn create_test_components(
+    config: Config,
+) -> anyhow::Result<(Arc<MemoryRepository>, Arc<SimpleEmbedder>)> {
     let pool = create_pool(&config.database_url, config.operational.max_db_connections).await?;
     let repository = Arc::new(MemoryRepository::new(pool));
     let embedder = Arc::new(SimpleEmbedder::new_mock());
-    
+
     Ok((repository, embedder))
 }
 
@@ -499,13 +502,11 @@ async fn create_test_handlers(
     embedder: Arc<SimpleEmbedder>,
 ) -> anyhow::Result<MCPHandlers> {
     let importance_config = codex_memory::memory::ImportanceAssessmentConfig::default();
-    let importance_pipeline = Arc::new(
-        codex_memory::memory::ImportanceAssessmentPipeline::new(
-            importance_config,
-            embedder.clone(),
-            &prometheus::default_registry(),
-        )?,
-    );
+    let importance_pipeline = Arc::new(codex_memory::memory::ImportanceAssessmentPipeline::new(
+        importance_config,
+        embedder.clone(),
+        &prometheus::default_registry(),
+    )?);
 
     let harvester_service = Arc::new(codex_memory::memory::SilentHarvesterService::new(
         repository.clone(),

@@ -36,12 +36,10 @@ impl StdioTransport {
         let mut line = String::new();
         loop {
             line.clear();
-            
+
             // Read line with timeout
-            let read_result = tokio::time::timeout(
-                self.request_timeout,
-                reader.read_line(&mut line)
-            ).await;
+            let read_result =
+                tokio::time::timeout(self.request_timeout, reader.read_line(&mut line)).await;
 
             match read_result {
                 Ok(Ok(0)) => {
@@ -113,8 +111,9 @@ impl StdioTransport {
         // Process request with timeout
         let response = tokio::time::timeout(
             self.request_timeout,
-            handlers.handle_request(method, request.get("params"), id)
-        ).await;
+            handlers.handle_request(method, request.get("params"), id),
+        )
+        .await;
 
         match response {
             Ok(resp) => {
@@ -135,13 +134,20 @@ impl StdioTransport {
         stdout.write_all(response_str.as_bytes()).await?;
         stdout.write_all(b"\n").await?;
         stdout.flush().await?;
-        
-        debug!("Sent response: {}", response_str.chars().take(200).collect::<String>());
+
+        debug!(
+            "Sent response: {}",
+            response_str.chars().take(200).collect::<String>()
+        );
         Ok(())
     }
 
     /// Send a parse error response
-    async fn send_parse_error(&self, stdout: &mut tokio::io::Stdout, id: Option<&Value>) -> Result<()> {
+    async fn send_parse_error(
+        &self,
+        stdout: &mut tokio::io::Stdout,
+        id: Option<&Value>,
+    ) -> Result<()> {
         let error_response = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -154,7 +160,11 @@ impl StdioTransport {
     }
 
     /// Send an invalid request error
-    async fn send_invalid_request_error(&self, stdout: &mut tokio::io::Stdout, id: Option<&Value>) -> Result<()> {
+    async fn send_invalid_request_error(
+        &self,
+        stdout: &mut tokio::io::Stdout,
+        id: Option<&Value>,
+    ) -> Result<()> {
         let error_response = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -167,7 +177,11 @@ impl StdioTransport {
     }
 
     /// Send a timeout error
-    async fn send_timeout_error(&self, stdout: &mut tokio::io::Stdout, id: Option<&Value>) -> Result<()> {
+    async fn send_timeout_error(
+        &self,
+        stdout: &mut tokio::io::Stdout,
+        id: Option<&Value>,
+    ) -> Result<()> {
         let error_response = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -222,9 +236,9 @@ mod tests {
         let id_value = serde_json::json!(1);
         let id = Some(&id_value);
         let result = serde_json::json!({"status": "ok"});
-        
+
         let response = create_success_response(id, result);
-        
+
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 1);
         assert_eq!(response["result"]["status"], "ok");
@@ -234,9 +248,9 @@ mod tests {
     fn test_create_error_response() {
         let id_value = serde_json::json!("test-id");
         let id = Some(&id_value);
-        
+
         let response = create_error_response(id, -32601, "Method not found");
-        
+
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], "test-id");
         assert_eq!(response["error"]["code"], -32601);
@@ -246,7 +260,7 @@ mod tests {
     #[test]
     fn test_format_tool_response() {
         let response = format_tool_response("Test message");
-        
+
         assert_eq!(response["content"][0]["type"], "text");
         assert_eq!(response["content"][0]["text"], "Test message");
     }

@@ -273,7 +273,10 @@ impl BackgroundReflectionService {
         let service = self.clone_for_task();
         tokio::spawn(async move {
             if let Err(e) = service.monitoring_loop().await {
-                error!("Background reflection service encountered fatal error: {}", e);
+                error!(
+                    "Background reflection service encountered fatal error: {}",
+                    e
+                );
             }
         });
 
@@ -339,11 +342,13 @@ impl BackgroundReflectionService {
         let mut metrics = self.metrics.read().await.clone();
 
         // Update real-time metrics
-        metrics.service_uptime_hours = 
-            Utc::now().signed_duration_since(self.service_start_time).num_seconds() as f64 / 3600.0;
+        metrics.service_uptime_hours = Utc::now()
+            .signed_duration_since(self.service_start_time)
+            .num_seconds() as f64
+            / 3600.0;
         metrics.total_reflections_completed = self.total_sessions.load(Ordering::SeqCst);
         metrics.total_insights_generated = self.total_insights.load(Ordering::SeqCst);
-        metrics.current_active_sessions = 
+        metrics.current_active_sessions =
             self.config.max_concurrent_sessions - self.session_semaphore.available_permits();
 
         let total_time = self.total_processing_time_ms.load(Ordering::SeqCst);
@@ -467,11 +472,13 @@ impl BackgroundReflectionService {
     /// Execute a reflection session with full error handling and metrics
     async fn execute_reflection_session(&self, trigger: ReflectionTrigger) -> Result<Uuid> {
         // Acquire semaphore permit to limit concurrent sessions
-        let _permit = self.session_semaphore.acquire().await.map_err(|_| {
-            MemoryError::InvalidRequest {
-                message: "Failed to acquire reflection session permit".to_string(),
-            }
-        })?;
+        let _permit =
+            self.session_semaphore
+                .acquire()
+                .await
+                .map_err(|_| MemoryError::InvalidRequest {
+                    message: "Failed to acquire reflection session permit".to_string(),
+                })?;
 
         let session_start = Instant::now();
         let session_id = Uuid::new_v4();
@@ -485,7 +492,10 @@ impl BackgroundReflectionService {
         {
             let mut metrics = self.metrics.write().await;
             let trigger_name = format!("{:?}", trigger.trigger_type);
-            *metrics.trigger_type_distribution.entry(trigger_name).or_insert(0) += 1;
+            *metrics
+                .trigger_type_distribution
+                .entry(trigger_name)
+                .or_insert(0) += 1;
         }
 
         let mut retry_count = 0;
@@ -505,7 +515,8 @@ impl BackgroundReflectionService {
                     }
 
                     // Update metrics
-                    self.update_session_metrics(&session, session_duration).await;
+                    self.update_session_metrics(&session, session_duration)
+                        .await;
 
                     info!(
                         "Reflection session {} completed successfully: {} insights generated in {:?}",
@@ -521,10 +532,17 @@ impl BackgroundReflectionService {
                     last_error = Some(e);
 
                     if retry_count <= self.config.max_retry_attempts {
-                        let delay_ms = (self.config.retry_backoff_multiplier.powi(retry_count as i32 - 1) * 1000.0) as u64;
+                        let delay_ms = (self
+                            .config
+                            .retry_backoff_multiplier
+                            .powi(retry_count as i32 - 1)
+                            * 1000.0) as u64;
                         warn!(
                             "Reflection session {} failed (attempt {}), retrying in {}ms: {}",
-                            session_id, retry_count, delay_ms, last_error.as_ref().unwrap()
+                            session_id,
+                            retry_count,
+                            delay_ms,
+                            last_error.as_ref().unwrap()
                         );
                         sleep(std::time::Duration::from_millis(delay_ms)).await;
                     }
@@ -549,9 +567,8 @@ impl BackgroundReflectionService {
         &self,
         trigger: ReflectionTrigger,
     ) -> Result<ReflectionSession> {
-        let timeout_duration = std::time::Duration::from_secs(
-            self.config.session_timeout_minutes * 60,
-        );
+        let timeout_duration =
+            std::time::Duration::from_secs(self.config.session_timeout_minutes * 60);
 
         let reflection_future = async {
             let mut engine = self.reflection_engine.write().await;
@@ -630,7 +647,8 @@ impl BackgroundReflectionService {
         }
 
         // Update service metrics
-        self.total_insights.fetch_add(processed_insights, Ordering::SeqCst);
+        self.total_insights
+            .fetch_add(processed_insights, Ordering::SeqCst);
 
         // Update quality metrics
         {
@@ -718,7 +736,7 @@ impl BackgroundReflectionService {
 
         let create_request = CreateMemoryRequest {
             content: insight.content.clone(),
-            embedding: None, // Would generate embedding in production
+            embedding: None,                 // Would generate embedding in production
             tier: Some(MemoryTier::Working), // Start insights in working tier
             importance_score: Some(importance_score),
             metadata: Some(metadata),
@@ -738,11 +756,12 @@ impl BackgroundReflectionService {
             super::reflection_engine::ReflectionStatus::Cancelled => "cancelled",
         };
 
-        let completed_at = if session.completion_status == super::reflection_engine::ReflectionStatus::Completed {
-            Some(chrono::Utc::now())
-        } else {
-            None
-        };
+        let completed_at =
+            if session.completion_status == super::reflection_engine::ReflectionStatus::Completed {
+                Some(chrono::Utc::now())
+            } else {
+                None
+            };
 
         let query = r#"
             INSERT INTO reflection_sessions (
@@ -790,7 +809,10 @@ impl BackgroundReflectionService {
                 message: format!("Failed to store reflection session: {}", e),
             })?;
 
-        debug!("Successfully stored reflection session {} in database", session.id);
+        debug!(
+            "Successfully stored reflection session {} in database",
+            session.id
+        );
         Ok(())
     }
 
@@ -807,7 +829,10 @@ impl BackgroundReflectionService {
                 message: format!("Failed to link insight to memory: {}", e),
             })?;
 
-        debug!("Successfully linked insight {} to memory {}", insight_id, memory_id);
+        debug!(
+            "Successfully linked insight {} to memory {}",
+            insight_id, memory_id
+        );
         Ok(())
     }
 
@@ -817,9 +842,9 @@ impl BackgroundReflectionService {
         // Calculate cutoff time based on last reflection
         let cutoff_time = {
             let metrics = self.metrics.read().await;
-            metrics.last_reflection_time.unwrap_or_else(|| {
-                chrono::Utc::now() - chrono::Duration::hours(24)
-            })
+            metrics
+                .last_reflection_time
+                .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::hours(24))
         };
 
         let query = r#"
@@ -845,9 +870,9 @@ impl BackgroundReflectionService {
         // Calculate cutoff time based on last reflection
         let cutoff_time = {
             let metrics = self.metrics.read().await;
-            metrics.last_reflection_time.unwrap_or_else(|| {
-                chrono::Utc::now() - chrono::Duration::hours(24)
-            })
+            metrics
+                .last_reflection_time
+                .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::hours(24))
         };
 
         let query = r#"
@@ -912,8 +937,10 @@ impl BackgroundReflectionService {
 
             // Update metrics that require periodic calculation
             let mut metrics = self.metrics.write().await;
-            metrics.service_uptime_hours = 
-                Utc::now().signed_duration_since(self.service_start_time).num_seconds() as f64 / 3600.0;
+            metrics.service_uptime_hours = Utc::now()
+                .signed_duration_since(self.service_start_time)
+                .num_seconds() as f64
+                / 3600.0;
             metrics.last_updated = Utc::now();
         }
     }
@@ -931,7 +958,9 @@ impl BackgroundReflectionService {
             service_start_time: self.service_start_time,
             total_sessions: AtomicU64::new(self.total_sessions.load(Ordering::SeqCst)),
             total_insights: AtomicU64::new(self.total_insights.load(Ordering::SeqCst)),
-            total_processing_time_ms: AtomicU64::new(self.total_processing_time_ms.load(Ordering::SeqCst)),
+            total_processing_time_ms: AtomicU64::new(
+                self.total_processing_time_ms.load(Ordering::SeqCst),
+            ),
         }
     }
 }
@@ -950,7 +979,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_configuration() {
         let config = BackgroundReflectionConfig::default();
-        
+
         assert!(config.enabled);
         assert_eq!(config.check_interval_minutes, 15);
         assert_eq!(config.max_concurrent_sessions, 2);
@@ -961,11 +990,11 @@ mod tests {
     #[tokio::test]
     async fn test_priority_determination() {
         let config = BackgroundReflectionConfig::default();
-        
+
         // Create a mock repository for testing priority logic only
         // This doesn't require database access since we're only testing the priority function
         let thresholds = &config.priority_thresholds;
-        
+
         // Test priority determination logic directly
         if 50.0 >= thresholds.critical_pattern_threshold {
             assert_eq!(ReflectionPriority::Critical, ReflectionPriority::Critical);
@@ -997,8 +1026,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_trigger_types() {
-        assert_eq!(TriggerType::ImportanceAccumulation, TriggerType::ImportanceAccumulation);
-        assert_ne!(TriggerType::ImportanceAccumulation, TriggerType::ManualRequest);
+        assert_eq!(
+            TriggerType::ImportanceAccumulation,
+            TriggerType::ImportanceAccumulation
+        );
+        assert_ne!(
+            TriggerType::ImportanceAccumulation,
+            TriggerType::ManualRequest
+        );
     }
 
     #[tokio::test]

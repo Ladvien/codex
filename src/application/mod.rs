@@ -8,8 +8,8 @@ pub mod lifecycle;
 
 pub use application_service::ApplicationService;
 pub use command_handlers::{
-    BackupCommandHandler, DatabaseCommandHandler, HealthCommandHandler, McpCommandHandler,
-    ModelCommandHandler, SetupCommandHandler, ServerCommandHandler, ManagerCommandHandler,
+    BackupCommandHandler, DatabaseCommandHandler, HealthCommandHandler, ManagerCommandHandler,
+    McpCommandHandler, ModelCommandHandler, ServerCommandHandler, SetupCommandHandler,
 };
 pub use dependency_container::DependencyContainer;
 pub use lifecycle::ApplicationLifecycle;

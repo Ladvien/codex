@@ -329,21 +329,40 @@ impl AuditManager {
         error_message: Option<&str>,
     ) -> Result<()> {
         let mut details = HashMap::new();
-        details.insert("client_id".to_string(), serde_json::Value::String(client_id.to_string()));
-        details.insert("method".to_string(), serde_json::Value::String(method_name.to_string()));
+        details.insert(
+            "client_id".to_string(),
+            serde_json::Value::String(client_id.to_string()),
+        );
+        details.insert(
+            "method".to_string(),
+            serde_json::Value::String(method_name.to_string()),
+        );
 
         let event = AuditEvent {
             id: Uuid::new_v4().to_string(),
             timestamp: Utc::now(),
             event_type: AuditEventType::Authentication,
-            severity: if success { AuditSeverity::Low } else { AuditSeverity::High },
+            severity: if success {
+                AuditSeverity::Low
+            } else {
+                AuditSeverity::High
+            },
             user_id: Some(user_id.to_string()),
             session_id: None,
             ip_address: None,
             user_agent: None,
             resource: Some("mcp_auth".to_string()),
-            action: if success { "auth_success" } else { "auth_failure" }.to_string(),
-            outcome: if success { AuditOutcome::Success } else { AuditOutcome::Failure },
+            action: if success {
+                "auth_success"
+            } else {
+                "auth_failure"
+            }
+            .to_string(),
+            outcome: if success {
+                AuditOutcome::Success
+            } else {
+                AuditOutcome::Failure
+            },
             details,
             error_message: error_message.map(|s| s.to_string()),
             request_id: None,
@@ -360,9 +379,18 @@ impl AuditManager {
         limit_type: &str,
     ) -> Result<()> {
         let mut details = HashMap::new();
-        details.insert("client_id".to_string(), serde_json::Value::String(client_id.to_string()));
-        details.insert("tool_name".to_string(), serde_json::Value::String(tool_name.to_string()));
-        details.insert("limit_type".to_string(), serde_json::Value::String(limit_type.to_string()));
+        details.insert(
+            "client_id".to_string(),
+            serde_json::Value::String(client_id.to_string()),
+        );
+        details.insert(
+            "tool_name".to_string(),
+            serde_json::Value::String(tool_name.to_string()),
+        );
+        details.insert(
+            "limit_type".to_string(),
+            serde_json::Value::String(limit_type.to_string()),
+        );
 
         let event = AuditEvent {
             id: Uuid::new_v4().to_string(),
@@ -377,7 +405,10 @@ impl AuditManager {
             action: "rate_limit_exceeded".to_string(),
             outcome: AuditOutcome::Failure,
             details,
-            error_message: Some(format!("Rate limit exceeded for {} on tool {}", limit_type, tool_name)),
+            error_message: Some(format!(
+                "Rate limit exceeded for {} on tool {}",
+                limit_type, tool_name
+            )),
             request_id: None,
         };
 
@@ -679,7 +710,7 @@ impl AuditLogger {
             manager: None,
         })
     }
-    
+
     /// Create audit logger with database manager
     pub fn with_manager(config: AuditConfig, manager: Arc<AuditManager>) -> Self {
         Self {
@@ -687,7 +718,7 @@ impl AuditLogger {
             manager: Some(manager),
         }
     }
-    
+
     /// Log authentication event
     pub async fn log_auth_event(
         &self,
@@ -698,18 +729,25 @@ impl AuditLogger {
         error_message: Option<&str>,
     ) {
         if let Some(ref manager) = self.manager {
-            let _ = manager.log_auth_event(client_id, user_id, method_name, success, error_message).await;
+            let _ = manager
+                .log_auth_event(client_id, user_id, method_name, success, error_message)
+                .await;
         } else {
             // Fallback to tracing logs
             if success {
-                debug!("AUTH_SUCCESS: client_id={}, user_id={}, method={}", client_id, user_id, method_name);
+                debug!(
+                    "AUTH_SUCCESS: client_id={}, user_id={}, method={}",
+                    client_id, user_id, method_name
+                );
             } else {
-                error!("AUTH_FAILURE: client_id={}, user_id={}, method={}, error={:?}", 
-                      client_id, user_id, method_name, error_message);
+                error!(
+                    "AUTH_FAILURE: client_id={}, user_id={}, method={}, error={:?}",
+                    client_id, user_id, method_name, error_message
+                );
             }
         }
     }
-    
+
     /// Log rate limit violation
     pub async fn log_rate_limit_violation(
         &self,
@@ -718,14 +756,18 @@ impl AuditLogger {
         limit_type: &str,
     ) {
         if let Some(ref manager) = self.manager {
-            let _ = manager.log_rate_limit_violation(client_id, tool_name, limit_type).await;
+            let _ = manager
+                .log_rate_limit_violation(client_id, tool_name, limit_type)
+                .await;
         } else {
             // Fallback to tracing logs
-            warn!("RATE_LIMIT_VIOLATION: client_id={}, tool={}, limit_type={}", 
-                  client_id, tool_name, limit_type);
+            warn!(
+                "RATE_LIMIT_VIOLATION: client_id={}, tool={}, limit_type={}",
+                client_id, tool_name, limit_type
+            );
         }
     }
-    
+
     /// Log general security event
     pub async fn log_security_event(
         &self,
@@ -735,14 +777,28 @@ impl AuditLogger {
         details: HashMap<String, Value>,
     ) {
         if let Some(ref manager) = self.manager {
-            let _ = manager.log_security_event(action, severity, user_id, None, details).await;
+            let _ = manager
+                .log_security_event(action, severity, user_id, None, details)
+                .await;
         } else {
             // Fallback to tracing logs
             match severity {
-                AuditSeverity::Critical => error!("SECURITY_CRITICAL: action={}, user_id={:?}, details={:?}", action, user_id, details),
-                AuditSeverity::High => error!("SECURITY_HIGH: action={}, user_id={:?}, details={:?}", action, user_id, details),
-                AuditSeverity::Medium => warn!("SECURITY_MEDIUM: action={}, user_id={:?}, details={:?}", action, user_id, details),
-                AuditSeverity::Low => debug!("SECURITY_LOW: action={}, user_id={:?}, details={:?}", action, user_id, details),
+                AuditSeverity::Critical => error!(
+                    "SECURITY_CRITICAL: action={}, user_id={:?}, details={:?}",
+                    action, user_id, details
+                ),
+                AuditSeverity::High => error!(
+                    "SECURITY_HIGH: action={}, user_id={:?}, details={:?}",
+                    action, user_id, details
+                ),
+                AuditSeverity::Medium => warn!(
+                    "SECURITY_MEDIUM: action={}, user_id={:?}, details={:?}",
+                    action, user_id, details
+                ),
+                AuditSeverity::Low => debug!(
+                    "SECURITY_LOW: action={}, user_id={:?}, details={:?}",
+                    action, user_id, details
+                ),
             }
         }
     }

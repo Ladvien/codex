@@ -6,8 +6,8 @@
 use anyhow::Result;
 use codex_memory::memory::{
     BackgroundReflectionConfig, BackgroundReflectionService, CognitiveMemoryConfig,
-    CognitiveMemorySystem, CreateMemoryRequest, LoopPreventionConfig, MemoryTier,
-    ReflectionConfig, ReflectionPriority, TriggerType,
+    CognitiveMemorySystem, CreateMemoryRequest, LoopPreventionConfig, MemoryTier, ReflectionConfig,
+    ReflectionPriority, TriggerType,
 };
 use serial_test::serial;
 use std::sync::Arc;
@@ -49,14 +49,17 @@ async fn test_background_reflection_service_integration() -> Result<()> {
 
     // Test service lifecycle
     assert!(!service.is_running());
-    
+
     service.start().await?;
     assert!(service.is_running());
 
     // Create some test memories to trigger reflection
     for i in 0..5 {
         let memory_request = CreateMemoryRequest {
-            content: format!("Test memory content {} about machine learning algorithms", i),
+            content: format!(
+                "Test memory content {} about machine learning algorithms",
+                i
+            ),
             embedding: Some(vec![0.1; 384]), // Mock embedding
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.8),
@@ -134,12 +137,16 @@ async fn test_cognitive_memory_system_with_reflection() -> Result<()> {
             enable_quality_assessment: true,
         };
 
-        let result = system.store_memory_with_cognitive_processing(request).await?;
+        let result = system
+            .store_memory_with_cognitive_processing(request)
+            .await?;
         println!("Stored cognitive memory: {}", result.memory.id);
     }
 
     // Test manual reflection trigger
-    let session = system.trigger_reflection("Manual test reflection".to_string()).await;
+    let session = system
+        .trigger_reflection("Manual test reflection".to_string())
+        .await;
     match session {
         Ok(session) => {
             println!("Reflection session completed: {}", session.id);
@@ -168,7 +175,7 @@ async fn test_insight_storage_and_retrieval() -> Result<()> {
 
     // Test that insights are properly stored in the database
     // This would require checking the insights table directly
-    
+
     let insights_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM insights")
         .fetch_one(&env.pool)
         .await?;
@@ -201,13 +208,25 @@ async fn test_priority_thresholds() -> Result<()> {
 
     // Test priority levels
     assert_eq!(service.determine_priority(50.0), ReflectionPriority::Low);
-    assert_eq!(service.determine_priority(150.0), ReflectionPriority::Medium);
+    assert_eq!(
+        service.determine_priority(150.0),
+        ReflectionPriority::Medium
+    );
     assert_eq!(service.determine_priority(350.0), ReflectionPriority::High);
-    assert_eq!(service.determine_priority(600.0), ReflectionPriority::Critical);
+    assert_eq!(
+        service.determine_priority(600.0),
+        ReflectionPriority::Critical
+    );
 
     // Test trigger types
-    assert_eq!(TriggerType::ImportanceAccumulation, TriggerType::ImportanceAccumulation);
-    assert_ne!(TriggerType::ImportanceAccumulation, TriggerType::ManualRequest);
+    assert_eq!(
+        TriggerType::ImportanceAccumulation,
+        TriggerType::ImportanceAccumulation
+    );
+    assert_ne!(
+        TriggerType::ImportanceAccumulation,
+        TriggerType::ManualRequest
+    );
 
     Ok(())
 }
@@ -236,12 +255,17 @@ async fn test_importance_multiplier() -> Result<()> {
         enable_quality_assessment: false,
     };
 
-    let result = system.store_memory_with_cognitive_processing(request).await?;
-    
+    let result = system
+        .store_memory_with_cognitive_processing(request)
+        .await?;
+
     // Verify the memory was created with correct base importance
     assert!((result.memory.importance_score - 0.6).abs() < 0.01);
 
-    println!("Memory created with importance: {}", result.memory.importance_score);
+    println!(
+        "Memory created with importance: {}",
+        result.memory.importance_score
+    );
 
     // The 1.5x multiplier should be applied when insights are stored as memories
     // This would be tested in the actual insight generation process

@@ -330,29 +330,32 @@ impl ConsolidationProcessor {
         repository: &crate::memory::repository::MemoryRepository,
         tier: Option<MemoryTier>,
     ) -> Result<Vec<Memory>> {
-        let tier_filter = if let Some(tier) = tier {
-            format!("AND tier = '{:?}'", tier).to_lowercase()
+        // Use parameterized query to prevent SQL injection
+        let base_query = "SELECT * FROM memories WHERE status = 'active' AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '1 hour')";
+
+        let (query, has_tier) = if let Some(_tier) = tier {
+            let query_with_tier = format!(
+                "{} AND tier = $2 ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1",
+                base_query
+            );
+            (query_with_tier, true)
         } else {
-            String::new()
+            let query_no_tier = format!(
+                "{} ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1",
+                base_query
+            );
+            (query_no_tier, false)
         };
 
-        let query = format!(
-            r#"
-            SELECT * FROM memories 
-            WHERE status = 'active' 
-            AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '1 hour')
-            {}
-            ORDER BY last_accessed_at ASC NULLS FIRST
-            LIMIT $1
-            "#,
-            tier_filter
-        );
+        let mut sqlx_query = sqlx::query_as::<_, Memory>(&query).bind(self.batch_size as i64);
 
-        let memories = sqlx::query_as::<_, Memory>(&query)
-            .bind(self.batch_size as i64)
-            .fetch_all(repository.pool())
-            .await?;
+        if has_tier {
+            if let Some(tier) = tier {
+                sqlx_query = sqlx_query.bind(tier);
+            }
+        }
 
+        let memories = sqlx_query.fetch_all(repository.pool()).await?;
         Ok(memories)
     }
 }

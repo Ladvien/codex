@@ -1,14 +1,14 @@
 //! Circuit Breaker Implementation for MCP Operations
-//! 
+//!
 //! This module provides a robust circuit breaker pattern implementation
 //! that prevents cascading failures in the MCP server by temporarily
 //! blocking requests when downstream services are failing.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
-use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
@@ -268,23 +268,24 @@ impl serde::Serialize for CircuitBreakerStats {
     {
         use serde::ser::SerializeStruct;
         let mut state = serializer.serialize_struct("CircuitBreakerStats", 5)?;
-        
+
         let state_str = match self.state {
             CircuitState::Closed => "closed",
             CircuitState::Open => "open",
             CircuitState::HalfOpen => "half_open",
         };
-        
+
         state.serialize_field("state", state_str)?;
         state.serialize_field("failure_count", &self.failure_count)?;
         state.serialize_field("success_count", &self.success_count)?;
         state.serialize_field("half_open_calls", &self.half_open_calls)?;
-        
-        let last_failure_seconds = self.last_failure_time
+
+        let last_failure_seconds = self
+            .last_failure_time
             .map(|t| t.elapsed().as_secs())
             .unwrap_or(0);
         state.serialize_field("seconds_since_last_failure", &last_failure_seconds)?;
-        
+
         state.end()
     }
 }
@@ -309,30 +310,30 @@ mod tests {
         assert_eq!(cb.get_state().await, CircuitState::Closed);
 
         // Test successful calls
-        let result = cb.call_sync(|| -> Result<String, &'static str> {
-            Ok("success".to_string())
-        }).await;
+        let result = cb
+            .call_sync(|| -> Result<String, &'static str> { Ok("success".to_string()) })
+            .await;
         assert!(result.is_ok());
 
         // Test failures leading to open circuit
         for _ in 0..2 {
-            let _ = cb.call_sync(|| -> Result<String, &'static str> {
-                Err("failure")
-            }).await;
+            let _ = cb
+                .call_sync(|| -> Result<String, &'static str> { Err("failure") })
+                .await;
         }
         assert_eq!(cb.get_state().await, CircuitState::Open);
 
         // Test that calls are rejected when circuit is open
-        let result = cb.call_sync(|| -> Result<String, &'static str> {
-            Ok("should be rejected".to_string())
-        }).await;
+        let result = cb
+            .call_sync(|| -> Result<String, &'static str> { Ok("should be rejected".to_string()) })
+            .await;
         assert!(matches!(result, Err(CircuitBreakerError::CircuitOpen)));
 
         // Wait for timeout and test transition to half-open
         sleep(Duration::from_millis(150)).await;
-        let result = cb.call_sync(|| -> Result<String, &'static str> {
-            Ok("recovery".to_string())
-        }).await;
+        let result = cb
+            .call_sync(|| -> Result<String, &'static str> { Ok("recovery".to_string()) })
+            .await;
         assert!(result.is_ok());
     }
 

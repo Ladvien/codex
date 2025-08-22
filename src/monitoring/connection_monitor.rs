@@ -37,9 +37,9 @@ pub struct MonitoringConfig {
 impl Default for MonitoringConfig {
     fn default() -> Self {
         Self {
-            check_interval_seconds: 30,  // Check every 30 seconds
-            warning_threshold: 70.0,     // HIGH-004 requirement
-            critical_threshold: 90.0,    // Critical level
+            check_interval_seconds: 30, // Check every 30 seconds
+            warning_threshold: 70.0,    // HIGH-004 requirement
+            critical_threshold: 90.0,   // Critical level
             max_alert_history: 1000,
             alert_cooldown_seconds: 300, // 5 minutes between duplicate alerts
             enable_detailed_logging: true,
@@ -111,10 +111,10 @@ impl ConnectionMonitor {
 
         let start_time = Instant::now();
         let mut interval = interval(Duration::from_secs(self.config.check_interval_seconds));
-        
+
         loop {
             interval.tick().await;
-            
+
             match self.perform_health_check(start_time.elapsed()).await {
                 Ok(_) => {
                     // Health check successful
@@ -130,7 +130,7 @@ impl ConnectionMonitor {
     async fn perform_health_check(&self, uptime: Duration) -> Result<()> {
         let pool_stats = self.pool.get_pool_stats().await;
         let timestamp = chrono::Utc::now();
-        
+
         // Convert to snapshot format
         let stats_snapshot = PoolStatsSnapshot {
             size: pool_stats.size,
@@ -171,7 +171,7 @@ impl ConnectionMonitor {
 
     fn determine_alert_level(&self, stats: &PoolStatsSnapshot) -> AlertLevel {
         let utilization = stats.utilization_percentage;
-        
+
         if utilization >= self.config.critical_threshold {
             AlertLevel::Critical
         } else if utilization >= self.config.warning_threshold {
@@ -181,7 +181,11 @@ impl ConnectionMonitor {
         }
     }
 
-    fn generate_health_status(&self, stats: &PoolStatsSnapshot, alert_level: &AlertLevel) -> String {
+    fn generate_health_status(
+        &self,
+        stats: &PoolStatsSnapshot,
+        alert_level: &AlertLevel,
+    ) -> String {
         match alert_level {
             AlertLevel::Healthy => format!(
                 "HEALTHY: Pool at {:.1}% utilization ({}/{} connections active)",
@@ -198,14 +202,18 @@ impl ConnectionMonitor {
         }
     }
 
-    async fn should_alert(&self, level: &AlertLevel, stats: &PoolStatsSnapshot) -> Result<Option<AlertEvent>> {
+    async fn should_alert(
+        &self,
+        level: &AlertLevel,
+        stats: &PoolStatsSnapshot,
+    ) -> Result<Option<AlertEvent>> {
         if matches!(level, AlertLevel::Healthy) {
             return Ok(None);
         }
 
         let alert_history = self.alert_history.read().await;
         let now = chrono::Utc::now();
-        
+
         // Check for recent similar alerts (cooldown period)
         if let Some(last_alert) = alert_history.iter().rev().find(|a| a.level == *level) {
             let time_since_last = now.signed_duration_since(last_alert.timestamp);
@@ -260,7 +268,7 @@ impl ConnectionMonitor {
         {
             let mut history = self.alert_history.write().await;
             history.push(alert.clone());
-            
+
             // Maintain history size limit
             if history.len() > self.config.max_alert_history {
                 history.remove(0);
@@ -272,7 +280,7 @@ impl ConnectionMonitor {
         // - Slack/Teams notifications
         // - Email alerts
         // - Metrics systems like Prometheus/Grafana
-        
+
         info!("Alert sent: {} - {}", alert.level as u8, alert.message);
 
         Ok(())
@@ -319,9 +327,15 @@ impl ConnectionMonitor {
     pub async fn get_health_summary(&self) -> PoolHealthSummary {
         let metrics = self.get_metrics().await;
         let recent_alerts = self.get_alert_history(Some(10)).await;
-        
-        let critical_alerts = recent_alerts.iter().filter(|a| matches!(a.level, AlertLevel::Critical)).count();
-        let warning_alerts = recent_alerts.iter().filter(|a| matches!(a.level, AlertLevel::Warning)).count();
+
+        let critical_alerts = recent_alerts
+            .iter()
+            .filter(|a| matches!(a.level, AlertLevel::Critical))
+            .count();
+        let warning_alerts = recent_alerts
+            .iter()
+            .filter(|a| matches!(a.level, AlertLevel::Warning))
+            .count();
 
         PoolHealthSummary {
             current_status: metrics.health_status,
@@ -364,31 +378,40 @@ pub struct PoolHealthSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_alert_level_determination() {
         let config = MonitoringConfig::default();
-        
+
         // Test healthy level
         let healthy_stats = PoolStatsSnapshot {
             utilization_percentage: 50.0,
             ..Default::default()
         };
-        assert_eq!(determine_alert_level(&config, &healthy_stats), AlertLevel::Healthy);
+        assert_eq!(
+            determine_alert_level(&config, &healthy_stats),
+            AlertLevel::Healthy
+        );
 
         // Test warning level
         let warning_stats = PoolStatsSnapshot {
             utilization_percentage: 75.0,
             ..Default::default()
         };
-        assert_eq!(determine_alert_level(&config, &warning_stats), AlertLevel::Warning);
+        assert_eq!(
+            determine_alert_level(&config, &warning_stats),
+            AlertLevel::Warning
+        );
 
         // Test critical level
         let critical_stats = PoolStatsSnapshot {
             utilization_percentage: 95.0,
             ..Default::default()
         };
-        assert_eq!(determine_alert_level(&config, &critical_stats), AlertLevel::Critical);
+        assert_eq!(
+            determine_alert_level(&config, &critical_stats),
+            AlertLevel::Critical
+        );
     }
 
     #[test]
@@ -410,7 +433,7 @@ mod tests {
 // Helper functions for tests
 fn determine_alert_level(config: &MonitoringConfig, stats: &PoolStatsSnapshot) -> AlertLevel {
     let utilization = stats.utilization_percentage;
-    
+
     if utilization >= config.critical_threshold {
         AlertLevel::Critical
     } else if utilization >= config.warning_threshold {

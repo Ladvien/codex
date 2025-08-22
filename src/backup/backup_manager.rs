@@ -1,5 +1,5 @@
-use super::{BackupConfig, BackupError, BackupMetadata, BackupStatus, BackupType, Result};
 use super::repository::{BackupRepository, PostgresBackupRepository};
+use super::{BackupConfig, BackupError, BackupMetadata, BackupStatus, BackupType, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -18,17 +18,11 @@ pub struct BackupManager {
 impl BackupManager {
     pub fn new(config: BackupConfig, db_pool: Arc<sqlx::PgPool>) -> Self {
         let repository = Arc::new(PostgresBackupRepository::new(db_pool));
-        Self {
-            config,
-            repository,
-        }
+        Self { config, repository }
     }
-    
+
     pub fn with_repository(config: BackupConfig, repository: Arc<dyn BackupRepository>) -> Self {
-        Self {
-            config,
-            repository,
-        }
+        Self { config, repository }
     }
 
     /// Initialize the backup manager and create necessary directories
@@ -151,7 +145,10 @@ impl BackupManager {
                     lsn
                 } else {
                     warn!("Last backup has no end LSN, using current LSN");
-                    self.repository.get_current_wal_lsn().await.unwrap_or_default()
+                    self.repository
+                        .get_current_wal_lsn()
+                        .await
+                        .unwrap_or_default()
                 }
             }
             None => {

@@ -742,30 +742,30 @@ pub struct HarvestSession {
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub status: HarvestSessionStatus,
-    
+
     // Processing metrics
     pub messages_processed: i32,
     pub patterns_extracted: i32,
     pub patterns_stored: i32,
     pub duplicates_filtered: i32,
     pub processing_time_ms: i64,
-    
+
     // Configuration snapshot for reproducibility
     pub config_snapshot: serde_json::Value,
-    
+
     // Error handling
     pub error_message: Option<String>,
     pub retry_count: i32,
-    
+
     // Performance metrics
     pub extraction_time_ms: i64,
     pub deduplication_time_ms: i64,
     pub storage_time_ms: i64,
-    
+
     // Resource usage tracking
     pub memory_usage_mb: Option<f64>,
     pub cpu_usage_percent: Option<f64>,
-    
+
     pub created_at: DateTime<Utc>,
 }
 
@@ -804,16 +804,16 @@ pub struct HarvestPattern {
     pub source_message_id: Option<String>,
     pub context: Option<String>,
     pub metadata: serde_json::Value,
-    
+
     // Processing status
     pub status: HarvestPatternStatus,
     pub memory_id: Option<Uuid>, // Links to created memory if stored
     pub rejection_reason: Option<String>,
-    
+
     // Extraction metrics
     pub extraction_confidence: Option<f64>,
     pub similarity_to_existing: Option<f64>,
-    
+
     pub extracted_at: DateTime<Utc>,
 }
 
@@ -834,29 +834,29 @@ pub struct ConsolidationEvent {
     pub id: Uuid,
     pub event_type: ConsolidationEventType,
     pub memory_id: Uuid,
-    
+
     // Tier migration details
     pub source_tier: Option<String>,
     pub target_tier: Option<String>,
     pub migration_reason: Option<String>,
-    
+
     // Consolidation strength tracking
     pub old_consolidation_strength: Option<f64>,
     pub new_consolidation_strength: Option<f64>,
     pub strength_delta: Option<f64>,
-    
+
     // Recall probability tracking
     pub old_recall_probability: Option<f64>,
     pub new_recall_probability: Option<f64>,
     pub probability_delta: Option<f64>,
-    
+
     // Performance metrics
     pub processing_time_ms: Option<i32>,
-    
+
     // Context and metadata
     pub triggered_by: Option<String>, // 'user', 'system', 'scheduler', 'background_service'
     pub context_metadata: serde_json::Value,
-    
+
     pub created_at: DateTime<Utc>,
 }
 
@@ -877,21 +877,21 @@ pub struct MemoryAccessLog {
     pub id: Uuid,
     pub memory_id: Uuid,
     pub access_type: MemoryAccessType,
-    
+
     // Access context
     pub session_id: Option<Uuid>, // Could reference various session types
     pub user_context: Option<String>,
     pub query_context: Option<String>,
-    
+
     // Performance metrics
     pub retrieval_time_ms: Option<i32>,
     pub similarity_score: Option<f64>,
     pub ranking_position: Option<i32>,
-    
+
     // Impact tracking
     pub importance_boost: f64,
     pub access_count_increment: i32,
-    
+
     pub accessed_at: DateTime<Utc>,
 }
 
@@ -911,39 +911,39 @@ pub enum SystemMetricsSnapshotType {
 pub struct SystemMetricsSnapshot {
     pub id: Uuid,
     pub snapshot_type: SystemMetricsSnapshotType,
-    
+
     // Memory tier statistics
     pub working_memory_count: i32,
     pub warm_memory_count: i32,
     pub cold_memory_count: i32,
     pub frozen_memory_count: i32,
-    
+
     // Storage metrics
     pub total_storage_bytes: i64,
     pub compressed_storage_bytes: i64,
     pub average_compression_ratio: Option<f64>,
-    
+
     // Performance metrics
     pub average_query_time_ms: Option<f64>,
     pub p95_query_time_ms: Option<f64>,
     pub p99_query_time_ms: Option<f64>,
     pub slow_query_count: i32,
-    
+
     // Memory system health
     pub consolidation_backlog: i32,
     pub migration_queue_size: i32,
     pub failed_operations_count: i32,
-    
+
     // Vector index performance
     pub vector_index_size_mb: Option<f64>,
     pub vector_search_performance: serde_json::Value,
-    
+
     // System resources
     pub database_cpu_percent: Option<f64>,
     pub database_memory_mb: Option<f64>,
     pub connection_count: Option<i32>,
     pub active_connections: Option<i32>,
-    
+
     pub recorded_at: DateTime<Utc>,
 }
 

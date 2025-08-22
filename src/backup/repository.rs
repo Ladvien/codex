@@ -285,14 +285,34 @@ pub struct MockBackupRepository;
 
 #[async_trait]
 impl BackupRepository for MockBackupRepository {
-    async fn initialize(&self) -> Result<()> { Ok(()) }
-    async fn store_metadata(&self, _metadata: &BackupMetadata) -> Result<()> { Ok(()) }
-    async fn update_metadata(&self, _metadata: &BackupMetadata) -> Result<()> { Ok(()) }
-    async fn get_latest_backup(&self) -> Result<Option<BackupMetadata>> { Ok(None) }
-    async fn get_expired_backups(&self, _retention_days: u32) -> Result<Vec<BackupMetadata>> { Ok(vec![]) }
-    async fn get_recent_backups(&self, _days: u32) -> Result<Vec<BackupMetadata>> { Ok(vec![]) }
-    async fn count_backups(&self) -> Result<u32> { Ok(0) }
-    async fn mark_backup_expired(&self, _backup_id: &str) -> Result<()> { Ok(()) }
-    async fn get_current_wal_lsn(&self) -> Result<String> { Ok("0/0".to_string()) }
-    async fn verify_postgres_config(&self) -> Result<()> { Ok(()) }
+    async fn initialize(&self) -> Result<()> {
+        Ok(())
+    }
+    async fn store_metadata(&self, _metadata: &BackupMetadata) -> Result<()> {
+        Ok(())
+    }
+    async fn update_metadata(&self, _metadata: &BackupMetadata) -> Result<()> {
+        Ok(())
+    }
+    async fn get_latest_backup(&self) -> Result<Option<BackupMetadata>> {
+        Ok(None)
+    }
+    async fn get_expired_backups(&self, _retention_days: u32) -> Result<Vec<BackupMetadata>> {
+        Ok(vec![])
+    }
+    async fn get_recent_backups(&self, _days: u32) -> Result<Vec<BackupMetadata>> {
+        Ok(vec![])
+    }
+    async fn count_backups(&self) -> Result<u32> {
+        Ok(0)
+    }
+    async fn mark_backup_expired(&self, _backup_id: &str) -> Result<()> {
+        Ok(())
+    }
+    async fn get_current_wal_lsn(&self) -> Result<String> {
+        Ok("0/0".to_string())
+    }
+    async fn verify_postgres_config(&self) -> Result<()> {
+        Ok(())
+    }
 }

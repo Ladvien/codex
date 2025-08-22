@@ -1,5 +1,5 @@
 //! Model Context Protocol (MCP) Server Implementation
-//! 
+//!
 //! This module provides a complete MCP server implementation that follows
 //! the MCP protocol specification 2025-06-18 using stdio transport.
 //!
@@ -13,15 +13,20 @@ pub mod rate_limiter;
 pub mod tools;
 pub mod transport;
 
-pub use auth::{MCPAuth, MCPAuthConfig, AuthContext, AuthMethod};
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState};
+pub use auth::{AuthContext, AuthMethod, MCPAuth, MCPAuthConfig};
+pub use circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
+};
 pub use handlers::MCPHandlers;
-pub use rate_limiter::{MCPRateLimiter, MCPRateLimitConfig, RateLimitStats};
+pub use rate_limiter::{MCPRateLimitConfig, MCPRateLimiter, RateLimitStats};
 pub use tools::MCPTools;
 pub use transport::StdioTransport;
 
-use crate::memory::{ImportanceAssessmentConfig, ImportanceAssessmentPipeline, MemoryRepository, SilentHarvesterService};
-use crate::security::{AuditConfig, audit::AuditLogger};
+use crate::memory::{
+    ImportanceAssessmentConfig, ImportanceAssessmentPipeline, MemoryRepository,
+    SilentHarvesterService,
+};
+use crate::security::{audit::AuditLogger, AuditConfig};
 use crate::SimpleEmbedder;
 use anyhow::Result;
 use std::sync::Arc;
@@ -122,7 +127,9 @@ impl MCPServer {
 
         // Initialize circuit breaker if enabled
         let circuit_breaker = if config.enable_circuit_breaker {
-            Some(Arc::new(CircuitBreaker::new(config.circuit_breaker.clone())))
+            Some(Arc::new(CircuitBreaker::new(
+                config.circuit_breaker.clone(),
+            )))
         } else {
             None
         };
@@ -168,7 +175,7 @@ impl MCPServer {
     pub async fn get_stats(&self) -> Result<serde_json::Value> {
         let repo_stats = self.repository.get_statistics().await?;
         let harvester_metrics = self.harvester_service.get_metrics().await;
-        
+
         let circuit_breaker_stats = if let Some(ref cb) = self.circuit_breaker {
             Some(cb.get_stats().await)
         } else {
@@ -211,7 +218,7 @@ impl MCPServer {
     /// Shutdown the server gracefully
     pub async fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down MCP server");
-        
+
         // Any cleanup logic here
         if let Some(ref cb) = self.circuit_breaker {
             cb.reset().await;

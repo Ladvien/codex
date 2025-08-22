@@ -30,12 +30,12 @@ impl Default for ConnectionConfig {
             username: "postgres".to_string(),
             password: "postgres".to_string(),
             // Optimized for high-throughput vector operations (>1000 ops/sec)
-            max_connections: 100,  // Minimum 100 as per HIGH-004 requirements
-            min_connections: 20,   // Higher minimum to reduce connection establishment overhead
-            connection_timeout_seconds: 10,  // Shorter timeout for faster failure detection
-            idle_timeout_seconds: 300,       // 5 minutes - prevent resource waste
-            max_lifetime_seconds: 3600,      // 1 hour - balance recycling vs overhead
-            statement_timeout_seconds: 300,  // 5 minutes for vector operations
+            max_connections: 100, // Minimum 100 as per HIGH-004 requirements
+            min_connections: 20,  // Higher minimum to reduce connection establishment overhead
+            connection_timeout_seconds: 10, // Shorter timeout for faster failure detection
+            idle_timeout_seconds: 300, // 5 minutes - prevent resource waste
+            max_lifetime_seconds: 3600, // 1 hour - balance recycling vs overhead
+            statement_timeout_seconds: 300, // 5 minutes for vector operations
             enable_prepared_statements: true, // Optimize repeated queries
             enable_connection_validation: true, // Ensure connection health
         }
@@ -54,7 +54,7 @@ impl ConnectionPool {
             "postgres://{}:{}@{}:{}/{}",
             config.username, config.password, config.host, config.port, config.database
         );
-        
+
         // Add vector operation optimizations to connection string
         connection_string.push_str(&format!(
             "?statement_timeout={}s&prepared_statement_cache_queries={}&tcp_keepalives_idle=60&tcp_keepalives_interval=30&tcp_keepalives_count=3",
@@ -104,7 +104,7 @@ impl ConnectionPool {
             active_connections: size - idle,
             waiting_for_connection: 0, // SQLx doesn't expose this directly
             total_connections_created: 0, // Would need custom tracking
-            connection_errors: 0, // Would need custom tracking
+            connection_errors: 0,      // Would need custom tracking
         }
     }
 
@@ -136,17 +136,17 @@ impl PoolStats {
     pub fn is_saturated(&self, threshold: f32) -> bool {
         self.utilization_percentage() >= threshold
     }
-    
+
     /// Check if pool is at warning level (70% utilization as per requirements)
     pub fn needs_attention(&self) -> bool {
         self.is_saturated(70.0)
     }
-    
+
     /// Check if pool is critically saturated (90% utilization)
     pub fn is_critically_saturated(&self) -> bool {
         self.is_saturated(90.0)
     }
-    
+
     /// Get health status message
     pub fn health_status(&self) -> String {
         let utilization = self.utilization_percentage();
@@ -181,7 +181,7 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
     // Apply HIGH-004 optimization defaults
     let optimized_max_connections = std::cmp::max(max_connections, 100); // Enforce minimum 100
     let min_connections = std::cmp::max(optimized_max_connections / 5, 20); // 20% minimum, at least 20
-    
+
     let pool = PgPoolOptions::new()
         .max_connections(optimized_max_connections)
         .min_connections(min_connections)
@@ -243,7 +243,7 @@ mod tests {
         assert!(config.enable_prepared_statements);
         assert!(config.enable_connection_validation);
     }
-    
+
     #[test]
     fn test_pool_stats_health_status() {
         // Test healthy status
@@ -257,7 +257,7 @@ mod tests {
             connection_errors: 0,
         };
         assert!(healthy_stats.health_status().contains("HEALTHY"));
-        
+
         // Test warning status
         let warning_stats = PoolStats {
             size: 80,
@@ -270,7 +270,7 @@ mod tests {
         };
         assert!(warning_stats.health_status().contains("WARNING"));
         assert!(warning_stats.needs_attention());
-        
+
         // Test critical status
         let critical_stats = PoolStats {
             size: 95,

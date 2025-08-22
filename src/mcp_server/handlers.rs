@@ -3,14 +3,14 @@
 //! This module contains all the request handlers for MCP protocol methods,
 //! including tool execution, initialization, and resource management.
 
-use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::mcp_server::{
-    auth::{MCPAuth, AuthContext},
+    auth::{AuthContext, MCPAuth},
     circuit_breaker::{CircuitBreaker, CircuitBreakerError},
     rate_limiter::MCPRateLimiter,
     tools::MCPTools,
     transport::{create_error_response, create_success_response, format_tool_response},
 };
+use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::SimpleEmbedder;
 use anyhow::Result;
 use chrono::{Duration, Utc};
@@ -51,17 +51,23 @@ impl MCPHandlers {
     }
 
     /// Handle incoming MCP requests with authentication and rate limiting
-    pub async fn handle_request(&mut self, method: &str, params: Option<&Value>, id: Option<&Value>) -> Value {
-        self.handle_request_with_headers(method, params, id, &HashMap::new()).await
+    pub async fn handle_request(
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
+        id: Option<&Value>,
+    ) -> Value {
+        self.handle_request_with_headers(method, params, id, &HashMap::new())
+            .await
     }
 
     /// Handle incoming MCP requests with headers for auth/rate limiting
     pub async fn handle_request_with_headers(
-        &mut self, 
-        method: &str, 
-        params: Option<&Value>, 
+        &mut self,
+        method: &str,
+        params: Option<&Value>,
         id: Option<&Value>,
-        headers: &HashMap<String, String>
+        headers: &HashMap<String, String>,
     ) -> Value {
         debug!("Handling MCP request: {}", method);
 
@@ -72,44 +78,58 @@ impl MCPHandlers {
 
         // Authenticate request
         let auth_context = match &self.auth {
-            Some(auth) => {
-                match auth.authenticate_request(method, params, headers).await {
-                    Ok(ctx) => ctx,
-                    Err(e) => {
-                        error!("Authentication failed: {}", e);
-                        return create_error_response(id, -32001, &format!("Authentication failed: {}", e));
-                    }
+            Some(auth) => match auth.authenticate_request(method, params, headers).await {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    error!("Authentication failed: {}", e);
+                    return create_error_response(
+                        id,
+                        -32001,
+                        &format!("Authentication failed: {}", e),
+                    );
                 }
-            }
+            },
             None => None,
         };
 
         // Check rate limits
         if let Some(ref rate_limiter) = self.rate_limiter {
             // Determine if we're in silent mode based on the tool/method
-            let silent_mode = matches!(method, "harvest_conversation") || 
-                params.and_then(|p| p.get("silent_mode"))
+            let silent_mode = matches!(method, "harvest_conversation")
+                || params
+                    .and_then(|p| p.get("silent_mode"))
                     .and_then(|s| s.as_bool())
                     .unwrap_or(false);
 
             let tool_name = if method == "tools/call" {
-                params.and_then(|p| p.get("name"))
+                params
+                    .and_then(|p| p.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("unknown")
             } else {
                 method
             };
 
-            if let Err(e) = rate_limiter.check_rate_limit(auth_context.as_ref(), tool_name, silent_mode).await {
+            if let Err(e) = rate_limiter
+                .check_rate_limit(auth_context.as_ref(), tool_name, silent_mode)
+                .await
+            {
                 warn!("Rate limit exceeded for method: {}", method);
-                return create_error_response(id, -32002, "Rate limit exceeded. Please try again later.");
+                return create_error_response(
+                    id,
+                    -32002,
+                    "Rate limit exceeded. Please try again later.",
+                );
             }
         }
 
         // Proceed with normal request handling
         match method {
             "tools/list" => self.handle_tools_list(id).await,
-            "tools/call" => self.handle_tools_call(id, params, auth_context.as_ref()).await,
+            "tools/call" => {
+                self.handle_tools_call(id, params, auth_context.as_ref())
+                    .await
+            }
             "resources/list" => self.handle_resources_list(id).await,
             "prompts/list" => self.handle_prompts_list(id).await,
             _ => {
@@ -144,7 +164,12 @@ impl MCPHandlers {
     }
 
     /// Handle tools/call request
-    async fn handle_tools_call(&mut self, id: Option<&Value>, params: Option<&Value>, auth_context: Option<&AuthContext>) -> Value {
+    async fn handle_tools_call(
+        &mut self,
+        id: Option<&Value>,
+        params: Option<&Value>,
+        auth_context: Option<&AuthContext>,
+    ) -> Value {
         let params = match params {
             Some(p) => p,
             None => {
@@ -184,16 +209,21 @@ impl MCPHandlers {
 
         // Execute tool with circuit breaker protection if enabled
         if let Some(ref circuit_breaker) = self.circuit_breaker {
-            match circuit_breaker.call(|| async {
-                self.execute_tool(tool_name, arguments).await
-            }).await {
+            match circuit_breaker
+                .call(|| async { self.execute_tool(tool_name, arguments).await })
+                .await
+            {
                 Ok(result) => create_success_response(id, result),
-                Err(CircuitBreakerError::CircuitOpen) => {
-                    create_error_response(id, -32603, "Service temporarily unavailable (circuit breaker open)")
-                }
-                Err(CircuitBreakerError::HalfOpenLimitExceeded) => {
-                    create_error_response(id, -32603, "Service temporarily unavailable (half-open limit exceeded)")
-                }
+                Err(CircuitBreakerError::CircuitOpen) => create_error_response(
+                    id,
+                    -32603,
+                    "Service temporarily unavailable (circuit breaker open)",
+                ),
+                Err(CircuitBreakerError::HalfOpenLimitExceeded) => create_error_response(
+                    id,
+                    -32603,
+                    "Service temporarily unavailable (half-open limit exceeded)",
+                ),
             }
         } else {
             match self.execute_tool(tool_name, arguments).await {
@@ -226,20 +256,18 @@ impl MCPHandlers {
         let content = args.get("content").and_then(|c| c.as_str()).unwrap();
 
         // Parse optional parameters
-        let tier = args.get("tier")
+        let tier = args
+            .get("tier")
             .and_then(|t| t.as_str())
             .and_then(|t| t.parse::<MemoryTier>().ok());
 
-        let importance_score = args.get("importance_score")
-            .and_then(|s| s.as_f64());
+        let importance_score = args.get("importance_score").and_then(|s| s.as_f64());
 
-        let tags = args.get("tags")
-            .and_then(|t| t.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect::<Vec<String>>()
-            });
+        let tags = args.get("tags").and_then(|t| t.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<String>>()
+        });
 
         let metadata = if let Some(tags) = tags {
             Some(serde_json::json!({ "tags": tags }))
@@ -277,22 +305,26 @@ impl MCPHandlers {
     /// Execute search_memory tool
     async fn execute_search_memory(&self, args: &Value) -> Result<Value> {
         let query = args.get("query").and_then(|q| q.as_str()).unwrap();
-        
-        let limit = args.get("limit")
+
+        let limit = args
+            .get("limit")
             .and_then(|l| l.as_i64())
             .map(|l| l as i32)
             .unwrap_or(10);
 
-        let similarity_threshold = args.get("similarity_threshold")
+        let similarity_threshold = args
+            .get("similarity_threshold")
             .and_then(|t| t.as_f64())
             .map(|t| t as f32)
             .unwrap_or(0.5);
 
-        let tier = args.get("tier")
+        let tier = args
+            .get("tier")
             .and_then(|t| t.as_str())
             .and_then(|t| t.parse::<MemoryTier>().ok());
 
-        let include_metadata = args.get("include_metadata")
+        let include_metadata = args
+            .get("include_metadata")
             .and_then(|m| m.as_bool())
             .unwrap_or(true);
 
@@ -324,9 +356,13 @@ impl MCPHandlers {
         let results = self.repository.search_memories_simple(search_req).await?;
 
         if results.is_empty() {
-            Ok(format_tool_response(&format!("No memories found for query: {}", query)))
+            Ok(format_tool_response(&format!(
+                "No memories found for query: {}",
+                query
+            )))
         } else {
-            let formatted_results = results.iter()
+            let formatted_results = results
+                .iter()
                 .map(|r| {
                     let content_preview = r.memory.content.chars().take(200).collect::<String>();
                     format!(
@@ -340,14 +376,16 @@ impl MCPHandlers {
                 .collect::<Vec<String>>()
                 .join("\n\n");
 
-            let response_text = format!("Found {} memories:\n\n{}", results.len(), formatted_results);
+            let response_text =
+                format!("Found {} memories:\n\n{}", results.len(), formatted_results);
             Ok(format_tool_response(&response_text))
         }
     }
 
     /// Execute get_statistics tool
     async fn execute_get_statistics(&self, args: &Value) -> Result<Value> {
-        let detailed = args.get("detailed")
+        let detailed = args
+            .get("detailed")
             .and_then(|d| d.as_bool())
             .unwrap_or(false);
 
@@ -409,15 +447,18 @@ impl MCPHandlers {
 
     /// Execute what_did_you_remember tool - query recent memories
     async fn execute_what_did_you_remember(&self, args: &Value) -> Result<Value> {
-        let context = args.get("context")
+        let context = args
+            .get("context")
             .and_then(|c| c.as_str())
             .unwrap_or("conversation");
 
-        let time_range = args.get("time_range")
+        let time_range = args
+            .get("time_range")
             .and_then(|r| r.as_str())
             .unwrap_or("last_day");
 
-        let limit = args.get("limit")
+        let limit = args
+            .get("limit")
             .and_then(|l| l.as_i64())
             .map(|l| l as i32)
             .unwrap_or(10);
@@ -459,7 +500,10 @@ impl MCPHandlers {
         };
 
         // Generate embedding for context search
-        let embedding = self.embedder.generate_embedding(&format!("context:{}", context)).await?;
+        let embedding = self
+            .embedder
+            .generate_embedding(&format!("context:{}", context))
+            .await?;
         let mut search_req = search_req;
         search_req.query_embedding = Some(embedding);
 
@@ -469,11 +513,13 @@ impl MCPHandlers {
             let response_text = format!(
                 "I haven't remembered anything specific about {} in the {}. \
                  You might want to check if memories were properly harvested or stored.",
-                context, time_range.replace('_', " ")
+                context,
+                time_range.replace('_', " ")
             );
             Ok(format_tool_response(&response_text))
         } else {
-            let formatted_memories = results.iter()
+            let formatted_memories = results
+                .iter()
                 .map(|r| {
                     let age = now.signed_duration_since(r.memory.created_at);
                     let age_str = if age.num_hours() < 1 {
@@ -487,10 +533,7 @@ impl MCPHandlers {
                     let content_preview = r.memory.content.chars().take(150).collect::<String>();
                     format!(
                         "• [{}] {}\n  (Tier: {:?}, Importance: {:.2})",
-                        age_str,
-                        content_preview,
-                        r.memory.tier,
-                        r.memory.importance_score
+                        age_str, content_preview, r.memory.tier, r.memory.importance_score
                     )
                 })
                 .collect::<Vec<String>>()
@@ -508,22 +551,22 @@ impl MCPHandlers {
 
     /// Execute harvest_conversation tool
     async fn execute_harvest_conversation(&self, args: &Value) -> Result<Value> {
-        let message = args.get("message")
-            .and_then(|m| m.as_str());
+        let message = args.get("message").and_then(|m| m.as_str());
 
-        let context = args.get("context")
+        let context = args
+            .get("context")
             .and_then(|c| c.as_str())
             .unwrap_or("conversation");
 
-        let role = args.get("role")
-            .and_then(|r| r.as_str())
-            .unwrap_or("user");
+        let role = args.get("role").and_then(|r| r.as_str()).unwrap_or("user");
 
-        let force_harvest = args.get("force_harvest")
+        let force_harvest = args
+            .get("force_harvest")
             .and_then(|f| f.as_bool())
             .unwrap_or(false);
 
-        let silent_mode = args.get("silent_mode")
+        let silent_mode = args
+            .get("silent_mode")
             .and_then(|s| s.as_bool())
             .unwrap_or(true);
 
@@ -537,7 +580,9 @@ impl MCPHandlers {
                 context: context.to_string(),
             };
 
-            self.harvester_service.add_message(conversation_message).await?;
+            self.harvester_service
+                .add_message(conversation_message)
+                .await?;
         }
 
         // Force harvest if requested
@@ -545,8 +590,10 @@ impl MCPHandlers {
             match self.harvester_service.force_harvest().await {
                 Ok(result) => {
                     let response_text = if silent_mode {
-                        format!("Harvest completed: {} messages processed", 
-                                result.messages_processed)
+                        format!(
+                            "Harvest completed: {} messages processed",
+                            result.messages_processed
+                        )
                     } else {
                         format!("Force harvest completed:\n• Messages processed: {}\n• Patterns extracted: {}\n• Patterns stored: {}\n• Duplicates filtered: {}\n• Processing time: {}ms",
                                 result.messages_processed,
@@ -594,7 +641,8 @@ impl MCPHandlers {
             metrics.duplicates_filtered,
             metrics.avg_extraction_time_ms,
             metrics.avg_batch_processing_time_ms,
-            metrics.last_harvest_time
+            metrics
+                .last_harvest_time
                 .map(|t| format!("{} ago", format_duration(Utc::now() - t)))
                 .unwrap_or_else(|| "Never".to_string())
         );
@@ -607,17 +655,22 @@ impl MCPHandlers {
         let memory_id_str = args.get("memory_id").and_then(|id| id.as_str()).unwrap();
         let memory_id = Uuid::parse_str(memory_id_str)?;
 
-        let target_tier = args.get("target_tier")
+        let target_tier = args
+            .get("target_tier")
             .and_then(|t| t.as_str())
             .and_then(|t| t.parse::<MemoryTier>().ok())
             .unwrap();
 
-        let reason = args.get("reason")
+        let reason = args
+            .get("reason")
             .and_then(|r| r.as_str())
             .map(String::from);
 
         // Perform migration
-        let updated_memory = self.repository.migrate_memory(memory_id, target_tier, reason.clone()).await?;
+        let updated_memory = self
+            .repository
+            .migrate_memory(memory_id, target_tier, reason.clone())
+            .await?;
 
         let response_text = format!(
             "Successfully migrated memory {} to {:?} tier\n\
@@ -648,7 +701,7 @@ impl MCPHandlers {
 /// Format duration for human-readable display
 fn format_duration(duration: chrono::Duration) -> String {
     let total_seconds = duration.num_seconds();
-    
+
     if total_seconds < 60 {
         format!("{}s", total_seconds)
     } else if total_seconds < 3600 {

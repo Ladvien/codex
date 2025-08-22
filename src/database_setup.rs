@@ -618,7 +618,9 @@ mod tests {
     fn test_parse_database_url() {
         let setup = DatabaseSetup::new("postgresql://user:pass@localhost:5432/testdb".to_string());
 
-        let info = setup.parse_database_url().expect("Failed to parse valid database URL");
+        let info = setup
+            .parse_database_url()
+            .expect("Failed to parse valid database URL");
         assert_eq!(info.host, "localhost");
         assert_eq!(info.port, 5432);
         assert_eq!(info.username, "user");
@@ -630,7 +632,9 @@ mod tests {
     fn test_parse_database_url_default_port() {
         let setup = DatabaseSetup::new("postgresql://user:pass@localhost/testdb".to_string());
 
-        let info = setup.parse_database_url().expect("Failed to parse database URL with default port");
+        let info = setup
+            .parse_database_url()
+            .expect("Failed to parse database URL with default port");
         assert_eq!(info.port, 5432); // Should default to 5432
     }
 

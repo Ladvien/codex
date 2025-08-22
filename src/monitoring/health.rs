@@ -1,5 +1,5 @@
-use super::{ComponentHealth, HealthStatus, SystemHealth};
 use super::repository::{MonitoringRepository, PostgresMonitoringRepository};
+use super::{ComponentHealth, HealthStatus, SystemHealth};
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ impl HealthChecker {
             component_thresholds: HealthThresholds::default(),
         }
     }
-    
+
     pub fn with_repository(repository: Arc<dyn MonitoringRepository>) -> Self {
         Self {
             repository,
@@ -191,8 +191,13 @@ impl HealthChecker {
             Ok(failure_count) => {
                 if failure_count > 10 {
                     status = HealthStatus::Degraded;
-                    message = Some(format!("High migration failure rate: {failure_count} failures in last hour"));
-                    warn!("High migration failure rate: {} failures in last hour", failure_count);
+                    message = Some(format!(
+                        "High migration failure rate: {failure_count} failures in last hour"
+                    ));
+                    warn!(
+                        "High migration failure rate: {} failures in last hour",
+                        failure_count
+                    );
                 }
             }
             Err(e) => {
@@ -260,9 +265,7 @@ impl HealthChecker {
 
         info!(
             "Connection pool health: {}/{} connections used ({:.1}% utilization)",
-            pool_stats.active_connections,
-            max_size,
-            utilization
+            pool_stats.active_connections, max_size, utilization
         );
 
         ComponentHealth {

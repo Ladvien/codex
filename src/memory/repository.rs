@@ -4,7 +4,7 @@ use super::math_engine::constants;
 use super::models::*;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pgvector::Vector;
 use sqlx::postgres::types::PgInterval;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -17,6 +17,236 @@ use uuid::Uuid;
 pub struct MemoryRepository {
     pool: PgPool,
     trigger_engine: Option<Arc<EventTriggeredScoringEngine>>,
+}
+
+/// Safe query builder to prevent SQL injection vulnerabilities
+#[derive(Debug, Clone)]
+pub struct SafeQueryBuilder {
+    query_parts: Vec<String>,
+    parameters: Vec<QueryParameter>,
+    bind_index: usize,
+}
+
+#[derive(Debug, Clone)]
+enum QueryParameter {
+    Text(String),
+    Integer(i64),
+    Float(f64),
+    DateTime(DateTime<Utc>),
+    Tier(MemoryTier),
+    Uuid(Uuid),
+    Vector(Vector),
+}
+
+impl SafeQueryBuilder {
+    pub fn new(base_query: &str) -> Self {
+        Self {
+            query_parts: vec![base_query.to_string()],
+            parameters: Vec::new(),
+            bind_index: 1,
+        }
+    }
+
+    /// Add a parameterized condition safely
+    pub fn add_condition(&mut self, condition: &str) -> &mut Self {
+        self.query_parts.push(condition.to_string());
+        self
+    }
+
+    /// Add a parameterized tier filter
+    pub fn add_tier_filter(&mut self, tier: &MemoryTier) -> &mut Self {
+        let condition = format!("AND m.tier = ${}", self.bind_index);
+        self.query_parts.push(condition);
+        self.parameters.push(QueryParameter::Tier(tier.clone()));
+        self.bind_index += 1;
+        self
+    }
+
+    /// Add a parameterized date range filter
+    pub fn add_date_range(
+        &mut self,
+        start: Option<&DateTime<Utc>>,
+        end: Option<&DateTime<Utc>>,
+    ) -> &mut Self {
+        if let Some(start_date) = start {
+            let condition = format!("AND m.created_at >= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::DateTime(*start_date));
+            self.bind_index += 1;
+        }
+        if let Some(end_date) = end {
+            let condition = format!("AND m.created_at <= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::DateTime(*end_date));
+            self.bind_index += 1;
+        }
+        self
+    }
+
+    /// Add a parameterized importance range filter
+    pub fn add_importance_range(&mut self, min: Option<f64>, max: Option<f64>) -> &mut Self {
+        if let Some(min_score) = min {
+            let condition = format!("AND m.importance_score >= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(min_score));
+            self.bind_index += 1;
+        }
+        if let Some(max_score) = max {
+            let condition = format!("AND m.importance_score <= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(max_score));
+            self.bind_index += 1;
+        }
+        self
+    }
+
+    /// Add a parameterized similarity threshold
+    pub fn add_similarity_threshold(&mut self, threshold: f64) -> &mut Self {
+        let condition = format!("AND 1 - (m.embedding <=> $1) >= ${}", self.bind_index);
+        self.query_parts.push(condition);
+        self.parameters.push(QueryParameter::Float(threshold));
+        self.bind_index += 1;
+        self
+    }
+
+    /// Add consolidation strength range filter
+    pub fn add_consolidation_strength_range(
+        &mut self,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> &mut Self {
+        if let Some(min_strength) = min {
+            let condition = format!("AND consolidation_strength >= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(min_strength));
+            self.bind_index += 1;
+        }
+        if let Some(max_strength) = max {
+            let condition = format!("AND consolidation_strength <= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(max_strength));
+            self.bind_index += 1;
+        }
+        self
+    }
+
+    /// Add recall probability range filter
+    pub fn add_recall_probability_range(
+        &mut self,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> &mut Self {
+        if let Some(min_recall) = min {
+            let condition = format!("AND recall_probability >= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(min_recall));
+            self.bind_index += 1;
+        }
+        if let Some(max_recall) = max {
+            let condition = format!("AND recall_probability <= ${}", self.bind_index);
+            self.query_parts.push(condition);
+            self.parameters.push(QueryParameter::Float(max_recall));
+            self.bind_index += 1;
+        }
+        self
+    }
+
+    /// Add condition to exclude frozen tier if needed
+    pub fn add_exclude_frozen(&mut self, exclude: bool) -> &mut Self {
+        if exclude {
+            self.query_parts.push("AND tier != 'frozen'".to_string());
+        }
+        self
+    }
+
+    /// Add a safe time interval condition for last access
+    pub fn add_last_access_interval(&mut self, hours: f64) -> &mut Self {
+        let condition = format!(
+            "AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '${} hours')",
+            self.bind_index
+        );
+        self.query_parts.push(condition);
+        self.parameters
+            .push(QueryParameter::Text(hours.to_string()));
+        self.bind_index += 1;
+        self
+    }
+
+    /// Add recall probability threshold condition
+    pub fn add_recall_threshold_condition(&mut self, threshold: f64) -> &mut Self {
+        // Store the threshold parameter for use in ORDER BY clause
+        self.parameters.push(QueryParameter::Float(threshold));
+        self.bind_index += 1;
+        self
+    }
+
+    /// Add a limit and offset with validation
+    pub fn add_pagination(&mut self, limit: usize, offset: usize) -> Result<&mut Self> {
+        // Input validation: reasonable limits to prevent resource exhaustion
+        if limit > 10000 {
+            return Err(MemoryError::InvalidRequest {
+                message: "Limit cannot exceed 10000 for performance reasons".to_string(),
+            });
+        }
+        if offset > 1000000 {
+            return Err(MemoryError::InvalidRequest {
+                message: "Offset cannot exceed 1000000 for performance reasons".to_string(),
+            });
+        }
+
+        let condition = format!("LIMIT ${} OFFSET ${}", self.bind_index, self.bind_index + 1);
+        self.query_parts.push(condition);
+        self.parameters.push(QueryParameter::Integer(limit as i64));
+        self.parameters.push(QueryParameter::Integer(offset as i64));
+        self.bind_index += 2;
+        Ok(self)
+    }
+
+    /// Build the final query string
+    pub fn build_query(&self) -> String {
+        self.query_parts.join(" ")
+    }
+
+    /// Apply parameters to a sqlx query
+    pub fn bind_parameters<'a>(
+        &'a self,
+        mut query: sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments>,
+    ) -> sqlx::query::Query<'a, Postgres, sqlx::postgres::PgArguments> {
+        for param in &self.parameters {
+            query = match param {
+                QueryParameter::Text(s) => query.bind(s),
+                QueryParameter::Integer(i) => query.bind(*i),
+                QueryParameter::Float(f) => query.bind(*f),
+                QueryParameter::DateTime(dt) => query.bind(*dt),
+                QueryParameter::Tier(tier) => query.bind(tier),
+                QueryParameter::Uuid(uuid) => query.bind(*uuid),
+                QueryParameter::Vector(vec) => query.bind(vec),
+            };
+        }
+        query
+    }
+
+    /// Apply parameters to a sqlx query_as
+    pub fn bind_parameters_as<'a, T>(
+        &'a self,
+        mut query: sqlx::query::QueryAs<'a, Postgres, T, sqlx::postgres::PgArguments>,
+    ) -> sqlx::query::QueryAs<'a, Postgres, T, sqlx::postgres::PgArguments>
+    where
+        T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>,
+    {
+        for param in &self.parameters {
+            query = match param {
+                QueryParameter::Text(s) => query.bind(s),
+                QueryParameter::Integer(i) => query.bind(*i),
+                QueryParameter::Float(f) => query.bind(*f),
+                QueryParameter::DateTime(dt) => query.bind(*dt),
+                QueryParameter::Tier(tier) => query.bind(tier),
+                QueryParameter::Uuid(uuid) => query.bind(*uuid),
+                QueryParameter::Vector(vec) => query.bind(vec),
+            };
+        }
+        query
+    }
 }
 
 impl MemoryRepository {
@@ -337,24 +567,27 @@ impl MemoryRepository {
         let offset = request.offset.unwrap_or(0);
         let threshold = request.similarity_threshold.unwrap_or(0.7);
 
-        let mut query_parts = vec![
-            "SELECT m.*, 1 - (m.embedding <=> $1) as similarity_score".to_string(),
-            "FROM memories m".to_string(),
-            "WHERE m.status = 'active' AND m.embedding IS NOT NULL".to_string(),
-        ];
+        // Use safe query builder to prevent SQL injection
+        let mut builder = SafeQueryBuilder::new(
+            "SELECT m.*, 1 - (m.embedding <=> $1) as similarity_score FROM memories m WHERE m.status = 'active' AND m.embedding IS NOT NULL"
+        );
 
-        // Add filters
-        self.add_filters(request, &mut query_parts)?;
+        // Add filters safely
+        self.add_filters_safe(request, &mut builder)?;
 
-        query_parts.push(format!("AND 1 - (m.embedding <=> $1) >= {threshold}"));
-        query_parts.push("ORDER BY similarity_score DESC".to_string());
-        query_parts.push(format!("LIMIT {limit} OFFSET {offset}"));
+        // Add similarity threshold safely
+        builder.add_similarity_threshold(threshold as f64);
 
-        let query = query_parts.join(" ");
-        let rows = sqlx::query(&query)
-            .bind(&query_embedding)
-            .fetch_all(&self.pool)
-            .await?;
+        // Add ordering and pagination
+        builder.add_condition("ORDER BY similarity_score DESC");
+        builder.add_pagination(limit as usize, offset as usize)?;
+
+        // Build query and execute with parameterized binding
+        let query = builder.build_query();
+        let mut sqlx_query = sqlx::query(&query).bind(&query_embedding);
+        sqlx_query = builder.bind_parameters(sqlx_query);
+
+        let rows = sqlx_query.fetch_all(&self.pool).await?;
 
         self.build_search_results(rows, request).await
     }
@@ -363,20 +596,23 @@ impl MemoryRepository {
         let limit = request.limit.unwrap_or(10);
         let offset = request.offset.unwrap_or(0);
 
-        let mut query_parts = vec![
-            "SELECT m.*, 0.0 as similarity_score".to_string(),
-            "FROM memories m".to_string(),
-            "WHERE m.status = 'active'".to_string(),
-        ];
+        // Use safe query builder to prevent SQL injection
+        let mut builder = SafeQueryBuilder::new(
+            "SELECT m.*, 0.0 as similarity_score FROM memories m WHERE m.status = 'active'",
+        );
 
-        // Add filters
-        self.add_filters(request, &mut query_parts)?;
+        // Add filters safely
+        self.add_filters_safe(request, &mut builder)?;
 
-        query_parts.push("ORDER BY m.created_at DESC, m.updated_at DESC".to_string());
-        query_parts.push(format!("LIMIT {limit} OFFSET {offset}"));
+        // Add ordering and pagination
+        builder.add_condition("ORDER BY m.created_at DESC, m.updated_at DESC");
+        builder.add_pagination(limit as usize, offset as usize)?;
 
-        let query = query_parts.join(" ");
-        let rows = sqlx::query(&query).fetch_all(&self.pool).await?;
+        // Build query and execute with parameterized binding
+        let query = builder.build_query();
+        let sqlx_query = builder.bind_parameters(sqlx::query(&query));
+
+        let rows = sqlx_query.fetch_all(&self.pool).await?;
 
         self.build_search_results(rows, request).await
     }
@@ -478,33 +714,25 @@ impl MemoryRepository {
         self.build_search_results(rows, request).await
     }
 
-    fn add_filters(&self, request: &SearchRequest, query_parts: &mut Vec<String>) -> Result<()> {
+    /// Safe version of add_filters using SafeQueryBuilder to prevent SQL injection
+    fn add_filters_safe(
+        &self,
+        request: &SearchRequest,
+        builder: &mut SafeQueryBuilder,
+    ) -> Result<()> {
         if let Some(tier) = &request.tier {
-            query_parts.push(format!("AND m.tier = '{tier:?}'"));
+            builder.add_tier_filter(tier);
         }
 
         if let Some(date_range) = &request.date_range {
-            if let Some(start) = &date_range.start {
-                query_parts.push(format!(
-                    "AND m.created_at >= '{}'",
-                    start.format("%Y-%m-%d %H:%M:%S")
-                ));
-            }
-            if let Some(end) = &date_range.end {
-                query_parts.push(format!(
-                    "AND m.created_at <= '{}'",
-                    end.format("%Y-%m-%d %H:%M:%S")
-                ));
-            }
+            builder.add_date_range(date_range.start.as_ref(), date_range.end.as_ref());
         }
 
         if let Some(importance_range) = &request.importance_range {
-            if let Some(min) = importance_range.min {
-                query_parts.push(format!("AND m.importance_score >= {min}"));
-            }
-            if let Some(max) = importance_range.max {
-                query_parts.push(format!("AND m.importance_score <= {max}"));
-            }
+            builder.add_importance_range(
+                importance_range.min.map(|v| v as f64),
+                importance_range.max.map(|v| v as f64),
+            );
         }
 
         Ok(())
@@ -1418,84 +1646,48 @@ impl MemoryRepository {
         Ok(())
     }
 
-    /// Search memories with consolidation criteria
+    /// Search memories with consolidation criteria (SQL injection safe)
     pub async fn search_by_consolidation(
         &self,
         request: ConsolidationSearchRequest,
     ) -> Result<Vec<Memory>> {
-        let mut conditions = Vec::new();
-        let mut bind_index = 1;
-
-        // Build dynamic WHERE clause
-        if request.min_consolidation_strength.is_some() {
-            conditions.push(format!("consolidation_strength >= ${bind_index}"));
-            bind_index += 1;
-        }
-        if request.max_consolidation_strength.is_some() {
-            conditions.push(format!("consolidation_strength <= ${bind_index}"));
-            bind_index += 1;
-        }
-        if request.min_recall_probability.is_some() {
-            conditions.push(format!("recall_probability >= ${bind_index}"));
-            bind_index += 1;
-        }
-        if request.max_recall_probability.is_some() {
-            conditions.push(format!("recall_probability <= ${bind_index}"));
-            bind_index += 1;
-        }
-        if request.tier.is_some() {
-            conditions.push(format!("tier = ${bind_index}"));
-            bind_index += 1;
-        }
-
-        if !request.include_frozen.unwrap_or(false) {
-            conditions.push("tier != 'frozen'".to_string());
-        }
-
-        conditions.push("status = 'active'".to_string());
-
-        let where_clause = if conditions.is_empty() {
-            "WHERE status = 'active'".to_string()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
-
-        let query = format!(
-            r#"
-            SELECT * FROM memories 
-            {} 
-            ORDER BY consolidation_strength DESC, recall_probability DESC NULLS LAST
-            LIMIT ${} OFFSET ${}
-            "#,
-            where_clause,
-            bind_index,
-            bind_index + 1
-        );
-
-        let mut query_builder = sqlx::query_as::<_, Memory>(&query);
-
-        // Bind parameters in order
-        if let Some(val) = request.min_consolidation_strength {
-            query_builder = query_builder.bind(val);
-        }
-        if let Some(val) = request.max_consolidation_strength {
-            query_builder = query_builder.bind(val);
-        }
-        if let Some(val) = request.min_recall_probability {
-            query_builder = query_builder.bind(val);
-        }
-        if let Some(val) = request.max_recall_probability {
-            query_builder = query_builder.bind(val);
-        }
-        if let Some(val) = request.tier {
-            query_builder = query_builder.bind(val);
-        }
-
         let limit = request.limit.unwrap_or(10);
         let offset = request.offset.unwrap_or(0);
-        query_builder = query_builder.bind(limit).bind(offset);
 
-        let memories = query_builder.fetch_all(&self.pool).await?;
+        // Use safe query builder to prevent SQL injection
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // Add consolidation strength range filter
+        builder.add_consolidation_strength_range(
+            request.min_consolidation_strength,
+            request.max_consolidation_strength,
+        );
+
+        // Add recall probability range filter
+        builder.add_recall_probability_range(
+            request.min_recall_probability,
+            request.max_recall_probability,
+        );
+
+        // Add tier filter if specified
+        if let Some(tier) = &request.tier {
+            builder.add_tier_filter(tier);
+        }
+
+        // Exclude frozen tier if not included
+        builder.add_exclude_frozen(!request.include_frozen.unwrap_or(false));
+
+        // Add ordering and pagination
+        builder.add_condition(
+            "ORDER BY consolidation_strength DESC, recall_probability DESC NULLS LAST",
+        );
+        builder.add_pagination(limit as usize, offset as usize)?;
+
+        // Build query and execute with parameterized binding
+        let query = builder.build_query();
+        let sqlx_query = builder.bind_parameters_as(sqlx::query_as::<_, Memory>(&query));
+
+        let memories = sqlx_query.fetch_all(&self.pool).await?;
         Ok(memories)
     }
 
@@ -1613,44 +1805,42 @@ impl MemoryRepository {
 
     // Simple Consolidation Integration Methods
 
-    /// Get memories for consolidation processing with batch optimization
+    /// Get memories for consolidation processing with batch optimization (SQL injection safe)
     pub async fn get_memories_for_consolidation(
         &self,
         tier: Option<MemoryTier>,
         batch_size: usize,
         min_hours_since_last_processing: f64,
     ) -> Result<Vec<Memory>> {
-        let tier_filter = if let Some(tier) = tier {
-            format!("AND tier = '{:?}'", tier).to_lowercase()
-        } else {
-            String::new()
-        };
+        // Use safe query builder to prevent SQL injection
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
 
-        let query = format!(
-            r#"
-            SELECT * FROM memories 
-            WHERE status = 'active' 
-            AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '{} hours')
-            {}
-            ORDER BY 
-                CASE 
-                    WHEN recall_probability IS NULL THEN 1
-                    WHEN recall_probability < $2 THEN 2
-                    ELSE 3
-                END,
-                last_accessed_at ASC NULLS FIRST,
-                consolidation_strength ASC
-            LIMIT $1
-            "#,
-            min_hours_since_last_processing, tier_filter
+        // Add time interval condition safely
+        builder.add_last_access_interval(min_hours_since_last_processing);
+
+        // Add tier filter if specified
+        if let Some(tier) = tier {
+            builder.add_tier_filter(&tier);
+        }
+
+        // Add complex ordering with recall probability condition
+        let threshold_bind_index = builder.bind_index;
+        builder.add_recall_threshold_condition(constants::COLD_MIGRATION_THRESHOLD);
+
+        let order_condition = format!(
+            "ORDER BY CASE WHEN recall_probability IS NULL THEN 1 WHEN recall_probability < ${} THEN 2 ELSE 3 END, last_accessed_at ASC NULLS FIRST, consolidation_strength ASC",
+            threshold_bind_index
         );
+        builder.add_condition(&order_condition);
 
-        let memories = sqlx::query_as::<_, Memory>(&query)
-            .bind(batch_size as i64)
-            .bind(constants::COLD_MIGRATION_THRESHOLD)
-            .fetch_all(&self.pool)
-            .await?;
+        // Add pagination (limit only, no offset for this use case)
+        builder.add_pagination(batch_size, 0)?;
 
+        // Build query and execute with parameterized binding
+        let query = builder.build_query();
+        let sqlx_query = builder.bind_parameters_as(sqlx::query_as::<_, Memory>(&query));
+
+        let memories = sqlx_query.fetch_all(&self.pool).await?;
         Ok(memories)
     }
 
@@ -1743,40 +1933,35 @@ impl MemoryRepository {
         Ok(migrated_count)
     }
 
-    /// Get migration candidates using simple consolidation formula
+    /// Get migration candidates using simple consolidation formula (SQL injection safe)
     pub async fn get_simple_consolidation_candidates(
         &self,
         tier: Option<MemoryTier>,
         threshold: f64,
         limit: usize,
     ) -> Result<Vec<Memory>> {
-        let tier_filter = if let Some(tier) = tier {
-            format!("AND tier = '{:?}'", tier).to_lowercase()
-        } else {
-            String::new()
-        };
-
-        let query = format!(
-            r#"
-            SELECT * FROM memories 
-            WHERE status = 'active' 
-            AND (recall_probability < $1 OR recall_probability IS NULL)
-            {}
-            ORDER BY 
-                COALESCE(recall_probability, 0) ASC,
-                consolidation_strength ASC,
-                last_accessed_at ASC NULLS FIRST
-            LIMIT $2
-            "#,
-            tier_filter
+        // Use safe query builder to prevent SQL injection
+        let mut builder = SafeQueryBuilder::new(
+            "SELECT * FROM memories WHERE status = 'active' AND (recall_probability < $1 OR recall_probability IS NULL)"
         );
 
-        let memories = sqlx::query_as::<_, Memory>(&query)
-            .bind(threshold)
-            .bind(limit as i64)
-            .fetch_all(&self.pool)
-            .await?;
+        // Add tier filter if specified
+        if let Some(tier) = tier {
+            builder.add_tier_filter(&tier);
+        }
 
+        // Add ordering
+        builder.add_condition("ORDER BY COALESCE(recall_probability, 0) ASC, consolidation_strength ASC, last_accessed_at ASC NULLS FIRST");
+
+        // Add pagination (limit only, no offset for this use case)
+        builder.add_pagination(limit, 0)?;
+
+        // Build query and execute with parameterized binding
+        let query = builder.build_query();
+        let mut sqlx_query = sqlx::query_as::<_, Memory>(&query).bind(threshold);
+        sqlx_query = builder.bind_parameters_as(sqlx_query);
+
+        let memories = sqlx_query.fetch_all(&self.pool).await?;
         Ok(memories)
     }
 
@@ -2019,9 +2204,11 @@ impl MemoryRepository {
     ) -> Result<HarvestSession> {
         let session_id = Uuid::new_v4();
         let now = Utc::now();
-        
-        let config_snapshot = request.config_snapshot.unwrap_or_else(|| serde_json::json!({}));
-        
+
+        let config_snapshot = request
+            .config_snapshot
+            .unwrap_or_else(|| serde_json::json!({}));
+
         let session = sqlx::query_as!(
             HarvestSession,
             r#"
@@ -2053,8 +2240,8 @@ impl MemoryRepository {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| MemoryError::DatabaseError { 
-            message: format!("Failed to create harvest session: {}", e) 
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to create harvest session: {}", e),
         })?;
 
         Ok(session)
@@ -2066,9 +2253,13 @@ impl MemoryRepository {
         session_id: Uuid,
         request: UpdateHarvestSessionRequest,
     ) -> Result<HarvestSession> {
-        let mut tx = self.pool.begin().await.map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to begin transaction: {}", e),
-        })?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| MemoryError::DatabaseError {
+                message: format!("Failed to begin transaction: {}", e),
+            })?;
 
         // Build dynamic update query
         let mut set_clauses = Vec::new();
@@ -2149,12 +2340,13 @@ impl MemoryRepository {
             query_builder = query_builder.bind(error_message);
         }
 
-        let session = query_builder
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to update harvest session: {}", e),
-            })?;
+        let session =
+            query_builder
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: format!("Failed to update harvest session: {}", e),
+                })?;
 
         tx.commit().await.map_err(|e| MemoryError::DatabaseError {
             message: format!("Failed to commit harvest session update: {}", e),
@@ -2227,7 +2419,7 @@ impl MemoryRepository {
         let pattern_id = Uuid::new_v4();
         let now = Utc::now();
         let metadata = request.metadata.unwrap_or_else(|| serde_json::json!({}));
-        
+
         let pattern = sqlx::query_as!(
             HarvestPattern,
             r#"
@@ -2309,19 +2501,27 @@ impl MemoryRepository {
     ) -> Result<ConsolidationEvent> {
         let event_id = Uuid::new_v4();
         let now = Utc::now();
-        let context_metadata = request.context_metadata.unwrap_or_else(|| serde_json::json!({}));
-        
+        let context_metadata = request
+            .context_metadata
+            .unwrap_or_else(|| serde_json::json!({}));
+
         // Calculate deltas if both old and new values are provided
-        let strength_delta = match (request.old_consolidation_strength, request.new_consolidation_strength) {
+        let strength_delta = match (
+            request.old_consolidation_strength,
+            request.new_consolidation_strength,
+        ) {
             (Some(old), Some(new)) => Some(new - old),
             _ => None,
         };
-        
-        let probability_delta = match (request.old_recall_probability, request.new_recall_probability) {
+
+        let probability_delta = match (
+            request.old_recall_probability,
+            request.new_recall_probability,
+        ) {
             (Some(old), Some(new)) => Some(new - old),
             _ => None,
         };
-        
+
         let event = sqlx::query_as!(
             ConsolidationEvent,
             r#"
@@ -2367,7 +2567,10 @@ impl MemoryRepository {
     }
 
     /// Get tier migration statistics
-    pub async fn get_tier_migration_stats(&self, days_back: i32) -> Result<Vec<TierMigrationStats>> {
+    pub async fn get_tier_migration_stats(
+        &self,
+        days_back: i32,
+    ) -> Result<Vec<TierMigrationStats>> {
         let stats = sqlx::query_as!(
             TierMigrationStats,
             r#"
@@ -2407,7 +2610,7 @@ impl MemoryRepository {
     ) -> Result<MemoryAccessLog> {
         let log_id = Uuid::new_v4();
         let now = Utc::now();
-        
+
         let log_entry = sqlx::query_as!(
             MemoryAccessLog,
             r#"
@@ -2457,7 +2660,7 @@ impl MemoryRepository {
     ) -> Result<SystemMetricsSnapshot> {
         let snapshot_id = Uuid::new_v4();
         let now = Utc::now();
-        
+
         // Get current memory tier statistics
         let tier_stats = sqlx::query!(
             r#"
@@ -2475,7 +2678,7 @@ impl MemoryRepository {
         .map_err(|e| MemoryError::DatabaseError {
             message: format!("Failed to get memory tier statistics: {}", e),
         })?;
-        
+
         let snapshot = sqlx::query_as!(
             SystemMetricsSnapshot,
             r#"
@@ -2571,7 +2774,8 @@ impl MemoryRepository {
                 .fetch_all(&self.pool)
                 .await
             }
-        }.map_err(|e| MemoryError::DatabaseError {
+        }
+        .map_err(|e| MemoryError::DatabaseError {
             message: format!("Failed to get system metrics snapshots: {}", e),
         })?;
 
@@ -2662,5 +2866,201 @@ mod tests {
 
         memory.tier = MemoryTier::Frozen;
         assert_eq!(memory.next_tier(), None);
+    }
+
+    #[test]
+    fn test_safe_query_builder_pagination_validation() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories");
+
+        // Test valid pagination
+        assert!(builder.add_pagination(100, 50).is_ok());
+
+        // Test excessive limit
+        let mut builder2 = SafeQueryBuilder::new("SELECT * FROM memories");
+        assert!(builder2.add_pagination(20000, 0).is_err());
+
+        // Test excessive offset
+        let mut builder3 = SafeQueryBuilder::new("SELECT * FROM memories");
+        assert!(builder3.add_pagination(10, 2000000).is_err());
+    }
+
+    #[test]
+    fn test_safe_query_builder_parameterization() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // Add tier filter
+        let tier = MemoryTier::Working;
+        builder.add_tier_filter(&tier);
+
+        // Add importance range
+        builder.add_importance_range(Some(0.5), Some(0.9));
+
+        // Add pagination
+        builder.add_pagination(10, 0).unwrap();
+
+        let query = builder.build_query();
+
+        // Verify parameterized placeholders are used
+        assert!(query.contains("$1"));
+        assert!(query.contains("$2"));
+        assert!(query.contains("$3"));
+        assert!(query.contains("$4"));
+        assert!(query.contains("$5"));
+
+        // Verify no raw values are interpolated
+        assert!(!query.contains("0.5"));
+        assert!(!query.contains("0.9"));
+        assert!(!query.contains("Working"));
+    }
+
+    #[test]
+    fn test_safe_query_builder_sql_injection_prevention() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // Try to inject malicious tier (would normally be validated by the type system)
+        let tier = MemoryTier::Working;
+        builder.add_tier_filter(&tier);
+
+        // Try to inject through importance range
+        builder.add_importance_range(Some(0.1), Some(1.0));
+
+        let query = builder.build_query();
+
+        // Verify that we have parameterized placeholders, not raw values
+        assert!(query.contains("tier = $"));
+        assert!(query.contains("importance_score >= $"));
+        assert!(query.contains("importance_score <= $"));
+
+        // Verify no SQL injection patterns
+        assert!(!query.contains("'; DROP TABLE"));
+        assert!(!query.contains("OR 1=1"));
+        assert!(!query.contains("UNION SELECT"));
+    }
+
+    #[test]
+    fn test_consolidation_strength_range_parameterization() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        builder.add_consolidation_strength_range(Some(1.0), Some(5.0));
+        builder.add_recall_probability_range(Some(0.1), Some(0.9));
+
+        let query = builder.build_query();
+
+        // Verify parameterization
+        assert!(query.contains("consolidation_strength >= $"));
+        assert!(query.contains("consolidation_strength <= $"));
+        assert!(query.contains("recall_probability >= $"));
+        assert!(query.contains("recall_probability <= $"));
+
+        // Verify no raw values
+        assert!(!query.contains("1.0"));
+        assert!(!query.contains("5.0"));
+        assert!(!query.contains("0.1"));
+        assert!(!query.contains("0.9"));
+    }
+
+    #[test]
+    fn test_date_range_parameterization() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        let start_date = Utc::now() - chrono::Duration::days(30);
+        let end_date = Utc::now();
+
+        builder.add_date_range(Some(&start_date), Some(&end_date));
+
+        let query = builder.build_query();
+
+        // Verify parameterization
+        assert!(query.contains("created_at >= $"));
+        assert!(query.contains("created_at <= $"));
+
+        // Verify no raw date strings (which would be vulnerable)
+        assert!(!query.contains(&start_date.format("%Y-%m-%d").to_string()));
+        assert!(!query.contains(&end_date.format("%Y-%m-%d").to_string()));
+    }
+
+    #[test]
+    fn test_similarity_threshold_parameterization() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // This would be called after the first bind parameter (embedding)
+        builder.bind_index = 2; // Simulate that $1 is already used for embedding
+        builder.add_similarity_threshold(0.7);
+
+        let query = builder.build_query();
+
+        // Verify parameterization with correct bind index
+        assert!(query.contains("embedding <=> $1"));
+        assert!(query.contains(">= $2"));
+
+        // Verify no raw threshold value
+        assert!(!query.contains("0.7"));
+    }
+
+    #[test]
+    fn test_query_builder_prevents_format_injection() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // Test that all potentially dangerous inputs are parameterized
+        let malicious_tier = MemoryTier::Working; // Type safety prevents actual injection here
+        builder.add_tier_filter(&malicious_tier);
+
+        // Test importance ranges that could contain injection attempts
+        builder.add_importance_range(Some(0.0), Some(1.0));
+
+        // Test exclude frozen functionality
+        builder.add_exclude_frozen(true);
+
+        let query = builder.build_query();
+
+        // Verify all user inputs are parameterized
+        assert!(query.matches('$').count() >= 3); // At least $1, $2, $3
+
+        // Verify static parts are hardcoded safely
+        assert!(query.contains("tier != 'frozen'"));
+        assert!(query.contains("status = 'active'"));
+
+        // Verify no format! patterns remain
+        assert!(!query.contains("{}"));
+        assert!(!query.contains("{:"));
+    }
+
+    #[test]
+    fn test_complex_query_building_safety() {
+        let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
+
+        // Build a complex query with multiple filters
+        builder.add_tier_filter(&MemoryTier::Working);
+        builder.add_importance_range(Some(0.3), Some(0.8));
+
+        let start_date = Utc::now() - chrono::Duration::days(7);
+        let end_date = Utc::now();
+        builder.add_date_range(Some(&start_date), Some(&end_date));
+
+        builder.add_consolidation_strength_range(Some(2.0), None);
+        builder.add_recall_probability_range(None, Some(0.9));
+        builder.add_exclude_frozen(true);
+
+        builder.add_condition("ORDER BY importance_score DESC");
+        builder.add_pagination(50, 100).unwrap();
+
+        let query = builder.build_query();
+
+        // Verify the query is well-formed and safe
+        assert!(query.starts_with("SELECT * FROM memories WHERE status = 'active'"));
+        assert!(query.contains("ORDER BY importance_score DESC"));
+        assert!(query.contains("LIMIT"));
+        assert!(query.contains("OFFSET"));
+
+        // Verify all user inputs are parameterized
+        let param_count = query.matches('$').count();
+        assert!(param_count >= 7); // tier, importance_min, importance_max, date_start, date_end, consolidation_min, recall_max, limit, offset
+
+        // Verify no SQL injection patterns
+        assert!(!query.contains("'; "));
+        assert!(!query.contains("OR 1=1"));
+        assert!(!query.contains("UNION"));
+        assert!(!query.contains("--"));
+        assert!(!query.contains("/*"));
     }
 }

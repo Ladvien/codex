@@ -24,7 +24,7 @@ impl MCPTools {
                                 "description": "The content to store as a memory"
                             },
                             "tier": {
-                                "type": "string", 
+                                "type": "string",
                                 "enum": ["working", "warm", "cold"],
                                 "description": "The tier to store the memory in (defaults to automatic placement)",
                                 "default": "working"
@@ -265,14 +265,20 @@ impl MCPTools {
     pub fn validate_tool_args(tool_name: &str, args: &Value) -> Result<(), String> {
         match tool_name {
             "store_memory" => {
-                if !args.get("content").and_then(|c| c.as_str()).map_or(false, |s| !s.is_empty()) {
+                if !args
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .map_or(false, |s| !s.is_empty())
+                {
                     return Err("Content is required and cannot be empty".to_string());
                 }
-                
+
                 // Validate tier if provided
                 if let Some(tier) = args.get("tier").and_then(|t| t.as_str()) {
                     if !["working", "warm", "cold"].contains(&tier) {
-                        return Err("Invalid tier. Must be 'working', 'warm', or 'cold'".to_string());
+                        return Err(
+                            "Invalid tier. Must be 'working', 'warm', or 'cold'".to_string()
+                        );
                     }
                 }
 
@@ -282,9 +288,13 @@ impl MCPTools {
                         return Err("Importance score must be between 0.0 and 1.0".to_string());
                     }
                 }
-            },
+            }
             "search_memory" => {
-                if !args.get("query").and_then(|q| q.as_str()).map_or(false, |s| !s.is_empty()) {
+                if !args
+                    .get("query")
+                    .and_then(|q| q.as_str())
+                    .map_or(false, |s| !s.is_empty())
+                {
                     return Err("Query is required and cannot be empty".to_string());
                 }
 
@@ -301,9 +311,13 @@ impl MCPTools {
                         return Err("Similarity threshold must be between 0.0 and 1.0".to_string());
                     }
                 }
-            },
+            }
             "migrate_memory" => {
-                if !args.get("memory_id").and_then(|id| id.as_str()).map_or(false, |s| !s.is_empty()) {
+                if !args
+                    .get("memory_id")
+                    .and_then(|id| id.as_str())
+                    .map_or(false, |s| !s.is_empty())
+                {
                     return Err("Memory ID is required".to_string());
                 }
 
@@ -314,16 +328,24 @@ impl MCPTools {
                 } else {
                     return Err("Target tier is required".to_string());
                 }
-            },
+            }
             "delete_memory" => {
-                if !args.get("memory_id").and_then(|id| id.as_str()).map_or(false, |s| !s.is_empty()) {
+                if !args
+                    .get("memory_id")
+                    .and_then(|id| id.as_str())
+                    .map_or(false, |s| !s.is_empty())
+                {
                     return Err("Memory ID is required".to_string());
                 }
 
-                if !args.get("confirm").and_then(|c| c.as_bool()).unwrap_or(false) {
+                if !args
+                    .get("confirm")
+                    .and_then(|c| c.as_bool())
+                    .unwrap_or(false)
+                {
                     return Err("Confirmation required for deletion".to_string());
                 }
-            },
+            }
             "what_did_you_remember" => {
                 // Validate time_range if provided
                 if let Some(range) = args.get("time_range").and_then(|r| r.as_str()) {
@@ -331,18 +353,20 @@ impl MCPTools {
                         return Err("Invalid time range".to_string());
                     }
                 }
-            },
+            }
             "harvest_conversation" => {
                 // Validate role if provided
                 if let Some(role) = args.get("role").and_then(|r| r.as_str()) {
                     if !["user", "assistant", "system"].contains(&role) {
-                        return Err("Invalid role. Must be 'user', 'assistant', or 'system'".to_string());
+                        return Err(
+                            "Invalid role. Must be 'user', 'assistant', or 'system'".to_string()
+                        );
                     }
                 }
-            },
+            }
             "get_statistics" | "get_harvester_metrics" => {
                 // These tools don't require validation
-            },
+            }
             _ => return Err(format!("Unknown tool: {}", tool_name)),
         }
 
@@ -358,14 +382,15 @@ mod tests {
     fn test_tools_list_structure() {
         let tools = MCPTools::get_tools_list();
         let tools_array = tools["tools"].as_array().unwrap();
-        
+
         assert!(!tools_array.is_empty());
-        
+
         // Check that store_memory tool exists with required schema
-        let store_memory = tools_array.iter()
+        let store_memory = tools_array
+            .iter()
             .find(|t| t["name"] == "store_memory")
             .unwrap();
-        
+
         assert_eq!(store_memory["name"], "store_memory");
         assert!(store_memory["inputSchema"]["properties"]["content"].is_object());
         assert_eq!(store_memory["inputSchema"]["required"][0], "content");

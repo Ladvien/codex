@@ -183,7 +183,11 @@ async fn main() -> Result<()> {
 
     // Route commands to appropriate handlers
     match cli.command {
-        Some(Commands::Setup { force, skip_database, skip_models }) => {
+        Some(Commands::Setup {
+            force,
+            skip_database,
+            skip_models,
+        }) => {
             let handler = SetupCommandHandler::new(app.container.clone());
             handler.run_setup(force, skip_database, skip_models).await
         }
@@ -199,18 +203,10 @@ async fn main() -> Result<()> {
             create_sample_env_file()?;
             Ok(())
         }
-        Some(Commands::Database { command }) => {
-            handle_database_command(command, &app).await
-        }
-        Some(Commands::Mcp { command }) => {
-            handle_mcp_command(command, &app).await
-        }
-        Some(Commands::Manager { command }) => {
-            handle_manager_command(command, &app).await
-        }
-        Some(Commands::Backup { command }) => {
-            handle_backup_command(command, &app).await
-        }
+        Some(Commands::Database { command }) => handle_database_command(command, &app).await,
+        Some(Commands::Mcp { command }) => handle_mcp_command(command, &app).await,
+        Some(Commands::Manager { command }) => handle_manager_command(command, &app).await,
+        Some(Commands::Backup { command }) => handle_backup_command(command, &app).await,
         Some(Commands::Start { skip_setup }) => {
             let handler = ServerCommandHandler::new(app.container.clone());
             handler.start_http(skip_setup).await
@@ -242,18 +238,21 @@ async fn handle_mcp_command(command: McpCommands, app: &Application) -> Result<(
         McpCommands::Validate => handler.validate().await,
         McpCommands::Diagnose => handler.diagnose().await,
         McpCommands::Test => handler.test().await,
-        McpCommands::Template { template_type, output } => {
-            handler.template(template_type, output).await
-        }
+        McpCommands::Template {
+            template_type,
+            output,
+        } => handler.template(template_type, output).await,
     }
 }
 
 async fn handle_manager_command(command: ManagerCommands, app: &Application) -> Result<()> {
     let handler = ManagerCommandHandler::new(app.container.clone());
     match command {
-        ManagerCommands::Start { daemon, pid_file, log_file } => {
-            handler.start(daemon, pid_file, log_file).await
-        }
+        ManagerCommands::Start {
+            daemon,
+            pid_file,
+            log_file,
+        } => handler.start(daemon, pid_file, log_file).await,
         ManagerCommands::Stop { pid_file } => handler.stop(pid_file).await,
         ManagerCommands::Restart { pid_file } => handler.restart(pid_file).await,
         ManagerCommands::Status { detailed } => handler.status(detailed).await,

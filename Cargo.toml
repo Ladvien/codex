@@ -1,6 +1,6 @@
 [package]
 name = "codex-memory"
-version = "0.1.22"
+version = "0.1.23"
 edition = "2021"
 authors = ["Ladvien <your-email@example.com>"]
 description = "An advanced hierarchical memory system for AI agents with MCP integration"

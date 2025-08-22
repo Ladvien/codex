@@ -290,16 +290,25 @@ impl MCPHandlers {
         };
 
         // Store memory
-        let memory = self.repository.create_memory(request).await?;
-
-        let response_text = format!(
-            "Successfully stored memory with ID: {}\nContent: {}\nTier: {:?}",
-            memory.id,
-            content.chars().take(100).collect::<String>(),
-            memory.tier
-        );
-
-        Ok(format_tool_response(&response_text))
+        match self.repository.create_memory(request).await {
+            Ok(memory) => {
+                let response_text = format!(
+                    "Successfully stored memory with ID: {}\nContent: {}\nTier: {:?}",
+                    memory.id,
+                    content.chars().take(100).collect::<String>(),
+                    memory.tier
+                );
+                Ok(format_tool_response(&response_text))
+            }
+            Err(crate::memory::error::MemoryError::StorageExhausted { tier, limit }) => {
+                // Return a 507-like error for storage exhaustion
+                Err(anyhow::anyhow!(
+                    "Storage exhausted in {} tier: limit of {} items reached (Miller's 7±2 principle). Memory was automatically evicted via LRU.",
+                    tier, limit
+                ))
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Execute search_memory tool

@@ -268,26 +268,10 @@ impl ConsolidationJob {
             return Ok(());
         }
 
-        let mut tx = self.repository.pool().begin().await?;
-
-        for (memory_id, new_strength, recall_prob) in &batch_result.consolidation_updates {
-            sqlx::query(
-                r#"
-                UPDATE memories 
-                SET consolidation_strength = $1, 
-                    recall_probability = $2,
-                    updated_at = NOW()
-                WHERE id = $3
-                "#,
-            )
-            .bind(new_strength)
-            .bind(recall_prob)
-            .bind(memory_id)
-            .execute(&mut *tx)
+        // Use repository method instead of direct SQL (clean architecture)
+        self.repository
+            .batch_update_consolidation(&batch_result.consolidation_updates)
             .await?;
-        }
-
-        tx.commit().await?;
         Ok(())
     }
 

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT \n                COUNT(*) FILTER (WHERE tier = 'working' AND status = 'active') as working_count,\n                COUNT(*) FILTER (WHERE tier = 'warm' AND status = 'active') as warm_count,\n                COUNT(*) FILTER (WHERE tier = 'cold' AND status = 'active') as cold_count,\n                COUNT(*) FILTER (WHERE tier = 'frozen') as frozen_count,\n                SUM(LENGTH(content::text)) as total_storage_bytes\n            FROM memories\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "working_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "warm_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "cold_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "frozen_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_storage_bytes",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "d2f22308a900008c20d24279ff2fa82004f31fd32207e3b4d01a033aba11b374"
+}

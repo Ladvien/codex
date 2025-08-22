@@ -55,7 +55,10 @@ impl DependencyContainer {
         );
 
         // Repository layer
-        let memory_repository = Arc::new(MemoryRepository::new((*db_pool).clone()));
+        let memory_repository = Arc::new(MemoryRepository::with_config(
+            (*db_pool).clone(),
+            config.clone(),
+        ));
 
         // Service layer
         let embedder = Arc::new(Self::create_embedder(&config)?);

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tier as \"tier: MemoryTier\", COUNT(*) as count\n            FROM memories\n            WHERE status = 'active'\n            GROUP BY tier\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tier: MemoryTier",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "416fe447502e6abc4614095426742a8859aea177cf8136fe3d241eb0645ee3b7"
+}

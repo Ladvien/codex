@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO memory_consolidation_log (\n                    id, memory_id, old_consolidation_strength, new_consolidation_strength, \n                    old_recall_probability, new_recall_probability, consolidation_event, \n                    trigger_reason, created_at\n                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "481ab60e230afbc68355743a0c6f32cbacae75e62995950b424e7d62fdf2d1e8"
+}

@@ -8,6 +8,9 @@ pub enum MemoryError {
     #[error("Duplicate content found in tier {tier}")]
     DuplicateContent { tier: String },
 
+    #[error("Storage exhausted in tier {tier}: limit {limit} reached")]
+    StorageExhausted { tier: String, limit: usize },
+
     #[error("Memory not found: {id}")]
     NotFound { id: String },
 

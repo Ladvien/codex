@@ -31,6 +31,9 @@ pub struct Config {
 
     /// Tier manager configuration
     pub tier_manager: TierManagerConfig,
+
+    /// Forgetting and decay configuration
+    pub forgetting: ForgettingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,7 +56,7 @@ pub struct EmbeddingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TierConfig {
-    /// Maximum memories in working tier
+    /// Maximum memories in working tier (Miller's 7±2 principle: 5-9 items)
     pub working_tier_limit: usize,
 
     /// Maximum memories in warm tier  
@@ -126,6 +129,7 @@ impl Default for Config {
             backup: BackupConfiguration::default(),
             security: SecurityConfiguration::default(),
             tier_manager: TierManagerConfig::default(),
+            forgetting: ForgettingConfig::default(),
         }
     }
 }
@@ -145,7 +149,7 @@ impl Default for EmbeddingConfig {
 impl Default for TierConfig {
     fn default() -> Self {
         Self {
-            working_tier_limit: 1000,
+            working_tier_limit: 9, // Miller's 7±2 upper bound
             warm_tier_limit: 10000,
             working_to_warm_days: 7,
             warm_to_cold_days: 30,
@@ -241,9 +245,17 @@ impl Config {
 
         // Tier configuration
         if let Ok(limit) = env::var("WORKING_TIER_LIMIT") {
-            config.tier_config.working_tier_limit = limit
+            let parsed_limit: usize = limit
                 .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid WORKING_TIER_LIMIT: {}", e))?;
+            // Enforce Miller's 7±2 principle (5-9 items)
+            if parsed_limit < 5 || parsed_limit > 9 {
+                return Err(anyhow::anyhow!(
+                    "WORKING_TIER_LIMIT must be between 5-9 (Miller's 7±2 principle), got: {}",
+                    parsed_limit
+                ));
+            }
+            config.tier_config.working_tier_limit = parsed_limit;
         }
 
         if let Ok(limit) = env::var("WARM_TIER_LIMIT") {
@@ -329,8 +341,12 @@ impl Config {
             return Err(anyhow::anyhow!("Embedding model is required"));
         }
 
-        if self.tier_config.working_tier_limit == 0 {
-            return Err(anyhow::anyhow!("Working tier limit must be greater than 0"));
+        // Validate Miller's 7±2 principle for working memory
+        if self.tier_config.working_tier_limit < 5 || self.tier_config.working_tier_limit > 9 {
+            return Err(anyhow::anyhow!(
+                "Working tier limit must be between 5-9 (Miller's 7±2 principle), got: {}",
+                self.tier_config.working_tier_limit
+            ));
         }
 
         if self.tier_config.warm_tier_limit == 0 {
@@ -563,6 +579,96 @@ pub struct TierManagerConfig {
     pub enable_metrics: bool,
 }
 
+/// Configuration for memory forgetting and decay mechanisms
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForgettingConfig {
+    /// Enable automatic forgetting cleanup jobs
+    pub enabled: bool,
+
+    /// Interval between forgetting cleanup runs in seconds
+    pub cleanup_interval_seconds: u64,
+
+    /// Batch size for processing memories during cleanup
+    pub cleanup_batch_size: usize,
+
+    /// Base decay rate for new memories (research-based default)
+    pub base_decay_rate: f64,
+
+    /// Tier-specific decay rate multipliers
+    pub working_decay_multiplier: f64,
+    pub warm_decay_multiplier: f64,
+    pub cold_decay_multiplier: f64,
+
+    /// Importance-based decay rate adjustment
+    pub importance_decay_factor: f64,
+
+    /// Age-based decay rate scaling (maximum multiplier after 60 days)
+    pub max_age_decay_multiplier: f64,
+
+    /// Enable reinforcement learning for dynamic importance scoring
+    pub enable_reinforcement_learning: bool,
+
+    /// Learning rate for reinforcement learning updates
+    pub learning_rate: f64,
+
+    /// Minimum decay rate (prevents memories from becoming permanent)
+    pub min_decay_rate: f64,
+
+    /// Maximum decay rate (prevents immediate forgetting)
+    pub max_decay_rate: f64,
+
+    /// Enable cleanup of completely forgotten memories (recall_probability < threshold)
+    pub enable_hard_deletion: bool,
+
+    /// Threshold for hard deletion of forgotten memories
+    pub hard_deletion_threshold: f64,
+
+    /// Retention period before hard deletion (days)
+    pub hard_deletion_retention_days: u32,
+
+    /// Enable performance metrics for forgetting operations
+    pub enable_metrics: bool,
+}
+
+impl Default for ForgettingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cleanup_interval_seconds: 3600, // 1 hour - optimal for Ebbinghaus curve dynamics
+            cleanup_batch_size: 1000,       // Match consolidation job batch size for consistency
+
+            // Research-validated base decay rate from cognitive science
+            base_decay_rate: 1.0,
+
+            // Tier-specific multipliers based on access patterns
+            working_decay_multiplier: 0.5, // Slower decay for frequently accessed memories
+            warm_decay_multiplier: 1.0,    // Normal decay rate
+            cold_decay_multiplier: 1.5,    // Faster decay for infrequently accessed memories
+
+            // Importance scoring influence (0.5 = 50% reduction for high importance)
+            importance_decay_factor: 0.5,
+
+            // Age-based scaling matches math_engine.rs implementation
+            max_age_decay_multiplier: 2.0,
+
+            // Reinforcement learning for adaptive importance
+            enable_reinforcement_learning: true,
+            learning_rate: 0.1,
+
+            // Bounds to prevent extreme decay rates
+            min_decay_rate: 0.1,
+            max_decay_rate: 5.0,
+
+            // Hard deletion for completely forgotten memories
+            enable_hard_deletion: false,      // Conservative default
+            hard_deletion_threshold: 0.01,    // 1% recall probability
+            hard_deletion_retention_days: 30, // 30 day grace period
+
+            enable_metrics: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfiguration {
     /// Enable security features
@@ -670,7 +776,7 @@ mod tests {
         assert_eq!(config.http_port, 8080);
         assert_eq!(config.embedding.model, "nomic-embed-text");
         assert_eq!(config.embedding.provider, "ollama");
-        assert_eq!(config.tier_config.working_tier_limit, 1000);
+        assert_eq!(config.tier_config.working_tier_limit, 9);
     }
 
     #[test]

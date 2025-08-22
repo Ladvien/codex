@@ -3,6 +3,7 @@ pub mod connection;
 pub mod consolidation_job;
 pub mod enhanced_retrieval;
 pub mod error;
+pub mod forgetting_job;
 pub mod importance_assessment;
 pub mod importance_assessment_config;
 pub mod math_engine;
@@ -32,6 +33,10 @@ pub use consolidation_job::{
     ConsolidationPerformanceMetrics,
 };
 pub use error::MemoryError;
+pub use forgetting_job::{
+    spawn_forgetting_job, ForgettingBatchResult, ForgettingJob, ForgettingJobConfig,
+    ForgettingJobResult, ForgettingPerformanceMetrics,
+};
 pub use math_engine::{MathEngine, MathEngineConfig, MemoryParameters};
 pub use models::{
     CreateMemoryRequest, Memory, MemoryStatus, MemoryTier, SearchRequest, SearchType,
@@ -114,3 +119,7 @@ pub use tier_manager::{
     TierManager, TierManagerMetrics, TierMigrationBatch, TierMigrationCandidate,
     TierMigrationResult,
 };
+
+// Test modules
+#[cfg(test)]
+mod tests;

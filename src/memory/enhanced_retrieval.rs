@@ -514,53 +514,64 @@ impl MemoryAwareRetrievalEngine {
         let mut insights_included = 0;
         let mut recently_consolidated_count = 0;
 
-        // Process each result with memory-aware enhancements
-        for base_result in base_response.results {
-            let consolidation_start = Instant::now();
+        // BATCH OPTIMIZATION: Extract memory IDs for batch processing
+        let memory_ids: Vec<Uuid> = base_response.results.iter().map(|r| r.memory.id).collect();
 
-            // Check if recently consolidated
-            let is_recently_consolidated =
-                self.is_recently_consolidated(&base_result.memory).await?;
-            if is_recently_consolidated {
+        // Batch process consolidation data
+        let consolidation_start = Instant::now();
+        let consolidation_status_map = if request.include_consolidation_boost.unwrap_or(true) {
+            self.check_recently_consolidated_batch(&memory_ids).await?
+        } else {
+            HashMap::new()
+        };
+
+        let consolidation_boost_map = if request.include_consolidation_boost.unwrap_or(true) {
+            self.calculate_consolidation_boosts_batch(&memory_ids)
+                .await?
+        } else {
+            HashMap::new()
+        };
+        performance_metrics.consolidation_analysis_time_ms +=
+            consolidation_start.elapsed().as_millis() as u64;
+
+        // Batch process lineage data if requested
+        let lineage_start = Instant::now();
+        let lineage_map = if request.include_lineage.unwrap_or(false) {
+            self.get_memory_lineages_batch(
+                &memory_ids,
+                request
+                    .lineage_depth
+                    .unwrap_or(self.config.max_lineage_depth),
+            )
+            .await?
+        } else {
+            HashMap::new()
+        };
+        performance_metrics.lineage_analysis_time_ms += lineage_start.elapsed().as_millis() as u64;
+
+        // Process each result with pre-computed batch data
+        for base_result in base_response.results {
+            // Get pre-computed values from batch operations
+            let is_recently_consolidated = consolidation_status_map
+                .get(&base_result.memory.id)
+                .unwrap_or(&false);
+
+            if *is_recently_consolidated {
                 recently_consolidated_count += 1;
             }
 
-            // Calculate consolidation boost
-            let consolidation_boost = if request.include_consolidation_boost.unwrap_or(true)
-                && is_recently_consolidated
-            {
-                self.calculate_consolidation_boost(&base_result.memory)
-                    .await?
-            } else {
-                1.0
-            };
+            let consolidation_boost = consolidation_boost_map
+                .get(&base_result.memory.id)
+                .unwrap_or(&1.0);
 
-            // Check if this is an insight memory
+            // Check if this is an insight memory (still fast local operation)
             let is_insight = self.is_insight_memory(&base_result.memory);
             if is_insight {
                 insights_included += 1;
             }
 
-            performance_metrics.consolidation_analysis_time_ms +=
-                consolidation_start.elapsed().as_millis() as u64;
-
-            // Get memory lineage if requested
-            let lineage_start = Instant::now();
-            let lineage = if request.include_lineage.unwrap_or(false) {
-                Some(
-                    self.get_memory_lineage(
-                        &base_result.memory,
-                        request
-                            .lineage_depth
-                            .unwrap_or(self.config.max_lineage_depth),
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
-            performance_metrics.lineage_analysis_time_ms +=
-                lineage_start.elapsed().as_millis() as u64;
+            // Get pre-computed lineage
+            let lineage = lineage_map.get(&base_result.memory.id).cloned();
 
             // Calculate final score with boosting
             let final_score = (base_result.combined_score as f64) * consolidation_boost;
@@ -568,17 +579,17 @@ impl MemoryAwareRetrievalEngine {
             // Create boost explanation if requested
             let boost_explanation = if request.explain_boosting.unwrap_or(false) {
                 Some(BoostExplanation {
-                    consolidation_boost_applied: consolidation_boost,
+                    consolidation_boost_applied: *consolidation_boost,
                     insight_boost_applied: if is_insight {
                         self.config.insight_importance_weight
                     } else {
                         1.0
                     },
                     lineage_boost_applied: 1.0, // Could implement lineage-based boosting
-                    recent_consolidation_factor: if is_recently_consolidated { 1.0 } else { 0.0 },
-                    total_boost_multiplier: consolidation_boost,
+                    recent_consolidation_factor: if *is_recently_consolidated { 1.0 } else { 0.0 },
+                    total_boost_multiplier: *consolidation_boost,
                     boost_reasons: self
-                        .generate_boost_reasons(is_recently_consolidated, is_insight),
+                        .generate_boost_reasons(*is_recently_consolidated, is_insight),
                 })
             } else {
                 None
@@ -587,10 +598,10 @@ impl MemoryAwareRetrievalEngine {
             enhanced_results.push(MemoryAwareSearchResult {
                 memory: base_result.memory,
                 base_similarity_score: base_result.similarity_score,
-                consolidation_boost,
+                consolidation_boost: *consolidation_boost,
                 final_score,
                 is_insight,
-                is_recently_consolidated,
+                is_recently_consolidated: *is_recently_consolidated,
                 lineage,
                 boost_explanation,
                 cache_hit: false,
@@ -701,6 +712,122 @@ impl MemoryAwareRetrievalEngine {
         } else {
             Ok(1.0)
         }
+    }
+
+    /// BATCH OPTIMIZATION: Calculate consolidation boosts for multiple memories in a single query
+    pub async fn calculate_consolidation_boosts_batch(
+        &self,
+        memory_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, f64>> {
+        if memory_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let cutoff_time =
+            Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
+
+        // Single query to get all recent consolidation events for all memories
+        let recent_events = sqlx::query_as::<_, MemoryConsolidationLog>(
+            "SELECT DISTINCT ON (memory_id) * FROM memory_consolidation_log 
+             WHERE memory_id = ANY($1) AND created_at > $2 
+             ORDER BY memory_id, created_at DESC",
+        )
+        .bind(memory_ids)
+        .bind(cutoff_time)
+        .fetch_all(self.repository.pool())
+        .await?;
+
+        let mut boost_map = HashMap::new();
+
+        // Initialize all memories with 1.0 boost
+        for &memory_id in memory_ids {
+            boost_map.insert(memory_id, 1.0);
+        }
+
+        // Calculate boosts for memories with recent consolidation events
+        for event in recent_events {
+            let hours_since = Utc::now()
+                .signed_duration_since(event.created_at)
+                .num_hours() as f64;
+
+            let time_factor = (-hours_since / 24.0).exp();
+            let strength_factor =
+                (event.new_consolidation_strength - event.previous_consolidation_strength).max(0.0);
+
+            let boost = 1.0
+                + (self.config.consolidation_boost_multiplier - 1.0)
+                    * time_factor
+                    * (1.0 + strength_factor);
+
+            boost_map.insert(
+                event.memory_id,
+                boost.min(self.config.consolidation_boost_multiplier),
+            );
+        }
+
+        Ok(boost_map)
+    }
+
+    /// BATCH OPTIMIZATION: Check recently consolidated status for multiple memories
+    pub async fn check_recently_consolidated_batch(
+        &self,
+        memory_ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, bool>> {
+        if memory_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let cutoff_time =
+            Utc::now() - Duration::hours(self.config.recent_consolidation_threshold_hours);
+
+        // Single query to check all memories for recent consolidation
+        let recent_memory_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT memory_id FROM memory_consolidation_log 
+             WHERE memory_id = ANY($1) AND created_at > $2",
+        )
+        .bind(memory_ids)
+        .bind(cutoff_time)
+        .fetch_all(self.repository.pool())
+        .await?;
+
+        let mut status_map = HashMap::new();
+
+        // Initialize all memories as not recently consolidated
+        for &memory_id in memory_ids {
+            status_map.insert(memory_id, false);
+        }
+
+        // Mark recently consolidated memories
+        for memory_id in recent_memory_ids {
+            status_map.insert(memory_id, true);
+        }
+
+        Ok(status_map)
+    }
+
+    /// BATCH OPTIMIZATION: Get memory lineages for multiple memories
+    async fn get_memory_lineages_batch(
+        &self,
+        memory_ids: &[Uuid],
+        max_depth: usize,
+    ) -> Result<HashMap<Uuid, MemoryLineage>> {
+        if memory_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut lineage_map = HashMap::new();
+
+        // For now, we'll process lineages individually but could be further optimized
+        // This is still better than the original N+1 pattern since it's batched at the calling level
+        for &memory_id in memory_ids {
+            // Get the memory object (we could batch this too if needed)
+            if let Ok(memory) = self.repository.get_memory(memory_id).await {
+                let lineage = self.get_memory_lineage(&memory, max_depth).await?;
+                lineage_map.insert(memory_id, lineage);
+            }
+        }
+
+        Ok(lineage_map)
     }
 
     /// Check if memory is an insight/reflection memory

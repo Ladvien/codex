@@ -13,6 +13,7 @@ pub mod simple_consolidation;
 pub mod tier_manager;
 
 // Cognitive enhancement modules
+pub mod background_reflection_service;
 pub mod cognitive_consolidation;
 pub mod cognitive_memory_system;
 pub mod event_triggers;
@@ -69,6 +70,12 @@ pub use event_triggers::{
     TriggerMetrics, TriggerPattern,
 };
 pub use trigger_config_loader::TriggerConfigLoader;
+
+// Background reflection service exports
+pub use background_reflection_service::{
+    BackgroundReflectionConfig, BackgroundReflectionService, PriorityThresholds,
+    ReflectionPriority, ReflectionServiceMetrics, ReflectionTrigger, TriggerType,
+};
 
 // Silent harvester exports
 pub use silent_harvester::{

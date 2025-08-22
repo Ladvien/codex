@@ -625,28 +625,200 @@ impl ReflectionEngine {
     }
 
     // Helper methods for insight generation
-    async fn detect_cluster_patterns(&self, _cluster: &MemoryCluster) -> Result<Option<Insight>> {
-        // Implementation would analyze recurring patterns within cluster
-        // This is a simplified placeholder
+    async fn detect_cluster_patterns(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
+        if cluster.memories.len() < self.config.min_cluster_size {
+            return Ok(None);
+        }
+
+        // Analyze patterns in memory content
+        let pattern_frequency = self.analyze_content_patterns(&cluster.memories).await?;
+        
+        if let Some((dominant_pattern, frequency)) = pattern_frequency.iter().max_by_key(|(_, freq)| *freq) {
+            if *frequency >= 3 {
+                let confidence_score = ((*frequency as f64) / cluster.memories.len() as f64).min(1.0);
+                
+                if confidence_score >= 0.6 {
+                    let insight = Insight {
+                        id: Uuid::new_v4(),
+                        insight_type: InsightType::Pattern,
+                        content: format!(
+                            "Detected recurring pattern '{}' across {} memories in cluster with {:.1}% frequency",
+                            dominant_pattern,
+                            cluster.memories.len(),
+                            confidence_score * 100.0
+                        ),
+                        confidence_score,
+                        source_memory_ids: cluster.memories.iter().map(|m| m.id).collect(),
+                        related_concepts: vec![dominant_pattern.clone()],
+                        knowledge_graph_nodes: Vec::new(),
+                        importance_score: confidence_score * 0.8,
+                        generated_at: Utc::now(),
+                        validation_metrics: ValidationMetrics {
+                            novelty_score: 0.7,
+                            coherence_score: confidence_score,
+                            evidence_strength: confidence_score,
+                            semantic_richness: 0.6,
+                            predictive_power: 0.5,
+                        },
+                    };
+                    
+                    return Ok(Some(insight));
+                }
+            }
+        }
+        
         Ok(None)
     }
 
     async fn generate_synthesis_insight(
         &self,
-        _cluster: &MemoryCluster,
+        cluster: &MemoryCluster,
     ) -> Result<Option<Insight>> {
-        // Implementation would synthesize cluster concepts into higher-level understanding
+        if cluster.dominant_concepts.len() < 2 {
+            return Ok(None);
+        }
+
+        // Synthesize concepts from the cluster
+        let synthesis_content = format!(
+            "Synthesis of {} related memories reveals connections between concepts: {}. This cluster shows coherence of {:.2} and spans memories from {} sources.",
+            cluster.memories.len(),
+            cluster.dominant_concepts.join(", "),
+            cluster.coherence_score,
+            cluster.memories.len()
+        );
+
+        let importance_score = cluster.coherence_score * 0.9;
+        let confidence_score = cluster.coherence_score;
+
+        let insight = Insight {
+            id: Uuid::new_v4(),
+            insight_type: InsightType::Synthesis,
+            content: synthesis_content,
+            confidence_score,
+            source_memory_ids: cluster.memories.iter().map(|m| m.id).collect(),
+            related_concepts: cluster.dominant_concepts.clone(),
+            knowledge_graph_nodes: Vec::new(),
+            importance_score,
+            generated_at: Utc::now(),
+            validation_metrics: ValidationMetrics {
+                novelty_score: 0.6,
+                coherence_score: cluster.coherence_score,
+                evidence_strength: (cluster.memories.len() as f64 / 10.0).min(1.0),
+                semantic_richness: (cluster.dominant_concepts.len() as f64 / 5.0).min(1.0),
+                predictive_power: 0.6,
+            },
+        };
+
+        Ok(Some(insight))
+    }
+
+    async fn detect_temporal_trends(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
+        if let Some((start_time, end_time)) = cluster.temporal_span {
+            let duration = end_time.signed_duration_since(start_time);
+            
+            if duration.num_hours() > 24 {
+                let trend_content = format!(
+                    "Temporal trend detected: {} related memories occurred over {} days, suggesting sustained engagement with topic involving: {}",
+                    cluster.memories.len(),
+                    duration.num_days(),
+                    cluster.dominant_concepts.join(", ")
+                );
+
+                let temporal_density = cluster.memories.len() as f64 / duration.num_days().max(1) as f64;
+                let confidence_score = (temporal_density / 5.0).min(1.0);
+
+                if confidence_score >= 0.3 {
+                    let insight = Insight {
+                        id: Uuid::new_v4(),
+                        insight_type: InsightType::Trend,
+                        content: trend_content,
+                        confidence_score,
+                        source_memory_ids: cluster.memories.iter().map(|m| m.id).collect(),
+                        related_concepts: cluster.dominant_concepts.clone(),
+                        knowledge_graph_nodes: Vec::new(),
+                        importance_score: confidence_score * 0.7,
+                        generated_at: Utc::now(),
+                        validation_metrics: ValidationMetrics {
+                            novelty_score: 0.5,
+                            coherence_score: cluster.coherence_score,
+                            evidence_strength: confidence_score,
+                            semantic_richness: 0.4,
+                            predictive_power: 0.8,
+                        },
+                    };
+                    
+                    return Ok(Some(insight));
+                }
+            }
+        }
+        
         Ok(None)
     }
 
-    async fn detect_temporal_trends(&self, _cluster: &MemoryCluster) -> Result<Option<Insight>> {
-        // Implementation would analyze temporal patterns within cluster
+    async fn identify_knowledge_gaps(&self, cluster: &MemoryCluster) -> Result<Option<Insight>> {
+        // Analyze cluster for potential knowledge gaps
+        // This is a simplified heuristic-based approach
+        
+        if cluster.memories.len() >= 5 && cluster.coherence_score < 0.6 {
+            // Low coherence in a large cluster might indicate missing connections
+            let gap_content = format!(
+                "Potential knowledge gap identified: {} memories about {} show low coherence ({:.2}), suggesting missing connections or intermediate concepts",
+                cluster.memories.len(),
+                cluster.dominant_concepts.join(", "),
+                cluster.coherence_score
+            );
+
+            let confidence_score = 1.0 - cluster.coherence_score;
+            
+            if confidence_score >= 0.4 {
+                let insight = Insight {
+                    id: Uuid::new_v4(),
+                    insight_type: InsightType::Gap,
+                    content: gap_content,
+                    confidence_score,
+                    source_memory_ids: cluster.memories.iter().map(|m| m.id).collect(),
+                    related_concepts: cluster.dominant_concepts.clone(),
+                    knowledge_graph_nodes: Vec::new(),
+                    importance_score: confidence_score * 0.6,
+                    generated_at: Utc::now(),
+                    validation_metrics: ValidationMetrics {
+                        novelty_score: 0.8,
+                        coherence_score: 0.5,
+                        evidence_strength: confidence_score,
+                        semantic_richness: 0.7,
+                        predictive_power: 0.9,
+                    },
+                };
+                
+                return Ok(Some(insight));
+            }
+        }
+        
         Ok(None)
     }
 
-    async fn identify_knowledge_gaps(&self, _cluster: &MemoryCluster) -> Result<Option<Insight>> {
-        // Implementation would identify missing knowledge in cluster domain
-        Ok(None)
+    /// Analyze content patterns in a cluster of memories
+    async fn analyze_content_patterns(&self, memories: &[Memory]) -> Result<HashMap<String, usize>> {
+        let mut pattern_counts = HashMap::new();
+        
+        for memory in memories {
+            // Simple pattern detection based on common words/phrases
+            // In production, this would use NLP techniques
+            let content_lower = memory.content.to_lowercase();
+            let words: Vec<&str> = content_lower
+                .split_whitespace()
+                .filter(|word| word.len() > 4) // Focus on meaningful words
+                .collect();
+            
+            for word in words {
+                *pattern_counts.entry(word.to_string()).or_insert(0) += 1;
+            }
+        }
+        
+        // Filter out patterns that appear in less than 2 memories
+        pattern_counts.retain(|_pattern, count| *count >= 2);
+        
+        Ok(pattern_counts)
     }
 
     async fn detect_cross_cluster_analogies(

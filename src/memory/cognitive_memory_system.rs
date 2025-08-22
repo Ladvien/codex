@@ -44,6 +44,9 @@
 //! let insights = system.trigger_reflection_if_needed().await?;
 //! ```
 
+use super::background_reflection_service::{
+    BackgroundReflectionConfig, BackgroundReflectionService, ReflectionServiceMetrics,
+};
 use super::cognitive_consolidation::{
     CognitiveConsolidationConfig, CognitiveConsolidationEngine, CognitiveConsolidationResult,
     RetrievalContext,
@@ -81,6 +84,9 @@ pub struct CognitiveMemoryConfig {
     /// Loop prevention configuration
     pub loop_prevention_config: LoopPreventionConfig,
 
+    /// Background reflection service configuration
+    pub background_reflection_config: BackgroundReflectionConfig,
+
     /// Enable automatic cognitive processing
     pub enable_auto_processing: bool,
 
@@ -104,6 +110,7 @@ impl Default for CognitiveMemoryConfig {
             consolidation_config: CognitiveConsolidationConfig::default(),
             reflection_config: ReflectionConfig::default(),
             loop_prevention_config: LoopPreventionConfig::default(),
+            background_reflection_config: BackgroundReflectionConfig::default(),
             enable_auto_processing: true,
             enable_background_reflection: true,
             auto_processing_interval_minutes: 30,
@@ -200,6 +207,7 @@ pub struct CognitiveMemorySystem {
     reflection_engine: Arc<RwLock<ReflectionEngine>>,
     loop_prevention_engine: Arc<RwLock<LoopPreventionEngine>>,
     search_service: EnhancedSearchService,
+    background_reflection_service: Arc<BackgroundReflectionService>,
 
     // System state
     performance_metrics: Arc<RwLock<CognitivePerformanceMetrics>>,
@@ -228,13 +236,21 @@ impl CognitiveMemorySystem {
         )));
         let search_service = EnhancedSearchService::new(config.scoring_config.clone())?;
 
+        // Initialize background reflection service
+        let background_reflection_service = Arc::new(BackgroundReflectionService::new(
+            config.background_reflection_config.clone(),
+            repository.clone(),
+            config.reflection_config.clone(),
+            config.loop_prevention_config.clone(),
+        ));
+
         let performance_metrics = Arc::new(RwLock::new(CognitivePerformanceMetrics::default()));
         let last_background_processing = Arc::new(RwLock::new(Utc::now()));
         let system_start_time = Utc::now();
 
         info!("Cognitive Memory System initialized successfully");
 
-        Ok(Self {
+        let system = Self {
             repository,
             config,
             scoring_engine,
@@ -242,10 +258,19 @@ impl CognitiveMemorySystem {
             reflection_engine,
             loop_prevention_engine,
             search_service,
+            background_reflection_service,
             performance_metrics,
             last_background_processing,
             system_start_time,
-        })
+        };
+
+        // Start background reflection service if enabled
+        if system.config.enable_background_reflection {
+            system.background_reflection_service.start().await?;
+            info!("Background reflection service started");
+        }
+
+        Ok(system)
     }
 
     /// Store memory with full cognitive processing
@@ -561,6 +586,37 @@ impl CognitiveMemorySystem {
             .read()
             .await
             .get_prevention_statistics()
+    }
+
+    /// Get background reflection service metrics
+    pub async fn get_reflection_service_metrics(&self) -> ReflectionServiceMetrics {
+        self.background_reflection_service.get_metrics().await
+    }
+
+    /// Manually trigger background reflection
+    pub async fn trigger_background_reflection(&self, reason: String) -> Result<uuid::Uuid> {
+        info!("Manually triggering background reflection: {}", reason);
+        self.background_reflection_service
+            .trigger_manual_reflection(reason)
+            .await
+    }
+
+    /// Start the background reflection service
+    pub async fn start_background_reflection(&self) -> Result<()> {
+        if !self.background_reflection_service.is_running() {
+            self.background_reflection_service.start().await?;
+            info!("Background reflection service started");
+        }
+        Ok(())
+    }
+
+    /// Stop the background reflection service
+    pub async fn stop_background_reflection(&self) -> Result<()> {
+        if self.background_reflection_service.is_running() {
+            self.background_reflection_service.stop().await?;
+            info!("Background reflection service stopped");
+        }
+        Ok(())
     }
 
     /// Update system configuration

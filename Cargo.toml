@@ -10,7 +10,7 @@ keywords = ["memory", "ai", "mcp", "agent", "embedding"]
 categories = ["database", "command-line-utilities", "web-programming"]
 readme = "README.md"
 homepage = "https://github.com/Ladvien/codex"
-exclude = ["extension/", "tests/", "*.dxt", "HOW_IT_WORKS.md", ".env", "*.log", "target/"]
+exclude = ["extension/", "tests/", "*.dxt", "HOW_IT_WORKS.md", ".env", "*.log", "target/", "src/bin/web-ui.rs"]
 
 # [workspace]
 # members = [".", "migration"]

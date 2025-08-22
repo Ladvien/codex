@@ -373,15 +373,12 @@ impl TestEnvironment {
         )
         .execute(pool)
         .await;
-        
+
         if let Err(e) = create_trigger_fn {
             if !e.to_string().contains("tuple concurrently updated")
                 && !e.to_string().contains("already exists")
             {
-                return Err(anyhow::anyhow!(
-                    "Failed to create trigger function: {}",
-                    e
-                ));
+                return Err(anyhow::anyhow!("Failed to create trigger function: {}", e));
             }
         }
 

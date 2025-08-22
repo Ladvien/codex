@@ -1,41 +1,5 @@
 ## Epic: Implement Human-Like Memory Consolidation & Cold Storage System
 
-### Story 1: Database Schema Evolution for Consolidation
-**Assignee:** Database Subagent  
-**Story Points:** 5  
-**Priority:** Critical
-
-**Description:**
-Extend the database schema to support memory consolidation, decay tracking, and frozen storage tier.
-
-**Acceptance Criteria:**
-- [ ] Add consolidation_strength (FLOAT, DEFAULT 1.0) column to memories table
-- [ ] Add decay_rate (FLOAT, DEFAULT 1.0) column to memories table  
-- [ ] Add recall_probability (FLOAT) column to memories table
-- [ ] Add last_recall_interval (INTERVAL) column to memories table
-- [ ] Add 'frozen' value to MemoryTier enum
-- [ ] Create memory_consolidation_log table for tracking consolidation events
-- [ ] Create frozen_memories archive table with compressed JSONB storage
-- [ ] Add indexes for consolidation_strength and recall_probability queries
-- [ ] Migration script executes without errors and is reversible
-
-**Definition of Done:**
-- All migrations run successfully on test and production databases
-- No existing data is lost during migration
-- Performance benchmarks show <5% degradation on existing queries
-- Rollback script tested and verified
-- All existing tests pass
-- New schema documented in database documentation
-
-**Test Requirements:**
-```sql
--- Test migration up and down
--- Test that existing memories get default consolidation values
--- Test frozen tier enum works correctly
--- Test indexes improve query performance
-```
-
----
 
 ### Story 2: Consolidation Mathematics Engine
 **Assignee:** Algorithm Subagent  

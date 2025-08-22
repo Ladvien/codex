@@ -1,7 +1,7 @@
 use super::{BackupConfig, BackupError, BackupMetadata, BackupStatus, BackupType, Result};
+use super::repository::{BackupRepository, PostgresBackupRepository};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -12,17 +12,22 @@ use uuid::Uuid;
 /// Main backup manager responsible for orchestrating all backup operations
 pub struct BackupManager {
     config: BackupConfig,
-    db_pool: Arc<PgPool>,
-    metadata_store: BackupMetadataStore,
+    repository: Arc<dyn BackupRepository>,
 }
 
 impl BackupManager {
-    pub fn new(config: BackupConfig, db_pool: Arc<PgPool>) -> Self {
-        let metadata_store = BackupMetadataStore::new(db_pool.clone());
+    pub fn new(config: BackupConfig, db_pool: Arc<sqlx::PgPool>) -> Self {
+        let repository = Arc::new(PostgresBackupRepository::new(db_pool));
         Self {
             config,
-            db_pool,
-            metadata_store,
+            repository,
+        }
+    }
+    
+    pub fn with_repository(config: BackupConfig, repository: Arc<dyn BackupRepository>) -> Self {
+        Self {
+            config,
+            repository,
         }
     }
 
@@ -34,11 +39,11 @@ impl BackupManager {
         fs::create_dir_all(&self.config.backup_directory).await?;
         fs::create_dir_all(&self.config.wal_archive_directory).await?;
 
-        // Initialize metadata store
-        self.metadata_store.initialize().await?;
+        // Initialize repository
+        self.repository.initialize().await?;
 
         // Verify PostgreSQL configuration
-        self.verify_postgres_config().await?;
+        self.repository.verify_postgres_config().await?;
 
         info!("Backup manager initialized successfully");
         Ok(())
@@ -80,10 +85,10 @@ impl BackupManager {
         };
 
         // Store initial metadata
-        self.metadata_store.store_metadata(&metadata).await?;
+        self.repository.store_metadata(&metadata).await?;
 
         // Get WAL start LSN
-        let start_lsn = self.get_current_wal_lsn().await?;
+        let start_lsn = self.repository.get_current_wal_lsn().await?;
         metadata.wal_start_lsn = Some(start_lsn);
 
         // Perform the backup using pg_dump
@@ -97,7 +102,7 @@ impl BackupManager {
                 metadata.status = BackupStatus::Completed;
 
                 // Get WAL end LSN
-                let end_lsn = self.get_current_wal_lsn().await?;
+                let end_lsn = self.repository.get_current_wal_lsn().await?;
                 metadata.wal_end_lsn = Some(end_lsn);
 
                 // Calculate file sizes and checksum
@@ -106,7 +111,7 @@ impl BackupManager {
                 metadata.checksum = self.calculate_file_checksum(&backup_path).await?;
 
                 // Update metadata
-                self.metadata_store.update_metadata(&metadata).await?;
+                self.repository.update_metadata(&metadata).await?;
 
                 info!(
                     "Full backup completed successfully: {} ({} bytes)",
@@ -123,7 +128,7 @@ impl BackupManager {
             Err(e) => {
                 metadata.status = BackupStatus::Failed;
                 metadata.end_time = Some(Utc::now());
-                self.metadata_store.update_metadata(&metadata).await?;
+                self.repository.update_metadata(&metadata).await?;
 
                 error!("Full backup failed: {}", e);
                 Err(e)
@@ -139,14 +144,14 @@ impl BackupManager {
         info!("Starting incremental backup: {}", backup_id);
 
         // Get the last backup to determine starting point
-        let last_backup = self.metadata_store.get_latest_backup().await?;
+        let last_backup = self.repository.get_latest_backup().await?;
         let start_lsn = match last_backup {
             Some(backup) => {
                 if let Some(lsn) = backup.wal_end_lsn {
                     lsn
                 } else {
                     warn!("Last backup has no end LSN, using current LSN");
-                    self.get_current_wal_lsn().await.unwrap_or_default()
+                    self.repository.get_current_wal_lsn().await.unwrap_or_default()
                 }
             }
             None => {
@@ -182,7 +187,7 @@ impl BackupManager {
         };
 
         // Store initial metadata
-        self.metadata_store.store_metadata(&metadata).await?;
+        self.repository.store_metadata(&metadata).await?;
 
         // Create incremental backup by archiving WAL files
         match self.archive_wal_files(&start_lsn, &backup_path).await {
@@ -202,7 +207,7 @@ impl BackupManager {
                 }
 
                 // Update metadata
-                self.metadata_store.update_metadata(&metadata).await?;
+                self.repository.update_metadata(&metadata).await?;
 
                 info!("Incremental backup completed successfully: {}", backup_id);
                 Ok(metadata)
@@ -210,7 +215,7 @@ impl BackupManager {
             Err(e) => {
                 metadata.status = BackupStatus::Failed;
                 metadata.end_time = Some(Utc::now());
-                self.metadata_store.update_metadata(&metadata).await?;
+                self.repository.update_metadata(&metadata).await?;
 
                 error!("Incremental backup failed: {}", e);
                 Err(e)
@@ -226,7 +231,7 @@ impl BackupManager {
         );
 
         let expired_backups = self
-            .metadata_store
+            .repository
             .get_expired_backups(self.config.retention_days)
             .await?;
         let mut cleanup_count = 0;
@@ -249,8 +254,8 @@ impl BackupManager {
 
     /// Get backup statistics and health metrics
     pub async fn get_backup_statistics(&self) -> Result<BackupStatistics> {
-        let total_backups = self.metadata_store.count_backups().await?;
-        let recent_backups = self.metadata_store.get_recent_backups(7).await?;
+        let total_backups = self.repository.count_backups().await?;
+        let recent_backups = self.repository.get_recent_backups(7).await?;
 
         let successful_backups = recent_backups
             .iter()
@@ -268,7 +273,7 @@ impl BackupManager {
             .map(|b| b.compressed_size_bytes)
             .sum();
 
-        let latest_backup = self.metadata_store.get_latest_backup().await?;
+        let latest_backup = self.repository.get_latest_backup().await?;
         let backup_frequency_met = if let Some(latest) = &latest_backup {
             let hours_since_last = Utc::now()
                 .signed_duration_since(latest.start_time)
@@ -292,32 +297,7 @@ impl BackupManager {
 
     // Private helper methods
 
-    async fn verify_postgres_config(&self) -> Result<()> {
-        debug!("Verifying PostgreSQL configuration for backups");
-
-        // Check if WAL archiving is enabled
-        let wal_level: String = sqlx::query_scalar("SHOW wal_level")
-            .fetch_one(self.db_pool.as_ref())
-            .await?;
-
-        if wal_level != "replica" && wal_level != "logical" {
-            return Err(BackupError::ConfigurationError {
-                message: format!("WAL level must be 'replica' or 'logical', found: {wal_level}"),
-            });
-        }
-
-        // Check if archiving is enabled
-        let archive_mode: String = sqlx::query_scalar("SHOW archive_mode")
-            .fetch_one(self.db_pool.as_ref())
-            .await?;
-
-        if archive_mode != "on" {
-            warn!("Archive mode is not enabled, continuous archiving will not work");
-        }
-
-        debug!("PostgreSQL configuration verified");
-        Ok(())
-    }
+    // Removed - now handled by repository
 
     fn extract_database_name(&self) -> Result<String> {
         // Extract database name from connection string
@@ -325,15 +305,7 @@ impl BackupManager {
         Ok("codex_memory".to_string())
     }
 
-    async fn get_current_wal_lsn(&self) -> Result<String> {
-        self.retry_database_operation(|| async {
-            let lsn: String = sqlx::query_scalar("SELECT pg_current_wal_lsn()")
-                .fetch_one(self.db_pool.as_ref())
-                .await?;
-            Ok(lsn)
-        })
-        .await
-    }
+    // Removed - now handled by repository
 
     /// Retry database operations with exponential backoff
     async fn retry_database_operation<T, F, Fut>(&self, operation: F) -> Result<T>
@@ -428,7 +400,7 @@ impl BackupManager {
 
         // This is a simplified implementation
         // In production, this would copy WAL files from pg_wal directory
-        let current_lsn = self.get_current_wal_lsn().await?;
+        let current_lsn = self.repository.get_current_wal_lsn().await?;
 
         // Create empty archive file as placeholder
         tokio::fs::write(backup_path, b"").await?;
@@ -467,232 +439,13 @@ impl BackupManager {
         }
 
         // Mark as expired in metadata store
-        self.metadata_store.mark_backup_expired(&backup.id).await?;
+        self.repository.mark_backup_expired(&backup.id).await?;
 
         Ok(())
     }
 }
 
-/// Store for backup metadata
-struct BackupMetadataStore {
-    db_pool: Arc<PgPool>,
-}
-
-impl BackupMetadataStore {
-    fn new(db_pool: Arc<PgPool>) -> Self {
-        Self { db_pool }
-    }
-
-    async fn initialize(&self) -> Result<()> {
-        debug!("Initializing backup metadata store");
-
-        // Create backup_metadata table if it doesn't exist
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS backup_metadata (
-                id VARCHAR PRIMARY KEY,
-                backup_type VARCHAR NOT NULL,
-                status VARCHAR NOT NULL,
-                start_time TIMESTAMPTZ NOT NULL,
-                end_time TIMESTAMPTZ,
-                size_bytes BIGINT DEFAULT 0,
-                compressed_size_bytes BIGINT DEFAULT 0,
-                file_path TEXT NOT NULL,
-                checksum VARCHAR,
-                database_name VARCHAR NOT NULL,
-                wal_start_lsn VARCHAR,
-                wal_end_lsn VARCHAR,
-                encryption_enabled BOOLEAN DEFAULT false,
-                metadata JSONB DEFAULT '{}',
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            )
-        "#,
-        )
-        .execute(self.db_pool.as_ref())
-        .await?;
-
-        debug!("Backup metadata store initialized");
-        Ok(())
-    }
-
-    async fn store_metadata(&self, metadata: &BackupMetadata) -> Result<()> {
-        sqlx::query(
-            r#"
-            INSERT INTO backup_metadata (
-                id, backup_type, status, start_time, end_time, 
-                size_bytes, compressed_size_bytes, file_path, checksum,
-                database_name, wal_start_lsn, wal_end_lsn, encryption_enabled
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-        "#,
-        )
-        .bind(&metadata.id)
-        .bind(format!("{:?}", metadata.backup_type))
-        .bind(format!("{:?}", metadata.status))
-        .bind(metadata.start_time)
-        .bind(metadata.end_time)
-        .bind(metadata.size_bytes as i64)
-        .bind(metadata.compressed_size_bytes as i64)
-        .bind(metadata.file_path.to_string_lossy().as_ref())
-        .bind(&metadata.checksum)
-        .bind(&metadata.database_name)
-        .bind(&metadata.wal_start_lsn)
-        .bind(&metadata.wal_end_lsn)
-        .bind(metadata.encryption_enabled)
-        .execute(self.db_pool.as_ref())
-        .await?;
-
-        Ok(())
-    }
-
-    async fn update_metadata(&self, metadata: &BackupMetadata) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE backup_metadata SET
-                status = $2, end_time = $3, size_bytes = $4,
-                compressed_size_bytes = $5, checksum = $6,
-                wal_end_lsn = $7
-            WHERE id = $1
-        "#,
-        )
-        .bind(&metadata.id)
-        .bind(format!("{:?}", metadata.status))
-        .bind(metadata.end_time)
-        .bind(metadata.size_bytes as i64)
-        .bind(metadata.compressed_size_bytes as i64)
-        .bind(&metadata.checksum)
-        .bind(&metadata.wal_end_lsn)
-        .execute(self.db_pool.as_ref())
-        .await?;
-
-        Ok(())
-    }
-
-    async fn get_latest_backup(&self) -> Result<Option<BackupMetadata>> {
-        let row = sqlx::query(
-            r#"
-            SELECT id, backup_type, status, start_time, end_time,
-                   size_bytes, compressed_size_bytes, file_path, checksum,
-                   database_name, wal_start_lsn, wal_end_lsn, encryption_enabled
-            FROM backup_metadata 
-            WHERE status = 'Completed'
-            ORDER BY start_time DESC 
-            LIMIT 1
-        "#,
-        )
-        .fetch_optional(self.db_pool.as_ref())
-        .await?;
-
-        if let Some(row) = row {
-            Ok(Some(self.row_to_metadata(row)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn get_expired_backups(&self, retention_days: u32) -> Result<Vec<BackupMetadata>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, backup_type, status, start_time, end_time,
-                   size_bytes, compressed_size_bytes, file_path, checksum,
-                   database_name, wal_start_lsn, wal_end_lsn, encryption_enabled
-            FROM backup_metadata 
-            WHERE start_time < NOW() - INTERVAL '%d days'
-            AND status != 'Expired'
-        "#,
-        )
-        .bind(retention_days as i32)
-        .fetch_all(self.db_pool.as_ref())
-        .await?;
-
-        let mut backups = Vec::new();
-        for row in rows {
-            backups.push(self.row_to_metadata(row)?);
-        }
-
-        Ok(backups)
-    }
-
-    async fn get_recent_backups(&self, days: u32) -> Result<Vec<BackupMetadata>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, backup_type, status, start_time, end_time,
-                   size_bytes, compressed_size_bytes, file_path, checksum,
-                   database_name, wal_start_lsn, wal_end_lsn, encryption_enabled
-            FROM backup_metadata 
-            WHERE start_time > NOW() - INTERVAL '%d days'
-            ORDER BY start_time DESC
-        "#,
-        )
-        .bind(days as i32)
-        .fetch_all(self.db_pool.as_ref())
-        .await?;
-
-        let mut backups = Vec::new();
-        for row in rows {
-            backups.push(self.row_to_metadata(row)?);
-        }
-
-        Ok(backups)
-    }
-
-    async fn count_backups(&self) -> Result<u32> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM backup_metadata")
-            .fetch_one(self.db_pool.as_ref())
-            .await?;
-
-        Ok(count as u32)
-    }
-
-    async fn mark_backup_expired(&self, backup_id: &str) -> Result<()> {
-        sqlx::query("UPDATE backup_metadata SET status = 'Expired' WHERE id = $1")
-            .bind(backup_id)
-            .execute(self.db_pool.as_ref())
-            .await?;
-
-        Ok(())
-    }
-
-    fn row_to_metadata(&self, row: sqlx::postgres::PgRow) -> Result<BackupMetadata> {
-        use sqlx::Row;
-
-        let backup_type_str: String = row.try_get("backup_type")?;
-        let backup_type = match backup_type_str.as_str() {
-            "Full" => BackupType::Full,
-            "Incremental" => BackupType::Incremental,
-            "Differential" => BackupType::Differential,
-            "WalArchive" => BackupType::WalArchive,
-            _ => BackupType::Full,
-        };
-
-        let status_str: String = row.try_get("status")?;
-        let status = match status_str.as_str() {
-            "InProgress" => BackupStatus::InProgress,
-            "Completed" => BackupStatus::Completed,
-            "Failed" => BackupStatus::Failed,
-            "Expired" => BackupStatus::Expired,
-            "Archived" => BackupStatus::Archived,
-            _ => BackupStatus::Failed,
-        };
-
-        Ok(BackupMetadata {
-            id: row.try_get("id")?,
-            backup_type,
-            status,
-            start_time: row.try_get("start_time")?,
-            end_time: row.try_get("end_time")?,
-            size_bytes: row.try_get::<i64, _>("size_bytes")? as u64,
-            compressed_size_bytes: row.try_get::<i64, _>("compressed_size_bytes")? as u64,
-            file_path: std::path::PathBuf::from(row.try_get::<String, _>("file_path")?),
-            checksum: row.try_get("checksum")?,
-            database_name: row.try_get("database_name")?,
-            wal_start_lsn: row.try_get("wal_start_lsn")?,
-            wal_end_lsn: row.try_get("wal_end_lsn")?,
-            encryption_enabled: row.try_get("encryption_enabled")?,
-            replication_status: std::collections::HashMap::new(),
-            verification_status: None,
-        })
-    }
-}
+// Backup metadata store moved to repository module for better layer separation
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupStatistics {

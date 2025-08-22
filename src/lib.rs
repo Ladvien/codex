@@ -1,4 +1,5 @@
 pub mod api;
+pub mod application;
 pub mod backup;
 pub mod config;
 pub mod database_setup;
@@ -15,6 +16,9 @@ pub use config::Config;
 pub use database_setup::{DatabaseHealth, DatabaseSetup};
 pub use embedding::{EmbeddingHealth, EmbeddingModelInfo, SimpleEmbedder};
 pub use setup::SetupManager;
+
+// Re-export application layer
+pub use application::{Application, ApplicationService, DependencyContainer};
 
 // Re-export memory types for convenience
 pub use memory::{

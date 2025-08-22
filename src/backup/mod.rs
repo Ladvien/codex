@@ -3,6 +3,7 @@ pub mod backup_verification;
 pub mod disaster_recovery;
 pub mod encryption;
 pub mod point_in_time_recovery;
+pub mod repository;
 pub mod wal_archiver;
 
 pub use backup_manager::*;
@@ -10,6 +11,7 @@ pub use backup_verification::*;
 pub use disaster_recovery::*;
 pub use encryption::*;
 pub use point_in_time_recovery::*;
+pub use repository::*;
 pub use wal_archiver::*;
 
 use chrono::{DateTime, Utc};

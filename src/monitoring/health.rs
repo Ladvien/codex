@@ -1,8 +1,8 @@
 use super::{ComponentHealth, HealthStatus, SystemHealth};
+use super::repository::{MonitoringRepository, PostgresMonitoringRepository};
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone)]
 pub struct HealthChecker {
-    db_pool: Arc<PgPool>,
+    repository: Arc<dyn MonitoringRepository>,
     start_time: SystemTime,
     component_thresholds: HealthThresholds,
 }
@@ -37,9 +37,18 @@ impl Default for HealthThresholds {
 }
 
 impl HealthChecker {
-    pub fn new(db_pool: Arc<PgPool>) -> Self {
+    pub fn new(db_pool: Arc<sqlx::PgPool>) -> Self {
+        let repository = Arc::new(PostgresMonitoringRepository::new(db_pool));
         Self {
-            db_pool,
+            repository,
+            start_time: SystemTime::now(),
+            component_thresholds: HealthThresholds::default(),
+        }
+    }
+    
+    pub fn with_repository(repository: Arc<dyn MonitoringRepository>) -> Self {
+        Self {
+            repository,
             start_time: SystemTime::now(),
             component_thresholds: HealthThresholds::default(),
         }
@@ -105,42 +114,22 @@ impl HealthChecker {
         let mut message = None;
         let mut error_count = 0;
 
-        // Test basic connectivity
-        match sqlx::query("SELECT 1 as health_check")
-            .fetch_one(self.db_pool.as_ref())
-            .await
-        {
+        // Test database connectivity and performance
+        match self.repository.health_check().await {
             Ok(_) => {
                 debug!("Database connectivity check passed");
+                let response_time = start.elapsed().as_millis() as u64;
+                if response_time > self.component_thresholds.max_response_time_ms {
+                    status = HealthStatus::Degraded;
+                    message = Some(format!("Slow database response: {response_time}ms"));
+                    warn!("Database response time degraded: {}ms", response_time);
+                }
             }
             Err(e) => {
                 status = HealthStatus::Unhealthy;
-                message = Some(format!("Database connection failed: {e}"));
+                message = Some(format!("Database health check failed: {e}"));
                 error_count += 1;
                 error!("Database health check failed: {}", e);
-            }
-        }
-
-        // Test database performance with a more complex query
-        if status == HealthStatus::Healthy {
-            match sqlx::query("SELECT COUNT(*) FROM memories WHERE status = 'active'")
-                .fetch_one(self.db_pool.as_ref())
-                .await
-            {
-                Ok(_) => {
-                    let response_time = start.elapsed().as_millis() as u64;
-                    if response_time > self.component_thresholds.max_response_time_ms {
-                        status = HealthStatus::Degraded;
-                        message = Some(format!("Slow database response: {response_time}ms"));
-                        warn!("Database response time degraded: {}ms", response_time);
-                    }
-                }
-                Err(e) => {
-                    status = HealthStatus::Degraded;
-                    message = Some(format!("Database query performance issue: {e}"));
-                    error_count += 1;
-                    warn!("Database performance check failed: {}", e);
-                }
             }
         }
 
@@ -163,19 +152,12 @@ impl HealthChecker {
         let mut error_count = 0;
 
         // Check memory tier distribution
-        match sqlx::query_as::<_, (String, i64)>(
-            "SELECT tier, COUNT(*) FROM memories WHERE status = 'active' GROUP BY tier",
-        )
-        .fetch_all(self.db_pool.as_ref())
-        .await
-        {
+        match self.repository.get_memory_tier_distribution().await {
             Ok(tier_counts) => {
-                let total: i64 = tier_counts.iter().map(|(_, count)| count).sum();
+                let total: i64 = tier_counts.values().sum();
 
                 // Check for memory pressure (too many memories in working tier)
-                if let Some((_, working_count)) =
-                    tier_counts.iter().find(|(tier, _)| tier == "working")
-                {
+                if let Some(working_count) = tier_counts.get("working") {
                     let working_ratio = *working_count as f64 / total as f64;
                     if working_ratio > 0.7 {
                         // More than 70% in working tier
@@ -204,36 +186,18 @@ impl HealthChecker {
             }
         }
 
-        // Check for recent migration failures (if migration_history table has success column)
-        match sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'migration_history' AND column_name = 'success'"
-        )
-        .fetch_one(self.db_pool.as_ref())
-        .await
-        {
-            Ok(column_exists) if column_exists > 0 => {
-                // Column exists, check for failures
-                match sqlx::query_scalar::<_, i64>(
-                    "SELECT COUNT(*) FROM migration_history WHERE success = false AND migrated_at > NOW() - INTERVAL '1 hour'"
-                )
-                .fetch_one(self.db_pool.as_ref())
-                .await
-                {
-                    Ok(failure_count) => {
-                        if failure_count > 10 {
-                            status = HealthStatus::Degraded;
-                            message = Some(format!("High migration failure rate: {failure_count} failures in last hour"));
-                            warn!("High migration failure rate: {} failures in last hour", failure_count);
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to check migration failures: {}", e);
-                        error_count += 1;
-                    }
+        // Check for recent migration failures
+        match self.repository.check_migration_failures(1).await {
+            Ok(failure_count) => {
+                if failure_count > 10 {
+                    status = HealthStatus::Degraded;
+                    message = Some(format!("High migration failure rate: {failure_count} failures in last hour"));
+                    warn!("High migration failure rate: {} failures in last hour", failure_count);
                 }
             }
-            _ => {
-                // Column doesn't exist or check failed, skip migration failure check
+            Err(e) => {
+                warn!("Failed to check migration failures: {}", e);
+                error_count += 1;
             }
         }
 
@@ -255,12 +219,25 @@ impl HealthChecker {
         let mut message = None;
 
         // Get connection pool statistics
-        let pool_size = self.db_pool.size();
-        let idle_connections = self.db_pool.num_idle();
-        let max_size = 100; // Would get from config in production
+        let pool_stats = match self.repository.get_connection_pool_stats().await {
+            Ok(stats) => stats,
+            Err(e) => {
+                status = HealthStatus::Degraded;
+                message = Some(format!("Failed to get connection pool stats: {e}"));
+                warn!("Failed to get connection pool statistics: {}", e);
+                return ComponentHealth {
+                    status,
+                    message,
+                    last_checked: chrono::Utc::now(),
+                    response_time_ms: Some(start.elapsed().as_millis() as u64),
+                    error_count: 1,
+                };
+            }
+        };
 
+        let max_size = 100; // Would get from config in production
         let utilization = if max_size > 0 {
-            ((pool_size as usize - idle_connections) as f64 / max_size as f64) * 100.0
+            (pool_stats.active_connections as f64 / max_size as f64) * 100.0
         } else {
             0.0
         };
@@ -283,7 +260,7 @@ impl HealthChecker {
 
         info!(
             "Connection pool health: {}/{} connections used ({:.1}% utilization)",
-            pool_size as usize - idle_connections,
+            pool_stats.active_connections,
             max_size,
             utilization
         );

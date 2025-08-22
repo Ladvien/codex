@@ -3,12 +3,14 @@ pub mod connection_monitor;
 pub mod health;
 pub mod metrics;
 pub mod profiling;
+pub mod repository;
 
 pub use alerts::*;
 pub use connection_monitor::*;
 pub use health::*;
 pub use metrics::*;
 pub use profiling::*;
+pub use repository::*;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

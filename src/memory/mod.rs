@@ -1,6 +1,8 @@
 pub mod connection;
 pub mod consolidation_job;
 pub mod error;
+pub mod importance_assessment;
+pub mod importance_assessment_config;
 pub mod math_engine;
 pub mod models;
 pub mod repository;
@@ -47,3 +49,12 @@ pub use three_component_scoring::{
     EnhancedSearchResult, EnhancedSearchService, ScoringContext, ScoringResult,
     ThreeComponentConfig, ThreeComponentEngine,
 };
+
+// Importance assessment exports
+pub use importance_assessment::{
+    AssessmentStage, ImportanceAssessmentConfig, ImportanceAssessmentError,
+    ImportanceAssessmentPipeline, ImportanceAssessmentResult, ImportancePattern,
+    PipelineStatistics, ReferenceEmbedding, Stage1Config, Stage2Config, Stage3Config, StageDetails,
+    StageResult,
+};
+pub use importance_assessment_config::ImportanceAssessmentConfigLoader;

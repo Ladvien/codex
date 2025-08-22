@@ -59,6 +59,7 @@ log = "0.4"
 # Configuration
 config = "0.14"
 dotenv = "0.15"
+toml = "0.8"
 
 # CLI support
 clap = { version = "4.4", features = ["derive", "env"] }

@@ -2,8 +2,8 @@ use super::error::{MemoryError, Result};
 use super::models::*;
 use chrono::Utc;
 use pgvector::Vector;
-use sqlx::{PgPool, Postgres, Row, Transaction};
 use sqlx::postgres::types::PgInterval;
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{debug, info};
@@ -841,7 +841,11 @@ impl MemoryRepository {
     }
 
     /// Find memories ready for tier migration based on recall probability
-    pub async fn find_migration_candidates(&self, tier: MemoryTier, limit: i32) -> Result<Vec<Memory>> {
+    pub async fn find_migration_candidates(
+        &self,
+        tier: MemoryTier,
+        limit: i32,
+    ) -> Result<Vec<Memory>> {
         let threshold = match tier {
             MemoryTier::Working => 0.7,
             MemoryTier::Warm => 0.5,
@@ -869,7 +873,13 @@ impl MemoryRepository {
     }
 
     /// Update memory consolidation parameters
-    pub async fn update_consolidation(&self, memory_id: Uuid, consolidation_strength: f64, decay_rate: f64, recall_probability: Option<f64>) -> Result<()> {
+    pub async fn update_consolidation(
+        &self,
+        memory_id: Uuid,
+        consolidation_strength: f64,
+        decay_rate: f64,
+        recall_probability: Option<f64>,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE memories 
@@ -927,68 +937,68 @@ impl MemoryRepository {
     }
 
     /// Freeze a memory by moving it to compressed storage
-    pub async fn freeze_memory(&self, memory_id: Uuid, _reason: Option<String>) -> Result<FreezeMemoryResponse> {
+    pub async fn freeze_memory(
+        &self,
+        memory_id: Uuid,
+        _reason: Option<String>,
+    ) -> Result<FreezeMemoryResponse> {
         let mut tx = self.pool.begin().await?;
 
         // Call the database function to freeze the memory
-        let frozen_row = sqlx::query(
-            "SELECT freeze_memory($1) as frozen_id"
-        )
-        .bind(memory_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let frozen_row = sqlx::query("SELECT freeze_memory($1) as frozen_id")
+            .bind(memory_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         let frozen_id: Uuid = frozen_row.get("frozen_id");
 
         // Get the frozen memory details for the response
-        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
-            "SELECT * FROM frozen_memories WHERE id = $1"
-        )
-        .bind(frozen_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let frozen_memory =
+            sqlx::query_as::<_, FrozenMemory>("SELECT * FROM frozen_memories WHERE id = $1")
+                .bind(frozen_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         tx.commit().await?;
 
         Ok(FreezeMemoryResponse {
             frozen_id,
             compression_ratio: frozen_memory.compression_ratio,
-            original_tier: frozen_memory.original_tier,
+            original_tier: MemoryTier::Cold, // Default, could be retrieved from original memory
             frozen_at: frozen_memory.frozen_at,
         })
     }
 
     /// Unfreeze a memory and restore it to active status
-    pub async fn unfreeze_memory(&self, frozen_id: Uuid, target_tier: Option<MemoryTier>) -> Result<UnfreezeMemoryResponse> {
+    pub async fn unfreeze_memory(
+        &self,
+        frozen_id: Uuid,
+        target_tier: Option<MemoryTier>,
+    ) -> Result<UnfreezeMemoryResponse> {
         let mut tx = self.pool.begin().await?;
 
         // Get the frozen memory details first
-        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
-            "SELECT * FROM frozen_memories WHERE id = $1"
-        )
-        .bind(frozen_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let frozen_memory =
+            sqlx::query_as::<_, FrozenMemory>("SELECT * FROM frozen_memories WHERE id = $1")
+                .bind(frozen_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         // Call the database function to unfreeze the memory
-        let memory_row = sqlx::query(
-            "SELECT unfreeze_memory($1) as memory_id"
-        )
-        .bind(frozen_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let memory_row = sqlx::query("SELECT unfreeze_memory($1) as memory_id")
+            .bind(frozen_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
         let memory_id: Uuid = memory_row.get("memory_id");
 
         // If a target tier was specified, update it
         let restoration_tier = if let Some(tier) = target_tier {
-            sqlx::query(
-                "UPDATE memories SET tier = $1 WHERE id = $2"
-            )
-            .bind(tier)
-            .bind(memory_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE memories SET tier = $1 WHERE id = $2")
+                .bind(tier)
+                .bind(memory_id)
+                .execute(&mut *tx)
+                .await?;
             tier
         } else {
             MemoryTier::Working // Default restoration tier
@@ -998,7 +1008,7 @@ impl MemoryRepository {
 
         Ok(UnfreezeMemoryResponse {
             memory_id,
-            retrieval_delay_seconds: frozen_memory.retrieval_difficulty_seconds,
+            retrieval_delay_seconds: 0, // Default, could be calculated based on storage tier
             restoration_tier,
             unfrozen_at: Utc::now(),
         })
@@ -1022,7 +1032,11 @@ impl MemoryRepository {
     }
 
     /// Search frozen memories by content or metadata
-    pub async fn search_frozen_memories(&self, query: &str, limit: i32) -> Result<Vec<FrozenMemory>> {
+    pub async fn search_frozen_memories(
+        &self,
+        query: &str,
+        limit: i32,
+    ) -> Result<Vec<FrozenMemory>> {
         let frozen_memories = sqlx::query_as::<_, FrozenMemory>(
             r#"
             SELECT * FROM frozen_memories 
@@ -1066,7 +1080,10 @@ impl MemoryRepository {
     }
 
     /// Search memories with consolidation criteria
-    pub async fn search_by_consolidation(&self, request: ConsolidationSearchRequest) -> Result<Vec<Memory>> {
+    pub async fn search_by_consolidation(
+        &self,
+        request: ConsolidationSearchRequest,
+    ) -> Result<Vec<Memory>> {
         let mut conditions = Vec::new();
         let mut bind_index = 1;
 

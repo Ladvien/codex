@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use sqlx::postgres::types::PgInterval;
 use pgvector::Vector;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::types::PgInterval;
 use sqlx::FromRow;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -110,7 +110,10 @@ impl Serialize for Memory {
         state.serialize_field("consolidation_strength", &self.consolidation_strength)?;
         state.serialize_field("decay_rate", &self.decay_rate)?;
         state.serialize_field("recall_probability", &self.recall_probability)?;
-        state.serialize_field("last_recall_interval", &self.last_recall_interval.as_ref().map(|i| i.microseconds))?;
+        state.serialize_field(
+            "last_recall_interval",
+            &self.last_recall_interval.as_ref().map(|i| i.microseconds),
+        )?;
         state.end()
     }
 }
@@ -441,22 +444,22 @@ impl Memory {
     pub fn calculate_recall_probability(&self) -> Option<f64> {
         let last_access = self.last_accessed_at?;
         let time_hours = (Utc::now() - last_access).num_seconds() as f64 / 3600.0;
-        
+
         if self.consolidation_strength <= 0.0 || self.decay_rate <= 0.0 {
             return Some(0.0);
         }
-        
+
         let t_normalized = time_hours / self.consolidation_strength.max(0.1);
         let exponent = -self.decay_rate * (-t_normalized).exp();
         let probability = (1.0 - exponent.exp()) / (1.0 - (-1.0_f64).exp());
-        
+
         Some(probability.max(0.0).min(1.0))
     }
 
     /// Update consolidation strength based on recall interval
     /// Based on: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
     pub fn update_consolidation_strength(&mut self, recall_interval: PgInterval) {
-        let time_hours = recall_interval.microseconds as f64 / 3600_000_000.0; // Convert microseconds to hours
+        let time_hours = recall_interval.microseconds as f64 / 3_600_000_000.0; // Convert microseconds to hours
         let strength_increment = (1.0 - (-time_hours).exp()) / (1.0 + (-time_hours).exp());
         self.consolidation_strength = (self.consolidation_strength + strength_increment).min(10.0);
     }
@@ -488,11 +491,23 @@ impl Serialize for MemoryConsolidationLog {
         state.serialize_field("id", &self.id)?;
         state.serialize_field("memory_id", &self.memory_id)?;
         state.serialize_field("event_type", &self.event_type)?;
-        state.serialize_field("previous_consolidation_strength", &self.previous_consolidation_strength)?;
-        state.serialize_field("new_consolidation_strength", &self.new_consolidation_strength)?;
-        state.serialize_field("previous_recall_probability", &self.previous_recall_probability)?;
+        state.serialize_field(
+            "previous_consolidation_strength",
+            &self.previous_consolidation_strength,
+        )?;
+        state.serialize_field(
+            "new_consolidation_strength",
+            &self.new_consolidation_strength,
+        )?;
+        state.serialize_field(
+            "previous_recall_probability",
+            &self.previous_recall_probability,
+        )?;
         state.serialize_field("new_recall_probability", &self.new_recall_probability)?;
-        state.serialize_field("recall_interval_microseconds", &self.recall_interval.as_ref().map(|i| i.microseconds))?;
+        state.serialize_field(
+            "recall_interval_microseconds",
+            &self.recall_interval.as_ref().map(|i| i.microseconds),
+        )?;
         state.serialize_field("access_context", &self.access_context)?;
         state.serialize_field("created_at", &self.created_at)?;
         state.end()
@@ -503,20 +518,13 @@ impl Serialize for MemoryConsolidationLog {
 pub struct FrozenMemory {
     pub id: Uuid,
     pub original_memory_id: Uuid,
-    pub compressed_content: Vec<u8>,
-    pub compressed_metadata: Option<Vec<u8>>,
-    pub embedding_summary: Option<Vector>,
-    pub original_tier: MemoryTier,
-    pub frozen_at: DateTime<Utc>,
-    pub last_access_before_freeze: Option<DateTime<Utc>>,
-    pub access_count_before_freeze: i32,
-    pub final_consolidation_strength: f64,
-    pub final_recall_probability: Option<f64>,
-    pub compression_ratio: Option<f64>,
-    pub retrieval_difficulty_seconds: i32,
+    pub compressed_content: serde_json::Value, // Matches JSONB in database
+    pub original_metadata: Option<serde_json::Value>, // Matches database
     pub freeze_reason: Option<String>,
-    pub parent_relationships: serde_json::Value,
-    pub created_at: DateTime<Utc>,
+    pub frozen_at: DateTime<Utc>,
+    pub unfreeze_count: Option<i32>, // Matches database
+    pub last_unfrozen_at: Option<DateTime<Utc>>, // Matches database  
+    pub compression_ratio: Option<f64>,
 }
 
 impl Serialize for FrozenMemory {
@@ -525,23 +533,16 @@ impl Serialize for FrozenMemory {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("FrozenMemory", 16)?;
+        let mut state = serializer.serialize_struct("FrozenMemory", 9)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("original_memory_id", &self.original_memory_id)?;
-        state.serialize_field("compressed_content_size", &self.compressed_content.len())?;
-        state.serialize_field("has_compressed_metadata", &self.compressed_metadata.is_some())?;
-        state.serialize_field("embedding_summary", &self.embedding_summary.as_ref().map(|v| v.as_slice()))?;
-        state.serialize_field("original_tier", &self.original_tier)?;
-        state.serialize_field("frozen_at", &self.frozen_at)?;
-        state.serialize_field("last_access_before_freeze", &self.last_access_before_freeze)?;
-        state.serialize_field("access_count_before_freeze", &self.access_count_before_freeze)?;
-        state.serialize_field("final_consolidation_strength", &self.final_consolidation_strength)?;
-        state.serialize_field("final_recall_probability", &self.final_recall_probability)?;
-        state.serialize_field("compression_ratio", &self.compression_ratio)?;
-        state.serialize_field("retrieval_difficulty_seconds", &self.retrieval_difficulty_seconds)?;
+        state.serialize_field("compressed_content", &self.compressed_content)?;
+        state.serialize_field("original_metadata", &self.original_metadata)?;
         state.serialize_field("freeze_reason", &self.freeze_reason)?;
-        state.serialize_field("parent_relationships", &self.parent_relationships)?;
-        state.serialize_field("created_at", &self.created_at)?;
+        state.serialize_field("frozen_at", &self.frozen_at)?;
+        state.serialize_field("unfreeze_count", &self.unfreeze_count)?;
+        state.serialize_field("last_unfrozen_at", &self.last_unfrozen_at)?;
+        state.serialize_field("compression_ratio", &self.compression_ratio)?;
         state.end()
     }
 }

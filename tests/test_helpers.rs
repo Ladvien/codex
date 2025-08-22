@@ -132,18 +132,26 @@ impl TestEnvironment {
             CREATE TABLE IF NOT EXISTS memories (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 content TEXT NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
                 embedding vector(768),
                 tier VARCHAR(20) NOT NULL DEFAULT 'working',
-                importance REAL NOT NULL DEFAULT 0.5,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                importance_score REAL NOT NULL DEFAULT 0.5,
                 access_count INTEGER NOT NULL DEFAULT 0,
-                last_accessed TIMESTAMPTZ DEFAULT NOW(),
+                last_accessed_at TIMESTAMPTZ DEFAULT NOW(),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                tags TEXT[],
-                metadata JSONB,
+                metadata JSONB DEFAULT '{}',
                 parent_id UUID REFERENCES memories(id),
-                summary TEXT,
-                expires_at TIMESTAMPTZ
+                expires_at TIMESTAMPTZ,
+                -- Consolidation fields
+                consolidation_strength REAL DEFAULT 1.0,
+                decay_rate REAL DEFAULT 1.0,
+                recall_probability REAL,
+                last_recall_interval INTERVAL,
+                CONSTRAINT check_consolidation_strength CHECK (consolidation_strength >= 0.0 AND consolidation_strength <= 10.0),
+                CONSTRAINT check_decay_rate CHECK (decay_rate >= 0.0 AND decay_rate <= 5.0),
+                CONSTRAINT check_recall_probability CHECK (recall_probability >= 0.0 AND recall_probability <= 1.0)
             )
         "#,
         )
@@ -172,17 +180,234 @@ impl TestEnvironment {
             .await
             .ok(); // Index creation might fail if ivfflat is not available
 
+        // Create consolidation tables
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memory_consolidation_log (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                memory_id UUID NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+                old_consolidation_strength FLOAT NOT NULL,
+                new_consolidation_strength FLOAT NOT NULL,
+                old_recall_probability FLOAT,
+                new_recall_probability FLOAT,
+                consolidation_event VARCHAR(50) NOT NULL,
+                trigger_reason TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        "#,
+        )
+        .execute(pool)
+        .await
+        .context("Failed to create memory_consolidation_log table")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS frozen_memories (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                original_memory_id UUID NOT NULL UNIQUE,
+                compressed_content JSONB NOT NULL,
+                original_metadata JSONB DEFAULT '{}',
+                freeze_reason VARCHAR(100),
+                frozen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                unfreeze_count INTEGER DEFAULT 0,
+                last_unfrozen_at TIMESTAMP WITH TIME ZONE,
+                compression_ratio FLOAT
+            )
+        "#,
+        )
+        .execute(pool)
+        .await
+        .context("Failed to create frozen_memories table")?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memory_tier_statistics (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tier VARCHAR(20) NOT NULL,
+                memory_count INTEGER NOT NULL,
+                avg_consolidation_strength FLOAT,
+                avg_recall_probability FLOAT,
+                avg_access_count FLOAT,
+                total_storage_bytes BIGINT,
+                recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        "#,
+        )
+        .execute(pool)
+        .await
+        .context("Failed to create memory_tier_statistics table")?;
+
+        // Create consolidation functions (with error handling for concurrent creation)
+        let create_recall_fn = sqlx::query(
+            r#"
+            CREATE OR REPLACE FUNCTION calculate_recall_probability(
+                p_consolidation_strength FLOAT,
+                p_decay_rate FLOAT,
+                p_time_since_access INTERVAL
+            ) RETURNS FLOAT AS $$
+            DECLARE
+                t FLOAT;
+                gn FLOAT;
+                recall_prob FLOAT;
+            BEGIN
+                t := EXTRACT(EPOCH FROM p_time_since_access) / 3600.0;
+                gn := p_consolidation_strength;
+                
+                IF t = 0 THEN
+                    recall_prob := 1.0;
+                ELSE
+                    recall_prob := GREATEST(0.0, LEAST(1.0, 
+                        (1.0 - EXP(-p_decay_rate * EXP(-t/gn))) / (1.0 - EXP(-1.0))
+                    ));
+                END IF;
+                
+                RETURN recall_prob;
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE
+        "#,
+        )
+        .execute(pool)
+        .await;
+
+        if let Err(e) = create_recall_fn {
+            // Ignore if function already exists due to concurrent test setup
+            if !e.to_string().contains("tuple concurrently updated")
+                && !e.to_string().contains("already exists")
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to create calculate_recall_probability function: {}",
+                    e
+                ));
+            }
+        }
+
+        let create_strength_fn = sqlx::query(
+            r#"
+            CREATE OR REPLACE FUNCTION update_consolidation_strength(
+                p_current_strength FLOAT,
+                p_time_since_last_access INTERVAL
+            ) RETURNS FLOAT AS $$
+            DECLARE
+                t FLOAT;
+                new_strength FLOAT;
+            BEGIN
+                t := EXTRACT(EPOCH FROM p_time_since_last_access) / 3600.0;
+                new_strength := p_current_strength + (1.0 - EXP(-t))/(1.0 + EXP(-t));
+                RETURN LEAST(10.0, new_strength);
+            END;
+            $$ LANGUAGE plpgsql IMMUTABLE
+        "#,
+        )
+        .execute(pool)
+        .await;
+
+        if let Err(e) = create_strength_fn {
+            // Ignore if function already exists due to concurrent test setup
+            if !e.to_string().contains("tuple concurrently updated")
+                && !e.to_string().contains("already exists")
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to create update_consolidation_strength function: {}",
+                    e
+                ));
+            }
+        }
+
+        // Create consolidation trigger function
+        let create_trigger_fn = sqlx::query(
+            r#"
+            CREATE OR REPLACE FUNCTION trigger_consolidation_update() RETURNS TRIGGER AS $$
+            DECLARE
+                time_diff INTERVAL;
+                new_consolidation FLOAT;
+                new_recall_prob FLOAT;
+            BEGIN
+                -- Only trigger on access updates (when last_accessed_at changes)
+                IF TG_OP = 'UPDATE' AND OLD.last_accessed_at != NEW.last_accessed_at THEN
+                    
+                    -- Calculate time since last access
+                    time_diff := NEW.last_accessed_at - OLD.last_accessed_at;
+                    
+                    -- Update consolidation strength
+                    new_consolidation := update_consolidation_strength(
+                        COALESCE(OLD.consolidation_strength, 1.0), 
+                        time_diff
+                    );
+                    
+                    -- Calculate new recall probability
+                    new_recall_prob := calculate_recall_probability(
+                        new_consolidation,
+                        COALESCE(NEW.decay_rate, 1.0),
+                        INTERVAL '0 seconds' -- Just accessed, so immediate recall
+                    );
+                    
+                    -- Update the new record
+                    NEW.consolidation_strength := new_consolidation;
+                    NEW.recall_probability := new_recall_prob;
+                    NEW.last_recall_interval := time_diff;
+                    
+                    -- Log the consolidation event
+                    INSERT INTO memory_consolidation_log (
+                        memory_id,
+                        old_consolidation_strength,
+                        new_consolidation_strength,
+                        old_recall_probability,
+                        new_recall_probability,
+                        consolidation_event,
+                        trigger_reason
+                    ) VALUES (
+                        NEW.id,
+                        COALESCE(OLD.consolidation_strength, 1.0),
+                        new_consolidation,
+                        OLD.recall_probability,
+                        new_recall_prob,
+                        'access',
+                        'Automatic consolidation on memory access'
+                    );
+                END IF;
+                
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        "#,
+        )
+        .execute(pool)
+        .await;
+        
+        if let Err(e) = create_trigger_fn {
+            if !e.to_string().contains("tuple concurrently updated")
+                && !e.to_string().contains("already exists")
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to create trigger function: {}",
+                    e
+                ));
+            }
+        }
+
+        // Create the trigger itself
+        let _create_trigger = sqlx::query(
+            r#"
+            DROP TRIGGER IF EXISTS memories_consolidation_trigger ON memories;
+            CREATE TRIGGER memories_consolidation_trigger
+                BEFORE UPDATE ON memories
+                FOR EACH ROW
+                EXECUTE FUNCTION trigger_consolidation_update()
+        "#,
+        )
+        .execute(pool)
+        .await; // Allow this to fail silently in test environments
+
         // Create migration_history table if it doesn't exist (for health checks)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS migration_history (
                 id SERIAL PRIMARY KEY,
-                memory_id UUID REFERENCES memories(id),
-                from_tier VARCHAR(20),
-                to_tier VARCHAR(20),
+                migration_name VARCHAR(255) NOT NULL,
+                success BOOLEAN NOT NULL DEFAULT TRUE,
+                completed_at TIMESTAMPTZ DEFAULT NOW(),
                 migration_reason TEXT,
-                migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                success BOOLEAN NOT NULL DEFAULT TRUE
+                migration_notes TEXT
             )
         "#,
         )

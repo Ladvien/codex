@@ -1,9 +1,11 @@
 pub mod alerts;
+pub mod connection_monitor;
 pub mod health;
 pub mod metrics;
 pub mod profiling;
 
 pub use alerts::*;
+pub use connection_monitor::*;
 pub use health::*;
 pub use metrics::*;
 pub use profiling::*;

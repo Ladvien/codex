@@ -2,43 +2,6 @@
 
 ---
 
-## CRITICAL-002: Implement Combined Score as Generated Column
-
-**Story Type:** Performance  
-**Priority:** Critical  
-**Components:** Database Layer, Query Optimization  
-**Estimated Points:** 3  
-
-### Description
-The three-component scoring system (recency + importance + relevance) is currently calculated at runtime for every query, violating the P99 <1ms latency requirement for working memory. This must be implemented as a PostgreSQL generated column for optimal performance.
-
-### Acceptance Criteria
-- [ ] Combined_score exists as a GENERATED ALWAYS AS column in memories table
-- [ ] Formula correctly implements: (0.333 * recency_score + 0.333 * importance_score + 0.334 * relevance_score)
-- [ ] Column is STORED rather than VIRTUAL for query performance
-- [ ] Appropriate index exists on combined_score column (DESC order)
-- [ ] Hot path queries for working memory achieve P99 <1ms latency
-- [ ] Score automatically updates when component scores change
-- [ ] No manual score calculation occurs in application code
-- [ ] Query plans show index usage for score-based retrievals
-- [ ] Performance tests demonstrate >50% improvement in query latency
-
-### References
-- Architecture Document: Three-Component Scoring System (Section 4.1)
-- Cognitive Processing specifications for memory scoring
-- Performance baseline requirements documentation
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
 
 ## CRITICAL-003: Consolidate MCP Protocol Implementation
 

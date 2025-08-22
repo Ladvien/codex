@@ -4,7 +4,7 @@ pub mod config;
 pub mod database_setup;
 pub mod embedding;
 pub mod manager;
-pub mod mcp;
+pub mod mcp_server;
 pub mod memory;
 pub mod monitoring;
 pub mod performance;
@@ -24,7 +24,7 @@ pub use memory::{
 };
 
 // Re-export MCP server
-pub use mcp::server::MCPServer;
+pub use mcp_server::{MCPServer, MCPServerConfig};
 
 // Re-export monitoring types
 pub use monitoring::{

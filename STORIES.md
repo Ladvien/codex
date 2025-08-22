@@ -5,47 +5,6 @@
 
 
 
-## HIGH-002: Create Centralized Tier Management Service
-
-**Story Type:** Feature  
-**Priority:** High  
-**Components:** Application Layer  
-**Estimated Points:** 8  
-
-### Description
-Architecture specifies a dedicated 4-Tier Manager service but implementation uses scattered repository methods. Need centralized service to coordinate automated tier migrations based on memory scoring thresholds.
-
-### Acceptance Criteria
-- [ ] TierManager service exists as dedicated component
-- [ ] Service monitors memory scores continuously
-- [ ] Automated migration triggers at correct thresholds:
-  - [ ] Working→Warm when P(r) < 0.7
-  - [ ] Warm→Cold when P(r) < 0.5
-  - [ ] Cold→Frozen when P(r) < 0.2
-- [ ] Batch migration support for efficiency (1000 memories/sec target)
-- [ ] Migration history tracked in consolidation_log table
-- [ ] Service handles migration failures gracefully
-- [ ] Configurable migration batch sizes and intervals
-- [ ] Metrics exposed for migration performance monitoring
-- [ ] Integration with existing memory repository
-- [ ] Background job processing for non-blocking migrations
-
-### References
-- Architecture Document: 4-Tier Manager (Section 3.1)
-- Memory tier migration rules and thresholds
-- Cognitive memory research on forgetting curves
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
 
 ## HIGH-003: Fix Tier Migration Threshold Values
 

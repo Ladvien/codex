@@ -41,6 +41,18 @@ pub enum MemoryError {
     #[error("Math engine error: {0}")]
     MathEngine(#[from] super::math_engine::MathEngineError),
 
+    #[error("Database error: {message}")]
+    DatabaseError { message: String },
+
+    #[error("Concurrency error: {message}")]
+    ConcurrencyError { message: String },
+
+    #[error("Operation timeout: {message}")]
+    OperationTimeout { message: String },
+
+    #[error("Safety violation: {message}")]
+    SafetyViolation { message: String },
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }

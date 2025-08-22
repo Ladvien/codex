@@ -1,39 +1,10 @@
 # Epic: Upgrade Memory System to SOTA Cognitive Architecture
 
-## Story 3: Build Multi-Stage Importance Assessment Pipeline
-**Assignee:** ML Subagent  
-**Story Points:** 8  
-**Priority:** High  
-**Dependencies:** None
-
-**Description:**
-Create tiered evaluation system for real-time memory importance assessment.
-
-**Acceptance Criteria:**
-- [ ] Stage 1: Pattern matching (<10ms) for keywords/phrases
-- [ ] Stage 2: Semantic similarity (10-100ms) using cached embeddings
-- [ ] Stage 3: LLM scoring (100ms-1s) only for Stage 1-2 passes
-- [ ] Pattern library includes: "remember", "prefer", "decide", "correct", "important"
-- [ ] Configurable confidence thresholds per stage
-- [ ] Async processing for Stage 3 to prevent blocking
-- [ ] Circuit breaker for LLM calls
-- [ ] Metrics for stage progression rates
-
-**Definition of Done:**
-- Stage 1 processes in < 10ms consistently
-- Stage 2 uses cached embeddings effectively
-- Stage 3 LLM calls < 20% of total evaluations
-- Integration tests verify pipeline flow
-- Monitoring dashboard shows stage metrics
-- Graceful degradation under load
-
----
-
 ## Story 4: Implement Silent Memory Harvester
 **Assignee:** Integration Subagent  
 **Story Points:** 13  
 **Priority:** Critical  
-**Dependencies:** Story 3
+**Dependencies:** None
 
 **Description:**
 Build automatic memory extraction from Claude conversations without user interruption.

@@ -506,13 +506,21 @@ impl EmbeddingCache {
                 cache.remove(key);
                 self.current_size.fetch_sub(1, Ordering::Relaxed);
                 // Remove from LRU list manually (retain is unstable)
-                *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+                *lru_list = lru_list
+                    .iter()
+                    .filter(|node| node.key != key)
+                    .cloned()
+                    .collect();
                 return None;
             }
 
             cached.touch();
             // Move to front of LRU list manually (retain is unstable)
-            *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+            *lru_list = lru_list
+                .iter()
+                .filter(|node| node.key != key)
+                .cloned()
+                .collect();
             lru_list.push_front(LRUNode {
                 key: key.to_string(),
                 timestamp: cached.last_accessed,
@@ -540,7 +548,11 @@ impl EmbeddingCache {
 
         // If key already exists, update it
         if cache.contains_key(&key) {
-            *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+            *lru_list = lru_list
+                .iter()
+                .filter(|node| node.key != key)
+                .cloned()
+                .collect();
         } else {
             self.current_size.fetch_add(1, Ordering::Relaxed);
         }
@@ -620,7 +632,11 @@ impl EmbeddingCache {
 
         for key in &expired_keys {
             cache.remove(key);
-            *lru_list = lru_list.iter().filter(|node| &node.key != key).cloned().collect();
+            *lru_list = lru_list
+                .iter()
+                .filter(|node| &node.key != key)
+                .cloned()
+                .collect();
         }
 
         let removed_count = expired_keys.len();

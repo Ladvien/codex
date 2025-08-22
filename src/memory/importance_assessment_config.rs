@@ -272,6 +272,8 @@ impl ImportanceAssessmentConfigLoader {
                 confidence_threshold: config_file.stage2.confidence_threshold,
                 max_processing_time_ms: config_file.stage2.max_processing_time_ms,
                 embedding_cache_ttl_seconds: config_file.stage2.embedding_cache_ttl_seconds,
+                embedding_cache_max_size: config_file.stage2.embedding_cache_max_size.unwrap_or(10000),
+                cache_eviction_threshold: config_file.stage2.cache_eviction_threshold.unwrap_or(0.8),
                 similarity_threshold: config_file.stage2.similarity_threshold,
                 reference_embeddings: config_file
                     .stage2
@@ -338,6 +340,8 @@ impl ImportanceAssessmentConfigLoader {
                 confidence_threshold: config.stage2.confidence_threshold,
                 max_processing_time_ms: config.stage2.max_processing_time_ms,
                 embedding_cache_ttl_seconds: config.stage2.embedding_cache_ttl_seconds,
+                embedding_cache_max_size: Some(config.stage2.embedding_cache_max_size),
+                cache_eviction_threshold: Some(config.stage2.cache_eviction_threshold),
                 similarity_threshold: config.stage2.similarity_threshold,
                 reference_embeddings: if config.stage2.reference_embeddings.is_empty() {
                     None
@@ -565,6 +569,8 @@ struct Stage2ConfigFile {
     confidence_threshold: f64,
     max_processing_time_ms: u64,
     embedding_cache_ttl_seconds: u64,
+    embedding_cache_max_size: Option<usize>,
+    cache_eviction_threshold: Option<f64>,
     similarity_threshold: f32,
     reference_embeddings: Option<Vec<ReferenceEmbeddingFile>>,
 }

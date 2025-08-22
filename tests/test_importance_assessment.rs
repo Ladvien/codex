@@ -96,11 +96,11 @@ async fn create_test_config() -> ImportanceAssessmentConfig {
 
 async fn create_test_config_permissive() -> ImportanceAssessmentConfig {
     let mut config = create_test_config().await;
-    
+
     // Make thresholds more permissive to allow progression to Stage 2
     config.stage1.confidence_threshold = 0.3; // Low threshold to allow progression
     config.stage2.confidence_threshold = 0.99; // Very high threshold to stop at Stage 2
-    
+
     config
 }
 
@@ -535,9 +535,7 @@ async fn test_cache_cleanup() -> Result<()> {
     let pipeline = create_test_pipeline().await?;
 
     // Test cache clear functionality - use simple content that won't trigger Stage 3
-    let _ = pipeline
-        .assess_importance("Some basic content")
-        .await?;
+    let _ = pipeline.assess_importance("Some basic content").await?;
     let _ = pipeline.assess_importance("Another simple message").await?;
 
     let stats_before = pipeline.get_statistics().await;

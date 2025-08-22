@@ -3,9 +3,12 @@ use crate::memory::MemoryError;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use prometheus::{Counter, Histogram, IntCounter, IntGauge, Registry};
+use rand::Rng;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, LinkedList};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -81,6 +84,12 @@ pub struct Stage2Config {
 
     /// Cache TTL for embeddings in seconds
     pub embedding_cache_ttl_seconds: u64,
+
+    /// Maximum cache size (number of entries)
+    pub embedding_cache_max_size: usize,
+
+    /// Cache eviction threshold (evict when this percentage full)
+    pub cache_eviction_threshold: f64,
 
     /// Similarity threshold for semantic matching
     pub similarity_threshold: f32,
@@ -266,14 +275,15 @@ enum CircuitBreakerState {
     HalfOpen,
 }
 
-/// Circuit breaker for LLM calls
+/// Thread-safe circuit breaker for LLM calls using atomic operations
 #[derive(Debug)]
 struct CircuitBreaker {
     state: RwLock<CircuitBreakerState>,
     config: CircuitBreakerConfig,
-    failure_count: RwLock<usize>,
+    failure_count: AtomicUsize,
     last_failure_time: RwLock<Option<DateTime<Utc>>>,
-    request_count: RwLock<usize>,
+    request_count: AtomicUsize,
+    consecutive_successes: AtomicUsize, // For half-open state management
 }
 
 impl CircuitBreaker {
@@ -281,9 +291,10 @@ impl CircuitBreaker {
         Self {
             state: RwLock::new(CircuitBreakerState::Closed),
             config,
-            failure_count: RwLock::new(0),
+            failure_count: AtomicUsize::new(0),
             last_failure_time: RwLock::new(None),
-            request_count: RwLock::new(0),
+            request_count: AtomicUsize::new(0),
+            consecutive_successes: AtomicUsize::new(0),
         }
     }
 
@@ -313,72 +324,152 @@ impl CircuitBreaker {
     }
 
     async fn record_success(&self) {
-        let mut state = self.state.write().await;
-        *state = CircuitBreakerState::Closed;
+        // Increment consecutive successes atomically
+        let consecutive_successes = self.consecutive_successes.fetch_add(1, Ordering::SeqCst);
 
-        let mut failure_count = self.failure_count.write().await;
-        *failure_count = 0;
+        // Reset failure count atomically
+        self.failure_count.store(0, Ordering::SeqCst);
 
-        let mut last_failure_time = self.last_failure_time.write().await;
-        *last_failure_time = None;
+        // In half-open state, require multiple successes before fully closing
+        let current_state = {
+            let state = self.state.read().await;
+            state.clone()
+        };
+
+        match current_state {
+            CircuitBreakerState::HalfOpen => {
+                // Require at least 3 consecutive successes to close
+                if consecutive_successes >= 2 {
+                    let mut state = self.state.write().await;
+                    *state = CircuitBreakerState::Closed;
+
+                    let mut last_failure_time = self.last_failure_time.write().await;
+                    *last_failure_time = None;
+
+                    info!(
+                        "Circuit breaker closed after {} consecutive successes",
+                        consecutive_successes + 1
+                    );
+                }
+            }
+            CircuitBreakerState::Open(_) => {
+                // This shouldn't happen, but handle gracefully
+                warn!(
+                    "Received success while circuit breaker is open - state inconsistency detected"
+                );
+            }
+            CircuitBreakerState::Closed => {
+                // Already closed, just reset failure time
+                let mut last_failure_time = self.last_failure_time.write().await;
+                *last_failure_time = None;
+            }
+        }
     }
 
     async fn record_failure(&self) {
         let now = Utc::now();
 
-        {
-            let mut request_count = self.request_count.write().await;
-            *request_count += 1;
-        }
+        // Reset consecutive successes on any failure
+        self.consecutive_successes.store(0, Ordering::SeqCst);
 
-        {
-            let mut failure_count = self.failure_count.write().await;
+        // Atomically increment request count
+        let request_count = self.request_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+        // Handle failure window and count atomically where possible
+        let should_open_circuit = {
             let mut last_failure_time = self.last_failure_time.write().await;
 
-            // Reset failure count if outside the failure window
+            // Check if we need to reset failure count due to time window
             if let Some(last_failure) = *last_failure_time {
                 let window_start =
                     now - chrono::Duration::seconds(self.config.failure_window_seconds as i64);
                 if last_failure < window_start {
-                    *failure_count = 0;
+                    // Reset failure count as we're outside the window
+                    self.failure_count.store(0, Ordering::SeqCst);
                 }
             }
 
-            *failure_count += 1;
+            // Atomically increment failure count
+            let failure_count = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
             *last_failure_time = Some(now);
-        }
 
-        // Check if we should open the circuit
-        let failure_count = *self.failure_count.read().await;
-        let request_count = *self.request_count.read().await;
+            // Check if we should open the circuit
+            request_count >= self.config.minimum_requests
+                && failure_count >= self.config.failure_threshold
+        };
 
-        if request_count >= self.config.minimum_requests
-            && failure_count >= self.config.failure_threshold
-        {
-            let mut state = self.state.write().await;
-            *state = CircuitBreakerState::Open(now);
-            warn!(
-                "Circuit breaker opened due to {} failures out of {} requests",
-                failure_count, request_count
-            );
+        if should_open_circuit {
+            // Check current state before opening
+            let current_state = {
+                let state = self.state.read().await;
+                state.clone()
+            };
+
+            match current_state {
+                CircuitBreakerState::Closed | CircuitBreakerState::HalfOpen => {
+                    let mut state = self.state.write().await;
+                    // Double-check state hasn't changed while acquiring write lock
+                    match *state {
+                        CircuitBreakerState::Closed | CircuitBreakerState::HalfOpen => {
+                            *state = CircuitBreakerState::Open(now);
+                            let failure_count = self.failure_count.load(Ordering::SeqCst);
+                            warn!(
+                                "Circuit breaker opened due to {} failures out of {} requests",
+                                failure_count, request_count
+                            );
+                        }
+                        CircuitBreakerState::Open(_) => {
+                            // Already open, nothing to do
+                        }
+                    }
+                }
+                CircuitBreakerState::Open(_) => {
+                    // Already open, just log
+                    debug!("Additional failure recorded while circuit breaker is open");
+                }
+            }
         }
     }
 }
 
-/// Cached embedding with TTL
+/// Cached embedding with TTL and LRU tracking
 #[derive(Debug, Clone)]
 struct CachedEmbedding {
     embedding: Vec<f32>,
     cached_at: DateTime<Utc>,
     ttl_seconds: u64,
+    last_accessed: DateTime<Utc>,
+}
+
+/// LRU cache entry for tracking access order
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // timestamp may be used for future LRU optimizations
+struct LRUNode {
+    key: String,
+    timestamp: DateTime<Utc>,
+}
+
+/// Thread-safe LRU cache for embeddings with automatic eviction
+#[derive(Debug)]
+struct EmbeddingCache {
+    cache: RwLock<HashMap<String, CachedEmbedding>>,
+    lru_list: RwLock<LinkedList<LRUNode>>,
+    current_size: AtomicUsize,
+    max_size: usize,
+    #[allow(dead_code)] // reserved for future adaptive eviction algorithms
+    eviction_threshold: f64,
+    eviction_count: AtomicU64,
+    memory_pressure_threshold: usize,
 }
 
 impl CachedEmbedding {
     fn new(embedding: Vec<f32>, ttl_seconds: u64) -> Self {
+        let now = Utc::now();
         Self {
             embedding,
-            cached_at: Utc::now(),
+            cached_at: now,
             ttl_seconds,
+            last_accessed: now,
         }
     }
 
@@ -386,6 +477,163 @@ impl CachedEmbedding {
         let now = Utc::now();
         let expiry = self.cached_at + chrono::Duration::seconds(self.ttl_seconds as i64);
         now >= expiry
+    }
+
+    fn touch(&mut self) {
+        self.last_accessed = Utc::now();
+    }
+}
+
+impl EmbeddingCache {
+    fn new(max_size: usize, eviction_threshold: f64) -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+            lru_list: RwLock::new(LinkedList::new()),
+            current_size: AtomicUsize::new(0),
+            max_size,
+            eviction_threshold,
+            eviction_count: AtomicU64::new(0),
+            memory_pressure_threshold: (max_size as f64 * eviction_threshold) as usize,
+        }
+    }
+
+    async fn get(&self, key: &str) -> Option<CachedEmbedding> {
+        let mut cache = self.cache.write().await;
+        let mut lru_list = self.lru_list.write().await;
+
+        if let Some(cached) = cache.get_mut(key) {
+            if cached.is_expired() {
+                cache.remove(key);
+                self.current_size.fetch_sub(1, Ordering::Relaxed);
+                // Remove from LRU list manually (retain is unstable)
+                *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+                return None;
+            }
+
+            cached.touch();
+            // Move to front of LRU list manually (retain is unstable)
+            *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+            lru_list.push_front(LRUNode {
+                key: key.to_string(),
+                timestamp: cached.last_accessed,
+            });
+
+            Some(cached.clone())
+        } else {
+            None
+        }
+    }
+
+    async fn insert(
+        &self,
+        key: String,
+        value: CachedEmbedding,
+    ) -> Result<(), ImportanceAssessmentError> {
+        // Check if we need to evict before inserting
+        let current_size = self.current_size.load(Ordering::Relaxed);
+        if current_size >= self.memory_pressure_threshold {
+            self.evict_lru_entries().await?;
+        }
+
+        let mut cache = self.cache.write().await;
+        let mut lru_list = self.lru_list.write().await;
+
+        // If key already exists, update it
+        if cache.contains_key(&key) {
+            *lru_list = lru_list.iter().filter(|node| node.key != key).cloned().collect();
+        } else {
+            self.current_size.fetch_add(1, Ordering::Relaxed);
+        }
+
+        cache.insert(key.clone(), value.clone());
+        lru_list.push_front(LRUNode {
+            key: key.clone(),
+            timestamp: value.last_accessed,
+        });
+
+        Ok(())
+    }
+
+    async fn evict_lru_entries(&self) -> Result<(), ImportanceAssessmentError> {
+        let mut cache = self.cache.write().await;
+        let mut lru_list = self.lru_list.write().await;
+
+        let target_size = (self.max_size as f64 * 0.7) as usize; // Evict to 70% capacity
+        let current_size = cache.len();
+
+        if current_size <= target_size {
+            return Ok(());
+        }
+
+        let entries_to_remove = current_size - target_size;
+        let mut removed_count = 0;
+
+        // Remove oldest entries
+        while removed_count < entries_to_remove && !lru_list.is_empty() {
+            if let Some(node) = lru_list.pop_back() {
+                cache.remove(&node.key);
+                removed_count += 1;
+                self.eviction_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        self.current_size.store(cache.len(), Ordering::Relaxed);
+
+        if removed_count > 0 {
+            info!(
+                "Evicted {} entries from embedding cache due to memory pressure",
+                removed_count
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn clear(&self) {
+        let mut cache = self.cache.write().await;
+        let mut lru_list = self.lru_list.write().await;
+
+        cache.clear();
+        lru_list.clear();
+        self.current_size.store(0, Ordering::Relaxed);
+    }
+
+    fn len(&self) -> usize {
+        self.current_size.load(Ordering::Relaxed)
+    }
+
+    fn eviction_count(&self) -> u64 {
+        self.eviction_count.load(Ordering::Relaxed)
+    }
+
+    async fn cleanup_expired(&self) -> Result<usize, ImportanceAssessmentError> {
+        let mut cache = self.cache.write().await;
+        let mut lru_list = self.lru_list.write().await;
+
+        let mut expired_keys = Vec::new();
+
+        for (key, value) in cache.iter() {
+            if value.is_expired() {
+                expired_keys.push(key.clone());
+            }
+        }
+
+        for key in &expired_keys {
+            cache.remove(key);
+            *lru_list = lru_list.iter().filter(|node| &node.key != key).cloned().collect();
+        }
+
+        let removed_count = expired_keys.len();
+        self.current_size.store(cache.len(), Ordering::Relaxed);
+
+        if removed_count > 0 {
+            debug!(
+                "Cleaned up {} expired entries from embedding cache",
+                removed_count
+            );
+        }
+
+        Ok(removed_count)
     }
 }
 
@@ -605,12 +853,233 @@ impl ImportanceAssessmentMetrics {
     }
 }
 
+/// Optimized pattern matcher with pre-compiled regex and fast string matching
+#[derive(Debug)]
+struct OptimizedPatternMatcher {
+    // Pre-compiled regex patterns with their metadata
+    regex_patterns: Vec<(Regex, ImportancePattern)>,
+    // Fast string patterns for simple keyword matching
+    keyword_patterns: Vec<(String, ImportancePattern)>,
+    // Combined regex for single-pass matching when possible
+    #[allow(dead_code)] // reserved for future optimization
+    combined_regex: Option<Regex>,
+}
+
+impl OptimizedPatternMatcher {
+    fn new(patterns: &[ImportancePattern]) -> Result<Self, ImportanceAssessmentError> {
+        let mut regex_patterns = Vec::new();
+        let mut keyword_patterns = Vec::new();
+
+        for pattern in patterns {
+            // Validate regex complexity to prevent ReDoS
+            Self::validate_regex_complexity(&pattern.pattern)?;
+
+            // Try to determine if this is a simple keyword pattern
+            if Self::is_simple_keyword_pattern(&pattern.pattern) {
+                // Extract the keyword from simple patterns like (?i)\b(word)\b
+                if let Some(keyword) = Self::extract_keyword(&pattern.pattern) {
+                    keyword_patterns.push((keyword.to_lowercase(), pattern.clone()));
+                    continue;
+                }
+            }
+
+            // Compile complex regex patterns
+            match Regex::new(&pattern.pattern) {
+                Ok(regex) => regex_patterns.push((regex, pattern.clone())),
+                Err(e) => {
+                    error!(
+                        "Failed to compile regex pattern '{}': {}",
+                        pattern.pattern, e
+                    );
+                    return Err(ImportanceAssessmentError::Configuration(format!(
+                        "Invalid regex pattern '{}': {}",
+                        pattern.pattern, e
+                    )));
+                }
+            }
+        }
+
+        Ok(Self {
+            regex_patterns,
+            keyword_patterns,
+            combined_regex: None, // Could be optimized further with a single combined regex
+        })
+    }
+
+    fn validate_regex_complexity(pattern: &str) -> Result<(), ImportanceAssessmentError> {
+        // Check for potentially dangerous regex patterns that could cause ReDoS
+        let dangerous_patterns = [
+            "(.*)*",
+            "(.+)+",
+            "([^x]*)*",
+            "(a|a)*",
+            "(a|a)+",
+            "(a*)*",
+            "(a+)+",
+            "(.{0,10000})*",
+            "(.*){10,}",
+            "(.+){10,}",
+        ];
+
+        for dangerous in &dangerous_patterns {
+            if pattern.contains(dangerous) {
+                return Err(ImportanceAssessmentError::Configuration(format!(
+                    "Regex pattern contains potentially dangerous sequence '{}': {}",
+                    dangerous, pattern
+                )));
+            }
+        }
+
+        // Check pattern length
+        if pattern.len() > 1000 {
+            return Err(ImportanceAssessmentError::Configuration(
+                "Regex pattern too long (max 1000 characters)".to_string(),
+            ));
+        }
+
+        // Check for excessive nested groups
+        let open_parens = pattern.chars().filter(|&c| c == '(').count();
+        if open_parens > 20 {
+            return Err(ImportanceAssessmentError::Configuration(
+                "Regex pattern has too many nested groups (max 20)".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn is_simple_keyword_pattern(pattern: &str) -> bool {
+        // Match patterns like (?i)\b(word|other)\b or (?i)\b(word)\b
+        pattern.starts_with("(?i)")
+            && pattern.contains("\\b")
+            && !pattern.contains(".*")
+            && !pattern.contains(".+")
+            && !pattern.contains("\\d")
+            && !pattern.contains("\\s")
+            && pattern.chars().filter(|&c| c == '(').count() <= 2
+    }
+
+    fn extract_keyword(pattern: &str) -> Option<String> {
+        // Extract keyword from patterns like (?i)\b(word)\b
+        if let Some(start) = pattern.find('(') {
+            if let Some(end) = pattern.rfind(')') {
+                let keywords = &pattern[start + 1..end];
+                // For simple single keyword patterns, return the first keyword
+                if !keywords.contains('|') && keywords.chars().all(|c| c.is_alphabetic()) {
+                    return Some(keywords.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    fn find_matches(&self, content: &str, max_matches: usize) -> Vec<MatchedPattern> {
+        let mut matches = Vec::new();
+        let content_lower = content.to_lowercase();
+
+        // Fast keyword matching first
+        for (keyword, pattern) in &self.keyword_patterns {
+            if matches.len() >= max_matches {
+                break;
+            }
+
+            let mut start = 0;
+            while let Some(pos) = content_lower[start..].find(keyword) {
+                let absolute_pos = start + pos;
+
+                // Check word boundaries manually for fast keyword matching
+                let is_word_start = absolute_pos == 0
+                    || !content_lower
+                        .chars()
+                        .nth(absolute_pos - 1)
+                        .unwrap_or(' ')
+                        .is_alphabetic();
+                let is_word_end = absolute_pos + keyword.len() >= content_lower.len()
+                    || !content_lower
+                        .chars()
+                        .nth(absolute_pos + keyword.len())
+                        .unwrap_or(' ')
+                        .is_alphabetic();
+
+                if is_word_start && is_word_end {
+                    let context_boost = self.calculate_context_boost(
+                        content,
+                        absolute_pos,
+                        &pattern.context_boosters,
+                    );
+
+                    matches.push(MatchedPattern {
+                        pattern_name: pattern.name.clone(),
+                        pattern_category: pattern.category.clone(),
+                        match_text: keyword.clone(),
+                        match_position: absolute_pos,
+                        weight: pattern.weight,
+                        context_boost,
+                    });
+                }
+
+                start = absolute_pos + 1;
+            }
+        }
+
+        // Regex matching for complex patterns
+        for (regex, pattern) in &self.regex_patterns {
+            if matches.len() >= max_matches {
+                break;
+            }
+
+            for mat in regex.find_iter(content).take(max_matches - matches.len()) {
+                let match_text = mat.as_str().to_string();
+                let match_position = mat.start();
+
+                let context_boost = self.calculate_context_boost(
+                    content,
+                    match_position,
+                    &pattern.context_boosters,
+                );
+
+                matches.push(MatchedPattern {
+                    pattern_name: pattern.name.clone(),
+                    pattern_category: pattern.category.clone(),
+                    match_text,
+                    match_position,
+                    weight: pattern.weight,
+                    context_boost,
+                });
+            }
+        }
+
+        matches
+    }
+
+    fn calculate_context_boost(
+        &self,
+        content: &str,
+        match_position: usize,
+        boosters: &[String],
+    ) -> f64 {
+        let window_size = 100;
+        let start = match_position.saturating_sub(window_size);
+        let end = (match_position + window_size).min(content.len());
+        let context = &content[start..end].to_lowercase();
+
+        let mut boost: f64 = 0.0;
+        for booster in boosters {
+            if context.contains(&booster.to_lowercase()) {
+                boost += 0.1; // 10% boost per context word
+            }
+        }
+
+        boost.min(0.5_f64) // Maximum 50% boost
+    }
+}
+
 /// Main importance assessment pipeline
 pub struct ImportanceAssessmentPipeline {
     config: ImportanceAssessmentConfig,
-    stage1_patterns: Vec<(Regex, ImportancePattern)>,
+    pattern_matcher: OptimizedPatternMatcher,
     embedding_service: Arc<dyn EmbeddingService>,
-    embedding_cache: RwLock<HashMap<String, CachedEmbedding>>,
+    embedding_cache: EmbeddingCache,
     circuit_breaker: CircuitBreaker,
     metrics: ImportanceAssessmentMetrics,
     http_client: reqwest::Client,
@@ -622,24 +1091,8 @@ impl ImportanceAssessmentPipeline {
         embedding_service: Arc<dyn EmbeddingService>,
         metrics_registry: &Registry,
     ) -> Result<Self> {
-        // Compile regex patterns for Stage 1
-        let mut stage1_patterns = Vec::new();
-        for pattern in &config.stage1.pattern_library {
-            match Regex::new(&pattern.pattern) {
-                Ok(regex) => stage1_patterns.push((regex, pattern.clone())),
-                Err(e) => {
-                    error!(
-                        "Failed to compile regex pattern '{}': {}",
-                        pattern.pattern, e
-                    );
-                    return Err(ImportanceAssessmentError::Configuration(format!(
-                        "Invalid regex pattern '{}': {}",
-                        pattern.pattern, e
-                    ))
-                    .into());
-                }
-            }
-        }
+        // Initialize optimized pattern matcher
+        let pattern_matcher = OptimizedPatternMatcher::new(&config.stage1.pattern_library)?;
 
         let metrics = ImportanceAssessmentMetrics::new(metrics_registry)?;
 
@@ -649,11 +1102,16 @@ impl ImportanceAssessmentPipeline {
             .timeout(Duration::from_millis(config.stage3.max_processing_time_ms))
             .build()?;
 
+        let embedding_cache = EmbeddingCache::new(
+            config.stage2.embedding_cache_max_size,
+            config.stage2.cache_eviction_threshold,
+        );
+
         Ok(Self {
             config,
-            stage1_patterns,
+            pattern_matcher,
             embedding_service,
-            embedding_cache: RwLock::new(HashMap::new()),
+            embedding_cache,
             circuit_breaker,
             metrics,
             http_client,
@@ -764,35 +1222,30 @@ impl ImportanceAssessmentPipeline {
         let timeout_duration = Duration::from_millis(self.config.stage1.max_processing_time_ms);
 
         let result = timeout(timeout_duration, async {
-            let mut matched_patterns = Vec::new();
+            // Limit content length for Stage 1 to prevent performance issues
+            let content_for_analysis = if content.len() > 10000 {
+                warn!(
+                    "Content length {} exceeds Stage 1 limit, truncating to 10000 chars",
+                    content.len()
+                );
+                &content[..10000]
+            } else {
+                content
+            };
+
+            // Use optimized pattern matching with limits
+            let max_matches = 50; // Limit total matches to prevent runaway processing
+            let matched_patterns = self
+                .pattern_matcher
+                .find_matches(content_for_analysis, max_matches);
+
             let mut total_score = 0.0;
             let mut max_weight: f64 = 0.0;
 
-            for (regex, pattern) in &self.stage1_patterns {
-                for mat in regex.find_iter(content) {
-                    let match_text = mat.as_str().to_string();
-                    let match_position = mat.start();
-
-                    // Calculate context boost
-                    let context_boost = self.calculate_context_boost(
-                        content,
-                        match_position,
-                        &pattern.context_boosters,
-                    );
-                    let effective_weight = pattern.weight * (1.0 + context_boost);
-
-                    matched_patterns.push(MatchedPattern {
-                        pattern_name: pattern.name.clone(),
-                        pattern_category: pattern.category.clone(),
-                        match_text,
-                        match_position,
-                        weight: pattern.weight,
-                        context_boost,
-                    });
-
-                    total_score += effective_weight;
-                    max_weight = max_weight.max(effective_weight);
-                }
+            for pattern in &matched_patterns {
+                let effective_weight = pattern.weight * (1.0 + pattern.context_boost);
+                total_score += effective_weight;
+                max_weight = max_weight.max(effective_weight);
             }
 
             // Normalize score to 0.0-1.0 range
@@ -811,9 +1264,9 @@ impl ImportanceAssessmentPipeline {
                     .map(|m| m.pattern_category.clone())
                     .collect::<std::collections::HashSet<_>>()
                     .len() as f64;
-                let base_confidence =
-                    (pattern_diversity / self.config.stage1.pattern_library.len() as f64).min(1.0);
-                let strength_boost = (max_weight / 1.0).min(0.3); // Max 30% boost from pattern strength
+                let pattern_count = self.config.stage1.pattern_library.len().max(1) as f64; // Avoid division by zero
+                let base_confidence = (pattern_diversity / pattern_count).min(1.0);
+                let strength_boost = (max_weight / 1.0_f64).min(0.3); // Max 30% boost from pattern strength
                 (base_confidence + strength_boost).min(1.0)
             };
 
@@ -827,7 +1280,7 @@ impl ImportanceAssessmentPipeline {
                 passed_threshold,
                 details: StageDetails::Stage1 {
                     matched_patterns,
-                    total_patterns_checked: self.stage1_patterns.len(),
+                    total_patterns_checked: self.config.stage1.pattern_library.len(),
                 },
             }
         })
@@ -874,26 +1327,23 @@ impl ImportanceAssessmentPipeline {
         let timeout_duration = Duration::from_millis(self.config.stage2.max_processing_time_ms);
 
         let stage2_result = async {
-            // Check cache first
-            let content_hash = format!("{:x}", md5::compute(content.as_bytes()));
-            let cached_embedding = {
-                let cache = self.embedding_cache.read().await;
-                cache.get(&content_hash).cloned()
-            };
+            // Cleanup expired entries periodically (every 100th request)
+            if self.metrics.stage2_executions.get() % 100 == 0 {
+                if let Err(e) = self.embedding_cache.cleanup_expired().await {
+                    warn!("Failed to cleanup expired cache entries: {}", e);
+                }
+            }
 
-            let (content_embedding, cache_hit, embedding_time) = if let Some(cached) =
-                cached_embedding
-            {
-                if !cached.is_expired() {
+            // Generate secure hash of content using SHA-256
+            let mut hasher = Sha256::new();
+            hasher.update(content.as_bytes());
+            let content_hash = format!("{:x}", hasher.finalize());
+
+            let (content_embedding, cache_hit, embedding_time) =
+                if let Some(cached) = self.embedding_cache.get(&content_hash).await {
                     self.metrics.embedding_cache_hits.inc();
                     (cached.embedding, true, None)
                 } else {
-                    // Cache expired, remove and generate new
-                    {
-                        let mut cache = self.embedding_cache.write().await;
-                        cache.remove(&content_hash);
-                        self.metrics.embedding_cache_size.set(cache.len() as i64);
-                    }
                     self.metrics.embedding_cache_misses.inc();
                     let embed_start = Instant::now();
                     let embedding = match self.embedding_service.generate_embedding(content).await {
@@ -907,50 +1357,25 @@ impl ImportanceAssessmentPipeline {
                     };
                     let embed_time = embed_start.elapsed().as_millis() as u64;
 
-                    // Cache the new embedding
-                    {
-                        let mut cache = self.embedding_cache.write().await;
-                        cache.insert(
-                            content_hash,
-                            CachedEmbedding::new(
-                                embedding.clone(),
-                                self.config.stage2.embedding_cache_ttl_seconds,
-                            ),
-                        );
-                        self.metrics.embedding_cache_size.set(cache.len() as i64);
-                    }
-
-                    (embedding, false, Some(embed_time))
-                }
-            } else {
-                self.metrics.embedding_cache_misses.inc();
-                let embed_start = Instant::now();
-                let embedding = match self.embedding_service.generate_embedding(content).await {
-                    Ok(emb) => emb,
-                    Err(e) => {
-                        return Err(ImportanceAssessmentError::Stage2Failed(format!(
-                            "Embedding generation failed: {}",
-                            e
-                        )))
-                    }
-                };
-                let embed_time = embed_start.elapsed().as_millis() as u64;
-
-                // Cache the new embedding
-                {
-                    let mut cache = self.embedding_cache.write().await;
-                    cache.insert(
-                        content_hash,
-                        CachedEmbedding::new(
-                            embedding.clone(),
-                            self.config.stage2.embedding_cache_ttl_seconds,
-                        ),
+                    // Cache the new embedding with error handling
+                    let cached_embedding = CachedEmbedding::new(
+                        embedding.clone(),
+                        self.config.stage2.embedding_cache_ttl_seconds,
                     );
-                    self.metrics.embedding_cache_size.set(cache.len() as i64);
-                }
 
-                (embedding, false, Some(embed_time))
-            };
+                    if let Err(e) = self
+                        .embedding_cache
+                        .insert(content_hash, cached_embedding)
+                        .await
+                    {
+                        warn!("Failed to cache embedding: {}", e);
+                    }
+
+                    self.metrics
+                        .embedding_cache_size
+                        .set(self.embedding_cache.len() as i64);
+                    (embedding, false, Some(embed_time))
+                };
 
             // Calculate similarity scores with reference embeddings
             let mut similarity_scores = Vec::new();
@@ -1065,12 +1490,22 @@ impl ImportanceAssessmentPipeline {
         let timeout_duration = Duration::from_millis(self.config.stage3.max_processing_time_ms);
 
         let result = timeout(timeout_duration, async {
-            // Prepare LLM prompt
+            // Prepare LLM prompt with length limits
+            let content_preview = if content.len() > 2000 {
+                format!(
+                    "{}... [truncated from {} chars]",
+                    &content[..2000],
+                    content.len()
+                )
+            } else {
+                content.to_string()
+            };
+
             let prompt = self
                 .config
                 .stage3
                 .prompt_template
-                .replace("{content}", content)
+                .replace("{content}", &content_preview)
                 .replace("{timestamp}", &Utc::now().to_rfc3339());
 
             // Make LLM request
@@ -1137,27 +1572,6 @@ impl ImportanceAssessmentPipeline {
         }
     }
 
-    fn calculate_context_boost(
-        &self,
-        content: &str,
-        match_position: usize,
-        boosters: &[String],
-    ) -> f64 {
-        let window_size = 100; // Characters to check around the match
-        let start = match_position.saturating_sub(window_size);
-        let end = (match_position + window_size).min(content.len());
-        let context = &content[start..end].to_lowercase();
-
-        let mut boost: f64 = 0.0;
-        for booster in boosters {
-            if context.contains(&booster.to_lowercase()) {
-                boost += 0.1; // 10% boost per context word
-            }
-        }
-
-        boost.min(0.5) // Maximum 50% boost
-    }
-
     fn calculate_cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
         if a.len() != b.len() {
             return 0.0;
@@ -1175,42 +1589,185 @@ impl ImportanceAssessmentPipeline {
     }
 
     async fn call_llm(&self, prompt: &str) -> Result<String, ImportanceAssessmentError> {
-        // This is a placeholder implementation. In a real system, this would call
-        // an actual LLM service like OpenAI, Anthropic, or a local model.
+        let sanitized_prompt = self.sanitize_llm_prompt(prompt)?;
+
+        // Implement exponential backoff retry logic
+        let mut attempts = 0;
+        let max_retries = 3;
+        let base_delay = Duration::from_millis(100);
+
+        loop {
+            match self.attempt_llm_call(&sanitized_prompt).await {
+                Ok(response) => return Ok(response),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts > max_retries {
+                        return Err(e);
+                    }
+
+                    // Exponential backoff with jitter
+                    let delay = base_delay * (2_u32.pow(attempts - 1));
+                    let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=100));
+                    tokio::time::sleep(delay + jitter).await;
+
+                    warn!(
+                        "LLM call failed (attempt {}/{}), retrying in {:?}: {}",
+                        attempts,
+                        max_retries,
+                        delay + jitter,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    async fn attempt_llm_call(&self, prompt: &str) -> Result<String, ImportanceAssessmentError> {
+        // Validate input length to prevent resource exhaustion
+        if prompt.len() > 50000 {
+            // 50KB limit
+            return Err(ImportanceAssessmentError::Stage3Failed(
+                "Prompt exceeds maximum length".to_string(),
+            ));
+        }
 
         let request_body = serde_json::json!({
             "prompt": prompt,
-            "max_tokens": 100,
-            "temperature": 0.1
+            "max_tokens": 150,
+            "temperature": 0.1,
+            "stop": ["\n\n", "---"],
+            "model": "text-davinci-003" // Default model
         });
 
         let response = self
             .http_client
             .post(&self.config.stage3.llm_endpoint)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "codex-memory/0.1.0")
             .json(&request_body)
             .send()
             .await
             .map_err(|e| {
-                ImportanceAssessmentError::Stage3Failed(format!("LLM request failed: {}", e))
+                if e.is_timeout() {
+                    ImportanceAssessmentError::Timeout(format!("LLM request timed out: {}", e))
+                } else if e.is_connect() {
+                    ImportanceAssessmentError::Stage3Failed(format!(
+                        "Failed to connect to LLM service: {}",
+                        e
+                    ))
+                } else {
+                    ImportanceAssessmentError::Stage3Failed(format!("LLM request failed: {}", e))
+                }
             })?;
 
-        if !response.status().is_success() {
-            return Err(ImportanceAssessmentError::Stage3Failed(format!(
-                "LLM service returned status: {}",
-                response.status()
-            )));
-        }
-
-        let response_body: serde_json::Value = response.json().await.map_err(|e| {
-            ImportanceAssessmentError::Stage3Failed(format!("Failed to parse LLM response: {}", e))
+        let status = response.status();
+        let response_text = response.text().await.map_err(|e| {
+            ImportanceAssessmentError::Stage3Failed(format!("Failed to read response body: {}", e))
         })?;
 
-        response_body["choices"][0]["text"]
-            .as_str()
-            .ok_or_else(|| {
-                ImportanceAssessmentError::Stage3Failed("Invalid LLM response format".to_string())
+        if !status.is_success() {
+            // Handle different HTTP error codes
+            let error_msg = match status.as_u16() {
+                400 => format!("Bad request to LLM service: {}", response_text),
+                401 => "Unauthorized: Invalid API key or credentials".to_string(),
+                403 => "Forbidden: Insufficient permissions".to_string(),
+                429 => "Rate limit exceeded, will retry".to_string(),
+                500..=599 => format!("LLM service error ({}): {}", status, response_text),
+                _ => format!("LLM service returned status {}: {}", status, response_text),
+            };
+
+            return Err(ImportanceAssessmentError::Stage3Failed(error_msg));
+        }
+
+        // Parse response with proper error handling
+        let response_json: serde_json::Value =
+            serde_json::from_str(&response_text).map_err(|e| {
+                ImportanceAssessmentError::Stage3Failed(format!(
+                    "Failed to parse LLM response as JSON: {}",
+                    e
+                ))
+            })?;
+
+        // Extract response text with multiple fallback paths
+        let response_content = response_json
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|choice| {
+                // Try different response formats (OpenAI, local models, etc.)
+                choice
+                    .get("text")
+                    .or_else(|| choice.get("message").and_then(|m| m.get("content")))
+                    .or_else(|| choice.get("generated_text"))
             })
-            .map(|s| s.to_string())
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ImportanceAssessmentError::Stage3Failed(format!(
+                    "Invalid LLM response format. Expected 'choices[0].text' or similar. Got: {}",
+                    serde_json::to_string_pretty(&response_json)
+                        .unwrap_or_else(|_| "invalid JSON".to_string())
+                ))
+            })?
+            .trim()
+            .to_string();
+
+        // Validate response length
+        if response_content.is_empty() {
+            return Err(ImportanceAssessmentError::Stage3Failed(
+                "LLM returned empty response".to_string(),
+            ));
+        }
+
+        if response_content.len() > 10000 {
+            // 10KB response limit
+            warn!("LLM response was truncated due to excessive length");
+            return Ok(response_content[..10000].to_string());
+        }
+
+        Ok(response_content)
+    }
+
+    fn sanitize_llm_prompt(&self, prompt: &str) -> Result<String, ImportanceAssessmentError> {
+        // Basic prompt injection protection
+        let dangerous_patterns = [
+            "ignore previous instructions",
+            "ignore all previous",
+            "disregard previous",
+            "forget previous",
+            "new instructions:",
+            "system:",
+            "assistant:",
+            "user:",
+            "<|endoftext|>",
+            "###",
+            "---\n",
+        ];
+
+        let lower_prompt = prompt.to_lowercase();
+        for pattern in &dangerous_patterns {
+            if lower_prompt.contains(pattern) {
+                warn!("Potential prompt injection detected: {}", pattern);
+                return Err(ImportanceAssessmentError::Stage3Failed(
+                    "Prompt contains potentially malicious content".to_string(),
+                ));
+            }
+        }
+
+        // Remove or escape potentially dangerous characters
+        let sanitized = prompt
+            .replace('\0', "") // Remove null bytes
+            .replace("\x1b", "") // Remove escape sequences
+            .chars()
+            .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+            .collect::<String>();
+
+        // Validate final length
+        if sanitized.len() > 10000 {
+            return Err(ImportanceAssessmentError::Stage3Failed(
+                "Prompt too long after sanitization".to_string(),
+            ));
+        }
+
+        Ok(sanitized)
     }
 
     fn parse_llm_response(&self, response: &str) -> Result<(f64, f64), ImportanceAssessmentError> {
@@ -1273,7 +1830,8 @@ impl ImportanceAssessmentPipeline {
 
     /// Get current pipeline statistics
     pub async fn get_statistics(&self) -> PipelineStatistics {
-        let cache_size = self.embedding_cache.read().await.len();
+        let cache_size = self.embedding_cache.len();
+        let eviction_count = self.embedding_cache.eviction_count();
 
         PipelineStatistics {
             cache_size,
@@ -1285,6 +1843,7 @@ impl ImportanceAssessmentPipeline {
             completed_at_stage3: self.metrics.completed_at_stage3.get(),
             cache_hits: self.metrics.embedding_cache_hits.get(),
             cache_misses: self.metrics.embedding_cache_misses.get(),
+            cache_evictions: eviction_count,
             circuit_breaker_state: format!("{:?}", *self.circuit_breaker.state.read().await),
             llm_success_rate: {
                 let successes = self.metrics.llm_call_successes.get() as f64;
@@ -1301,8 +1860,7 @@ impl ImportanceAssessmentPipeline {
 
     /// Clear the embedding cache
     pub async fn clear_cache(&self) {
-        let mut cache = self.embedding_cache.write().await;
-        cache.clear();
+        self.embedding_cache.clear().await;
         self.metrics.embedding_cache_size.set(0);
         info!("Embedding cache cleared");
     }
@@ -1331,6 +1889,7 @@ pub struct PipelineStatistics {
     pub completed_at_stage3: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
+    pub cache_evictions: u64,
     pub circuit_breaker_state: String,
     pub llm_success_rate: f64,
 }
@@ -1383,6 +1942,8 @@ impl Default for ImportanceAssessmentConfig {
                 confidence_threshold: 0.7,
                 max_processing_time_ms: 100,
                 embedding_cache_ttl_seconds: 3600, // 1 hour
+                embedding_cache_max_size: 10000, // Maximum 10k cached embeddings
+                cache_eviction_threshold: 0.8, // Start evicting at 80% capacity
                 similarity_threshold: 0.7,
                 reference_embeddings: vec![], // Would be populated with pre-computed embeddings
             },

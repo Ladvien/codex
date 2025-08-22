@@ -530,9 +530,7 @@ impl DatabaseSetup {
                 }
             }
             Err(e) => {
-                health
-                    .issues
-                    .push(format!("Failed to check pgvector: {e}"));
+                health.issues.push(format!("Failed to check pgvector: {e}"));
             }
         }
 

@@ -6,43 +6,6 @@
 
 
 
-## HIGH-003: Fix Tier Migration Threshold Values
-
-**Story Type:** Bug  
-**Priority:** High  
-**Components:** Cognitive Processing Layer  
-**Estimated Points:** 2  
-
-### Description
-Tier migration thresholds in math_engine.rs don't match architecture specification. Current values cause incorrect memory migrations, affecting system performance and memory retention.
-
-### Acceptance Criteria
-- [ ] COLD_MIGRATION_THRESHOLD updated from 0.86 to 0.5
-- [ ] FROZEN_MIGRATION_THRESHOLD updated from 0.3 to 0.2
-- [ ] All references to these thresholds use correct values
-- [ ] Migration logic properly evaluates against new thresholds
-- [ ] Unit tests verify correct threshold application
-- [ ] Integration tests confirm proper tier migrations
-- [ ] No memories incorrectly retained or prematurely archived
-- [ ] Performance metrics show improved memory distribution
-- [ ] Documentation updated with correct threshold values
-
-### References
-- Architecture Document: Tier Migration Rules (Section 4.3)
-- Cognitive memory research on retention probabilities
-- Math engine specification for forgetting curves
-
-### Definition of Done
-- [ ] Code changes pass all unit tests
-- [ ] Integration tests pass with 100% success rate
-- [ ] Database migration tested on staging environment
-- [ ] Performance benchmarks meet specified latency targets
-- [ ] Code review completed by at least two team members
-- [ ] Documentation updated to reflect changes
-- [ ] No critical security vulnerabilities introduced
-- [ ] Changes deployed to development environment successfully
-
----
 
 ## HIGH-004: Optimize Database Connection Pool Configuration
 

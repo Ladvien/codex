@@ -405,10 +405,15 @@ impl Memory {
     }
 
     pub fn should_migrate(&self) -> bool {
+        use crate::memory::math_engine::MathEngine;
+
+        let engine = MathEngine::new();
+        let recall_prob = self.calculate_recall_probability().unwrap_or(0.0);
+
         match self.tier {
             MemoryTier::Working => {
                 // Migrate if recall probability drops below threshold
-                self.recall_probability.map_or(false, |p| p < 0.7)
+                recall_prob < 0.7
                     || self.importance_score < 0.3
                     || (self.last_accessed_at.is_some()
                         && Utc::now()
@@ -417,14 +422,14 @@ impl Memory {
                             > 24)
             }
             MemoryTier::Warm => {
-                // Migrate to cold if recall probability < 0.5
-                self.recall_probability.map_or(false, |p| p < 0.5)
+                // Use the configurable cold threshold from math engine
+                engine.should_migrate(recall_prob, "warm")
                     || (self.importance_score < 0.1
                         && Utc::now().signed_duration_since(self.updated_at).num_days() > 7)
             }
             MemoryTier::Cold => {
-                // Migrate to frozen if recall probability < 0.2
-                self.recall_probability.map_or(false, |p| p < 0.2)
+                // Use the configurable frozen threshold from math engine
+                engine.should_migrate(recall_prob, "cold")
             }
             MemoryTier::Frozen => false,
         }
@@ -439,29 +444,50 @@ impl Memory {
         }
     }
 
-    /// Calculate recall probability using forgetting curve mathematics
-    /// Based on: p(t) = [1 - exp(-r*e^(-t/gn))] / (1 - e^-1)
+    /// Calculate recall probability using the new math engine
+    /// This method now uses the optimized and more accurate math engine
+    /// with proper edge case handling and performance optimization.
     pub fn calculate_recall_probability(&self) -> Option<f64> {
-        let last_access = self.last_accessed_at?;
-        let time_hours = (Utc::now() - last_access).num_seconds() as f64 / 3600.0;
+        use crate::memory::math_engine::{MathEngine, MemoryParameters};
 
-        if self.consolidation_strength <= 0.0 || self.decay_rate <= 0.0 {
-            return Some(0.0);
+        let engine = MathEngine::new();
+        let params = MemoryParameters {
+            consolidation_strength: self.consolidation_strength,
+            decay_rate: self.decay_rate,
+            last_accessed_at: self.last_accessed_at,
+            created_at: self.created_at,
+            access_count: self.access_count,
+            importance_score: self.importance_score,
+        };
+
+        match engine.calculate_recall_probability(&params) {
+            Ok(result) => Some(result.recall_probability),
+            Err(_) => {
+                // Fallback to a conservative estimate if calculation fails
+                Some(0.1)
+            }
         }
-
-        let t_normalized = time_hours / self.consolidation_strength.max(0.1);
-        let exponent = -self.decay_rate * (-t_normalized).exp();
-        let probability = (1.0 - exponent.exp()) / (1.0 - (-1.0_f64).exp());
-
-        Some(probability.max(0.0).min(1.0))
     }
 
-    /// Update consolidation strength based on recall interval
-    /// Based on: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
+    /// Update consolidation strength using the new math engine
+    /// This method now uses the optimized and more accurate math engine
+    /// with proper error handling and performance optimization.
     pub fn update_consolidation_strength(&mut self, recall_interval: PgInterval) {
-        let time_hours = recall_interval.microseconds as f64 / 3_600_000_000.0; // Convert microseconds to hours
-        let strength_increment = (1.0 - (-time_hours).exp()) / (1.0 + (-time_hours).exp());
-        self.consolidation_strength = (self.consolidation_strength + strength_increment).min(10.0);
+        use crate::memory::math_engine::MathEngine;
+
+        let engine = MathEngine::new();
+
+        match engine.update_consolidation_strength(self.consolidation_strength, recall_interval) {
+            Ok(result) => {
+                self.consolidation_strength = result.new_consolidation_strength;
+            }
+            Err(_) => {
+                // Fallback to simple increment if calculation fails
+                let time_hours = recall_interval.microseconds as f64 / 3_600_000_000.0;
+                let increment = time_hours.min(1.0) * 0.1; // Conservative increment
+                self.consolidation_strength = (self.consolidation_strength + increment).min(10.0);
+            }
+        }
     }
 }
 
@@ -522,8 +548,8 @@ pub struct FrozenMemory {
     pub original_metadata: Option<serde_json::Value>, // Matches database
     pub freeze_reason: Option<String>,
     pub frozen_at: DateTime<Utc>,
-    pub unfreeze_count: Option<i32>, // Matches database
-    pub last_unfrozen_at: Option<DateTime<Utc>>, // Matches database  
+    pub unfreeze_count: Option<i32>,             // Matches database
+    pub last_unfrozen_at: Option<DateTime<Utc>>, // Matches database
     pub compression_ratio: Option<f64>,
 }
 

@@ -47,7 +47,6 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use thiserror::Error;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -56,28 +55,28 @@ use uuid::Uuid;
 pub struct ReflectionConfig {
     /// Importance threshold that triggers reflection
     pub importance_trigger_threshold: f64,
-    
+
     /// Maximum memories to analyze in one reflection session
     pub max_memories_per_reflection: usize,
-    
+
     /// Target number of insights per reflection
     pub target_insights_per_reflection: usize,
-    
+
     /// Minimum similarity for memory clustering
     pub clustering_similarity_threshold: f64,
-    
+
     /// Importance multiplier for generated insights
     pub insight_importance_multiplier: f64,
-    
+
     /// Maximum depth for knowledge graph traversal
     pub max_graph_depth: usize,
-    
+
     /// Minimum cluster size for insight generation
     pub min_cluster_size: usize,
-    
+
     /// Time window for temporal pattern analysis (days)
     pub temporal_analysis_window_days: i64,
-    
+
     /// Cooldown period between reflections (hours)
     pub reflection_cooldown_hours: i64,
 }
@@ -148,6 +147,7 @@ pub struct KnowledgeNode {
     pub id: Uuid,
     pub concept: String,
     pub node_type: NodeType,
+    #[serde(skip)]
     pub embedding: Option<Vector>,
     pub confidence: f64,
     pub connections: Vec<KnowledgeEdge>,
@@ -225,6 +225,7 @@ pub enum ReflectionStatus {
 pub struct ReflectionEngine {
     config: ReflectionConfig,
     repository: Arc<MemoryRepository>,
+    #[allow(dead_code)]
     knowledge_graph: KnowledgeGraph,
     last_reflection_time: Option<DateTime<Utc>>,
 }
@@ -250,19 +251,17 @@ impl ReflectionEngine {
         }
 
         // Calculate total importance since last reflection
-        let cutoff_time = self.last_reflection_time
+        let cutoff_time = self
+            .last_reflection_time
             .unwrap_or(Utc::now() - Duration::days(1));
 
         let recent_memories = self.get_recent_memories_since(cutoff_time).await?;
-        let total_importance: f64 = recent_memories.iter()
-            .map(|m| m.importance_score)
-            .sum();
+        let total_importance: f64 = recent_memories.iter().map(|m| m.importance_score).sum();
 
         if total_importance >= self.config.importance_trigger_threshold {
             return Ok(Some(format!(
                 "Importance threshold reached: {:.1} >= {:.1}",
-                total_importance,
-                self.config.importance_trigger_threshold
+                total_importance, self.config.importance_trigger_threshold
             )));
         }
 
@@ -280,11 +279,17 @@ impl ReflectionEngine {
     }
 
     /// Execute a complete reflection session
-    pub async fn execute_reflection(&mut self, trigger_reason: String) -> Result<ReflectionSession> {
+    pub async fn execute_reflection(
+        &mut self,
+        trigger_reason: String,
+    ) -> Result<ReflectionSession> {
         let session_id = Uuid::new_v4();
         let start_time = Utc::now();
 
-        info!("Starting reflection session {}: {}", session_id, trigger_reason);
+        info!(
+            "Starting reflection session {}: {}",
+            session_id, trigger_reason
+        );
 
         let mut session = ReflectionSession {
             id: session_id,
@@ -301,7 +306,7 @@ impl ReflectionEngine {
             Ok(_) => {
                 session.completion_status = ReflectionStatus::Completed;
                 self.last_reflection_time = Some(Utc::now());
-                
+
                 info!(
                     "Reflection session {} completed: {} insights generated from {} memories",
                     session_id,
@@ -323,7 +328,7 @@ impl ReflectionEngine {
     async fn execute_reflection_pipeline(&self, session: &mut ReflectionSession) -> Result<()> {
         // Step 1: Gather memories for analysis
         session.analyzed_memories = self.gather_reflection_memories().await?;
-        
+
         if session.analyzed_memories.is_empty() {
             return Err(MemoryError::InvalidRequest {
                 message: "No memories available for reflection".to_string(),
@@ -332,7 +337,7 @@ impl ReflectionEngine {
 
         // Step 2: Cluster memories by semantic similarity
         session.generated_clusters = self.cluster_memories(&session.analyzed_memories).await?;
-        
+
         // Step 3: Generate insights from clusters
         for cluster in &session.generated_clusters {
             let cluster_insights = self.generate_cluster_insights(cluster).await?;
@@ -340,24 +345,31 @@ impl ReflectionEngine {
         }
 
         // Step 4: Cross-cluster insight generation
-        let cross_cluster_insights = self.generate_cross_cluster_insights(&session.generated_clusters).await?;
+        let cross_cluster_insights = self
+            .generate_cross_cluster_insights(&session.generated_clusters)
+            .await?;
         session.generated_insights.extend(cross_cluster_insights);
 
         // Step 5: Update knowledge graph
-        session.knowledge_graph_updates = self.update_knowledge_graph(&session.generated_insights).await?;
+        session.knowledge_graph_updates = self
+            .update_knowledge_graph(&session.generated_insights)
+            .await?;
 
         // Step 6: Store insights as meta-memories
-        self.store_insights_as_memories(&session.generated_insights).await?;
+        self.store_insights_as_memories(&session.generated_insights)
+            .await?;
 
         // Step 7: Validate and prune insights to prevent loops
-        self.validate_and_prune_insights(&mut session.generated_insights).await?;
+        self.validate_and_prune_insights(&mut session.generated_insights)
+            .await?;
 
         Ok(())
     }
 
     /// Gather memories for reflection analysis
     async fn gather_reflection_memories(&self) -> Result<Vec<Memory>> {
-        let cutoff_time = self.last_reflection_time
+        let cutoff_time = self
+            .last_reflection_time
             .unwrap_or(Utc::now() - Duration::days(self.config.temporal_analysis_window_days));
 
         // Get recent high-importance memories
@@ -376,8 +388,10 @@ impl ReflectionEngine {
         };
 
         let search_response = self.repository.search_memories(search_request).await?;
-        
-        Ok(search_response.results.into_iter()
+
+        Ok(search_response
+            .results
+            .into_iter()
             .map(|result| result.memory)
             .collect())
     }
@@ -395,12 +409,13 @@ impl ReflectionEngine {
             let mut i = 0;
             while i < unassigned_memories.len() {
                 let memory = unassigned_memories[i];
-                
-                if let (Some(seed_embedding), Some(memory_embedding)) = 
-                    (&seed_memory.embedding, &memory.embedding) {
-                    
-                    let similarity = self.calculate_cosine_similarity(seed_embedding, memory_embedding)?;
-                    
+
+                if let (Some(seed_embedding), Some(memory_embedding)) =
+                    (&seed_memory.embedding, &memory.embedding)
+                {
+                    let similarity =
+                        self.calculate_cosine_similarity(seed_embedding, memory_embedding)?;
+
                     if similarity >= self.config.clustering_similarity_threshold {
                         cluster_memories.push(memory.clone());
                         unassigned_memories.remove(i);
@@ -425,16 +440,16 @@ impl ReflectionEngine {
     /// Create a memory cluster with computed properties
     async fn create_memory_cluster(&self, memories: Vec<Memory>) -> Result<MemoryCluster> {
         let cluster_id = Uuid::new_v4();
-        
+
         // Calculate centroid embedding if available
         let centroid_embedding = self.calculate_centroid_embedding(&memories)?;
-        
+
         // Calculate coherence score (average pairwise similarity)
         let coherence_score = self.calculate_cluster_coherence(&memories)?;
-        
+
         // Extract dominant concepts (simplified - would use NER/topic modeling in production)
         let dominant_concepts = self.extract_dominant_concepts(&memories).await?;
-        
+
         // Calculate temporal span
         let temporal_span = self.calculate_temporal_span(&memories);
 
@@ -476,13 +491,19 @@ impl ReflectionEngine {
     }
 
     /// Generate insights across multiple clusters
-    async fn generate_cross_cluster_insights(&self, clusters: &[MemoryCluster]) -> Result<Vec<Insight>> {
+    async fn generate_cross_cluster_insights(
+        &self,
+        clusters: &[MemoryCluster],
+    ) -> Result<Vec<Insight>> {
         let mut insights = Vec::new();
 
         // Analogy detection between clusters
         for i in 0..clusters.len() {
-            for j in i+1..clusters.len() {
-                if let Some(analogy_insight) = self.detect_cross_cluster_analogies(&clusters[i], &clusters[j]).await? {
+            for j in i + 1..clusters.len() {
+                if let Some(analogy_insight) = self
+                    .detect_cross_cluster_analogies(&clusters[i], &clusters[j])
+                    .await?
+                {
                     insights.push(analogy_insight);
                 }
             }
@@ -540,7 +561,8 @@ impl ReflectionEngine {
     /// Store insights as high-importance meta-memories
     async fn store_insights_as_memories(&self, insights: &[Insight]) -> Result<()> {
         for insight in insights {
-            let importance_score = insight.importance_score * self.config.insight_importance_multiplier;
+            let importance_score =
+                insight.importance_score * self.config.insight_importance_multiplier;
             let importance_score = importance_score.min(1.0); // Cap at 1.0
 
             let metadata = serde_json::json!({
@@ -555,7 +577,7 @@ impl ReflectionEngine {
 
             let create_request = CreateMemoryRequest {
                 content: insight.content.clone(),
-                embedding: None, // Would generate in production
+                embedding: None,                 // Would generate in production
                 tier: Some(MemoryTier::Working), // Start insights in working tier
                 importance_score: Some(importance_score),
                 metadata: Some(metadata),
@@ -609,7 +631,10 @@ impl ReflectionEngine {
         Ok(None)
     }
 
-    async fn generate_synthesis_insight(&self, _cluster: &MemoryCluster) -> Result<Option<Insight>> {
+    async fn generate_synthesis_insight(
+        &self,
+        _cluster: &MemoryCluster,
+    ) -> Result<Option<Insight>> {
         // Implementation would synthesize cluster concepts into higher-level understanding
         Ok(None)
     }
@@ -624,12 +649,19 @@ impl ReflectionEngine {
         Ok(None)
     }
 
-    async fn detect_cross_cluster_analogies(&self, _cluster1: &MemoryCluster, _cluster2: &MemoryCluster) -> Result<Option<Insight>> {
+    async fn detect_cross_cluster_analogies(
+        &self,
+        _cluster1: &MemoryCluster,
+        _cluster2: &MemoryCluster,
+    ) -> Result<Option<Insight>> {
         // Implementation would find analogies between different concept clusters
         Ok(None)
     }
 
-    async fn detect_causal_relationships(&self, _clusters: &[MemoryCluster]) -> Result<Vec<Insight>> {
+    async fn detect_causal_relationships(
+        &self,
+        _clusters: &[MemoryCluster],
+    ) -> Result<Vec<Insight>> {
         // Implementation would identify causal relationships across clusters
         Ok(Vec::new())
     }
@@ -663,17 +695,27 @@ impl ReflectionEngine {
     fn calculate_cosine_similarity(&self, vec1: &Vector, vec2: &Vector) -> Result<f64> {
         let slice1 = vec1.as_slice();
         let slice2 = vec2.as_slice();
-        
+
         if slice1.len() != slice2.len() {
             return Ok(0.0);
         }
 
-        let dot_product: f64 = slice1.iter().zip(slice2.iter())
+        let dot_product: f64 = slice1
+            .iter()
+            .zip(slice2.iter())
             .map(|(a, b)| (*a as f64) * (*b as f64))
             .sum();
 
-        let norm1: f64 = slice1.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
-        let norm2: f64 = slice2.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+        let norm1: f64 = slice1
+            .iter()
+            .map(|x| (*x as f64).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let norm2: f64 = slice2
+            .iter()
+            .map(|x| (*x as f64).powi(2))
+            .sum::<f64>()
+            .sqrt();
 
         if norm1 == 0.0 || norm2 == 0.0 {
             return Ok(0.0);
@@ -683,7 +725,8 @@ impl ReflectionEngine {
     }
 
     fn calculate_centroid_embedding(&self, memories: &[Memory]) -> Result<Option<Vector>> {
-        let embeddings: Vec<_> = memories.iter()
+        let embeddings: Vec<_> = memories
+            .iter()
             .filter_map(|m| m.embedding.as_ref())
             .collect();
 
@@ -708,7 +751,8 @@ impl ReflectionEngine {
     }
 
     fn calculate_cluster_coherence(&self, memories: &[Memory]) -> Result<f64> {
-        let embeddings: Vec<_> = memories.iter()
+        let embeddings: Vec<_> = memories
+            .iter()
             .filter_map(|m| m.embedding.as_ref())
             .collect();
 
@@ -720,14 +764,18 @@ impl ReflectionEngine {
         let mut pair_count = 0;
 
         for i in 0..embeddings.len() {
-            for j in i+1..embeddings.len() {
+            for j in i + 1..embeddings.len() {
                 let similarity = self.calculate_cosine_similarity(embeddings[i], embeddings[j])?;
                 total_similarity += similarity;
                 pair_count += 1;
             }
         }
 
-        Ok(if pair_count > 0 { total_similarity / pair_count as f64 } else { 0.0 })
+        Ok(if pair_count > 0 {
+            total_similarity / pair_count as f64
+        } else {
+            0.0
+        })
     }
 
     async fn extract_dominant_concepts(&self, _memories: &[Memory]) -> Result<Vec<String>> {
@@ -735,7 +783,10 @@ impl ReflectionEngine {
         Ok(vec!["concept1".to_string(), "concept2".to_string()])
     }
 
-    fn calculate_temporal_span(&self, memories: &[Memory]) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    fn calculate_temporal_span(
+        &self,
+        memories: &[Memory],
+    ) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
         if memories.is_empty() {
             return None;
         }
@@ -768,12 +819,12 @@ impl ReflectionEngine {
     async fn validate_insight_quality(&self, insight: &Insight) -> Result<bool> {
         // Validate based on metrics
         let metrics = &insight.validation_metrics;
-        
+
         // Minimum thresholds for quality
-        Ok(metrics.novelty_score > 0.3 &&
-           metrics.coherence_score > 0.5 &&
-           metrics.evidence_strength > 0.4 &&
-           insight.confidence_score > 0.6)
+        Ok(metrics.novelty_score > 0.3
+            && metrics.coherence_score > 0.5
+            && metrics.evidence_strength > 0.4
+            && insight.confidence_score > 0.6)
     }
 }
 
@@ -797,7 +848,7 @@ impl KnowledgeGraph {
             .entry(node.concept.clone())
             .or_insert_with(Vec::new)
             .push(node.id);
-        
+
         self.nodes.insert(node.id, node);
     }
 
@@ -856,7 +907,7 @@ mod tests {
     #[test]
     fn test_knowledge_graph_creation() {
         let mut graph = KnowledgeGraph::new();
-        
+
         let node = KnowledgeNode {
             id: Uuid::new_v4(),
             concept: "test_concept".to_string(),
@@ -869,7 +920,7 @@ mod tests {
 
         let node_id = node.id;
         graph.add_node(node);
-        
+
         assert!(graph.nodes.contains_key(&node_id));
         assert!(graph.concept_index.contains_key("test_concept"));
     }

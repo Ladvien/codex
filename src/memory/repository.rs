@@ -321,7 +321,7 @@ impl MemoryRepository {
                     0.2
                 )
             WHERE status = 'active' AND embedding IS NOT NULL
-            "#
+            "#,
         )
         .execute(&self.pool)
         .await?;
@@ -1207,7 +1207,7 @@ impl MemoryRepository {
     /// Batch update three-component scores for all active memories
     pub async fn batch_update_three_component_scores(&self) -> Result<i64> {
         let start_time = Instant::now();
-        
+
         let result = sqlx::query(
             r#"
             UPDATE memories 
@@ -1219,7 +1219,7 @@ impl MemoryRepository {
                 ),
                 updated_at = NOW()
             WHERE status = 'active'
-            "#
+            "#,
         )
         .execute(&self.pool)
         .await?;
@@ -1248,31 +1248,39 @@ impl MemoryRepository {
         let importance_w = importance_weight.unwrap_or(0.333);
         let relevance_w = relevance_weight.unwrap_or(0.334);
 
-        let mut query_parts = vec![
-            format!(
+        let query = if let Some(tier) = tier {
+            sqlx::query_as::<_, Memory>(
                 r#"
                 SELECT m.*
                 FROM memories m
                 WHERE m.status = 'active'
+                  AND m.tier = $1
+                ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, $2, $3, $4) DESC, m.updated_at DESC
+                LIMIT $5
                 "#
             )
-        ];
+            .bind(format!("{:?}", tier).to_lowercase())
+            .bind(recency_w)
+            .bind(importance_w)
+            .bind(relevance_w)
+            .bind(limit as i64)
+        } else {
+            sqlx::query_as::<_, Memory>(
+                r#"
+                SELECT m.*
+                FROM memories m
+                WHERE m.status = 'active'
+                ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, $1, $2, $3) DESC, m.updated_at DESC
+                LIMIT $4
+                "#
+            )
+            .bind(recency_w)
+            .bind(importance_w)
+            .bind(relevance_w)
+            .bind(limit as i64)
+        };
 
-        if let Some(tier) = tier {
-            query_parts.push(format!("AND m.tier = '{tier:?}'"));
-        }
-
-        query_parts.push(format!(
-            "ORDER BY calculate_combined_score(m.recency_score, m.importance_score, m.relevance_score, {}, {}, {}) DESC, m.updated_at DESC",
-            recency_w, importance_w, relevance_w
-        ));
-        query_parts.push(format!("LIMIT {limit}"));
-
-        let query = query_parts.join(" ");
-        
-        let memories = sqlx::query_as::<_, Memory>(&query)
-            .fetch_all(&self.pool)
-            .await?;
+        let memories = query.fetch_all(&self.pool).await?;
 
         debug!(
             "Retrieved {} memories ranked by three-component score for tier {:?}",
@@ -1281,6 +1289,225 @@ impl MemoryRepository {
         );
 
         Ok(memories)
+    }
+
+    // Simple Consolidation Integration Methods
+
+    /// Get memories for consolidation processing with batch optimization
+    pub async fn get_memories_for_consolidation(
+        &self,
+        tier: Option<MemoryTier>,
+        batch_size: usize,
+        min_hours_since_last_processing: f64,
+    ) -> Result<Vec<Memory>> {
+        let tier_filter = if let Some(tier) = tier {
+            format!("AND tier = '{:?}'", tier).to_lowercase()
+        } else {
+            String::new()
+        };
+
+        let query = format!(
+            r#"
+            SELECT * FROM memories 
+            WHERE status = 'active' 
+            AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '{} hours')
+            {}
+            ORDER BY 
+                CASE 
+                    WHEN recall_probability IS NULL THEN 1
+                    WHEN recall_probability < 0.86 THEN 2
+                    ELSE 3
+                END,
+                last_accessed_at ASC NULLS FIRST,
+                consolidation_strength ASC
+            LIMIT $1
+            "#,
+            min_hours_since_last_processing, tier_filter
+        );
+
+        let memories = sqlx::query_as::<_, Memory>(&query)
+            .bind(batch_size as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(memories)
+    }
+
+    /// Batch update consolidation values for multiple memories
+    pub async fn batch_update_consolidation(
+        &self,
+        updates: &[(Uuid, f64, f64)], // (id, new_strength, recall_probability)
+    ) -> Result<usize> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let mut updated_count = 0;
+
+        for (memory_id, new_strength, recall_prob) in updates {
+            let result = sqlx::query(
+                r#"
+                UPDATE memories 
+                SET consolidation_strength = $1, 
+                    recall_probability = $2,
+                    updated_at = NOW()
+                WHERE id = $3 AND status = 'active'
+                "#,
+            )
+            .bind(new_strength)
+            .bind(recall_prob)
+            .bind(memory_id)
+            .execute(&mut *tx)
+            .await?;
+
+            updated_count += result.rows_affected() as usize;
+        }
+
+        tx.commit().await?;
+        Ok(updated_count)
+    }
+
+    /// Batch migrate memories to new tiers
+    pub async fn batch_migrate_memories(
+        &self,
+        migrations: &[(Uuid, MemoryTier)], // (memory_id, target_tier)
+    ) -> Result<usize> {
+        if migrations.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let mut migrated_count = 0;
+
+        for (memory_id, target_tier) in migrations {
+            // Get current tier for migration logging
+            let current_memory: Option<(MemoryTier,)> =
+                sqlx::query_as("SELECT tier FROM memories WHERE id = $1 AND status = 'active'")
+                    .bind(memory_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+
+            if let Some((current_tier,)) = current_memory {
+                // Update the tier
+                let result = sqlx::query(
+                    r#"
+                    UPDATE memories 
+                    SET tier = $1, updated_at = NOW()
+                    WHERE id = $2 AND status = 'active'
+                    "#,
+                )
+                .bind(target_tier)
+                .bind(memory_id)
+                .execute(&mut *tx)
+                .await?;
+
+                if result.rows_affected() > 0 {
+                    migrated_count += 1;
+
+                    // Log the migration
+                    self.record_migration(
+                        &mut tx,
+                        *memory_id,
+                        current_tier,
+                        *target_tier,
+                        Some("Simple consolidation automatic migration".to_string()),
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        tx.commit().await?;
+        Ok(migrated_count)
+    }
+
+    /// Get migration candidates using simple consolidation formula
+    pub async fn get_simple_consolidation_candidates(
+        &self,
+        tier: Option<MemoryTier>,
+        threshold: f64,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let tier_filter = if let Some(tier) = tier {
+            format!("AND tier = '{:?}'", tier).to_lowercase()
+        } else {
+            String::new()
+        };
+
+        let query = format!(
+            r#"
+            SELECT * FROM memories 
+            WHERE status = 'active' 
+            AND (recall_probability < $1 OR recall_probability IS NULL)
+            {}
+            ORDER BY 
+                COALESCE(recall_probability, 0) ASC,
+                consolidation_strength ASC,
+                last_accessed_at ASC NULLS FIRST
+            LIMIT $2
+            "#,
+            tier_filter
+        );
+
+        let memories = sqlx::query_as::<_, Memory>(&query)
+            .bind(threshold)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(memories)
+    }
+
+    /// Log simple consolidation event with performance metrics
+    pub async fn log_simple_consolidation_event(
+        &self,
+        memory_id: Uuid,
+        previous_strength: f64,
+        new_strength: f64,
+        previous_probability: Option<f64>,
+        new_probability: f64,
+        processing_time_ms: u64,
+    ) -> Result<()> {
+        let context = serde_json::json!({
+            "engine": "simple_consolidation",
+            "processing_time_ms": processing_time_ms,
+            "strength_delta": new_strength - previous_strength,
+            "probability_delta": new_probability - previous_probability.unwrap_or(0.0)
+        });
+
+        self.log_consolidation_event(
+            memory_id,
+            "simple_consolidation",
+            previous_strength,
+            new_strength,
+            previous_probability,
+            Some(new_probability),
+            None, // Simple consolidation doesn't track recall intervals
+            context,
+        )
+        .await
+    }
+
+    /// Get simple consolidation statistics
+    pub async fn get_simple_consolidation_stats(&self) -> Result<SimpleConsolidationStats> {
+        let stats = sqlx::query_as::<_, SimpleConsolidationStats>(
+            r#"
+            SELECT 
+                COUNT(*) FILTER (WHERE recall_probability < 0.86) as migration_candidates,
+                COUNT(*) FILTER (WHERE consolidation_strength > 5.0) as highly_consolidated,
+                AVG(consolidation_strength) as avg_consolidation_strength,
+                AVG(recall_probability) as avg_recall_probability,
+                COUNT(*) FILTER (WHERE last_accessed_at > NOW() - INTERVAL '24 hours') as recently_accessed,
+                COUNT(*) as total_active_memories
+            FROM memories 
+            WHERE status = 'active'
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(stats)
     }
 }
 
@@ -1294,6 +1521,16 @@ pub struct MemoryStatistics {
     pub avg_importance: Option<f64>,
     pub max_access_count: Option<i32>,
     pub avg_access_count: Option<f64>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct SimpleConsolidationStats {
+    pub migration_candidates: Option<i64>,
+    pub highly_consolidated: Option<i64>,
+    pub avg_consolidation_strength: Option<f64>,
+    pub avg_recall_probability: Option<f64>,
+    pub recently_accessed: Option<i64>,
+    pub total_active_memories: Option<i64>,
 }
 
 #[cfg(test)]
@@ -1314,13 +1551,19 @@ mod tests {
     fn test_should_migrate() {
         let mut memory = Memory::default();
 
-        // Working tier with low importance should migrate
+        // Working tier with very low importance and old memory should migrate
         memory.tier = MemoryTier::Working;
-        memory.importance_score = 0.2;
+        memory.importance_score = 0.01;
+        memory.consolidation_strength = 0.1;
+        memory.access_count = 0;
+        memory.last_accessed_at = Some(Utc::now() - chrono::Duration::days(30)); // Very old
         assert!(memory.should_migrate());
 
         // Working tier with high importance should not migrate
-        memory.importance_score = 0.8;
+        memory.importance_score = 0.9;
+        memory.consolidation_strength = 8.0;
+        memory.access_count = 100;
+        memory.last_accessed_at = Some(Utc::now()); // Just accessed
         assert!(!memory.should_migrate());
 
         // Cold tier with very low importance may migrate to frozen
@@ -1328,9 +1571,9 @@ mod tests {
         memory.tier = MemoryTier::Cold;
         memory.importance_score = 0.0;
         memory.last_accessed_at = Some(Utc::now() - chrono::Duration::days(30)); // Old memory
-        // This may or may not migrate depending on calculated recall probability
-        // So we test both scenarios
-        
+                                                                                 // This may or may not migrate depending on calculated recall probability
+                                                                                 // So we test both scenarios
+
         // Test Frozen tier - should never migrate
         memory.tier = MemoryTier::Frozen;
         assert!(!memory.should_migrate());

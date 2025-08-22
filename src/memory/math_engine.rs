@@ -248,16 +248,8 @@ impl MathEngine {
         let time_since_access =
             (Utc::now() - last_access).num_seconds() as f64 / constants::SECONDS_PER_HOUR;
 
-        // Handle edge case: very recent access (< 1 minute)
-        if time_since_access < 1.0 / 60.0 {
-            let calculation_time = start_time.elapsed().as_millis() as u64;
-            return Ok(RecallCalculationResult {
-                recall_probability: 1.0,
-                time_since_access_hours: time_since_access,
-                normalized_time: 0.0,
-                calculation_time_ms: calculation_time,
-            });
-        }
+        // Note: Removed hard-coded bypass for recent access to ensure mathematical consistency
+        // The forgetting curve formula handles small time values correctly
 
         // Normalize time by consolidation strength
         let consolidation_strength = params
@@ -590,16 +582,17 @@ impl MathEngine {
         Ok(numerator / denominator)
     }
 
-    /// Calculate probability for new/never-accessed memories
+    /// Calculate probability for new/never-accessed memories using consistent forgetting curve
     fn calculate_new_memory_probability(
         &self,
         time_since_creation: f64,
         params: &MemoryParameters,
     ) -> Result<f64> {
-        // For new memories, use a simplified model based on importance and time
-        let base_probability = params.importance_score;
-        let time_decay = (-time_since_creation / 24.0).exp(); // 24-hour half-life for new memories
-        Ok((base_probability * time_decay).max(0.0).min(1.0))
+        // Use the same forgetting curve formula for consistency
+        // For new memories, use creation time with adjusted consolidation strength
+        let adjusted_consolidation = params.consolidation_strength * params.importance_score;
+        let normalized_time = time_since_creation / adjusted_consolidation.max(0.1);
+        self.forgetting_curve_formula(normalized_time, params.decay_rate)
     }
 
     /// Validate memory parameters
@@ -710,7 +703,6 @@ pub mod benchmarks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
     use chrono::Duration;
     use proptest::prelude::*;
 
@@ -784,7 +776,14 @@ mod tests {
 
         let result = engine.calculate_recall_probability(&params).unwrap();
 
-        assert_relative_eq!(result.recall_probability, 1.0, epsilon = 0.001);
+        // Very recent access should have very high recall probability (close to 1.0)
+        // but now uses the actual mathematical formula instead of hard-coded 1.0
+        assert!(
+            result.recall_probability > 0.99,
+            "Very recent access should have >99% recall probability, got {}",
+            result.recall_probability
+        );
+        assert!(result.recall_probability <= 1.0);
     }
 
     #[test]

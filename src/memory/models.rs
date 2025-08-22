@@ -411,34 +411,43 @@ impl Memory {
         hex::encode(hasher.finalize())
     }
 
+    /// Get recall count (alias for access_count)
+    pub fn recall_count(&self) -> i32 {
+        self.access_count
+    }
+
     pub fn should_migrate(&self) -> bool {
-        use crate::memory::math_engine::MathEngine;
+        use crate::memory::simple_consolidation::{
+            SimpleConsolidationConfig, SimpleConsolidationEngine,
+        };
 
-        let engine = MathEngine::new();
-        let recall_prob = self.calculate_recall_probability().unwrap_or(0.0);
+        let config = SimpleConsolidationConfig::default();
+        let engine = SimpleConsolidationEngine::new(config);
 
-        match self.tier {
-            MemoryTier::Working => {
-                // Migrate if recall probability drops below threshold
-                recall_prob < 0.7
-                    || self.importance_score < 0.3
-                    || (self.last_accessed_at.is_some()
-                        && Utc::now()
-                            .signed_duration_since(self.last_accessed_at.unwrap())
-                            .num_hours()
-                            > 24)
+        // Use the simple consolidation engine to calculate recall probability
+        match engine.calculate_recall_probability(self, None) {
+            Ok(recall_prob) => recall_prob < 0.86, // Story 2 threshold
+            Err(_) => {
+                // Fallback to basic heuristics if calculation fails
+                match self.tier {
+                    MemoryTier::Working => {
+                        self.importance_score < 0.3
+                            || (self.last_accessed_at.is_some()
+                                && Utc::now()
+                                    .signed_duration_since(self.last_accessed_at.unwrap())
+                                    .num_hours()
+                                    > 24)
+                    }
+                    MemoryTier::Warm => {
+                        self.importance_score < 0.1
+                            && Utc::now().signed_duration_since(self.updated_at).num_days() > 7
+                    }
+                    MemoryTier::Cold => {
+                        Utc::now().signed_duration_since(self.updated_at).num_days() > 30
+                    }
+                    MemoryTier::Frozen => false,
+                }
             }
-            MemoryTier::Warm => {
-                // Use the configurable cold threshold from math engine
-                engine.should_migrate(recall_prob, "warm")
-                    || (self.importance_score < 0.1
-                        && Utc::now().signed_duration_since(self.updated_at).num_days() > 7)
-            }
-            MemoryTier::Cold => {
-                // Use the configurable frozen threshold from math engine
-                engine.should_migrate(recall_prob, "cold")
-            }
-            MemoryTier::Frozen => false,
         }
     }
 
@@ -471,11 +480,14 @@ impl Memory {
             Ok(result) => Some(result.recall_probability),
             Err(e) => {
                 tracing::warn!(
-                    "Recall probability calculation failed for memory {}: {}. Using fallback.", 
-                    self.id, e
+                    "Recall probability calculation failed for memory {}: {}. Using fallback.",
+                    self.id,
+                    e
                 );
                 // Use mathematically principled fallback based on importance and consolidation
-                let fallback = (self.importance_score * self.consolidation_strength / 10.0).min(1.0).max(0.0);
+                let fallback = (self.importance_score * self.consolidation_strength / 10.0)
+                    .min(1.0)
+                    .max(0.0);
                 Some(fallback)
             }
         }

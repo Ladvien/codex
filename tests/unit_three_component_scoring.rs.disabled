@@ -1,0 +1,392 @@
+use chrono::{Duration, Utc};
+use codex_memory::memory::models::{Memory, Status, Tier};
+use codex_memory::memory::three_component_scoring::{
+    ScoringContext, ThreeComponentConfig, ThreeComponentEngine,
+};
+use pgvector::Vector;
+use std::collections::HashMap;
+use uuid::Uuid;
+
+fn create_test_memory(hours_ago: i64, importance: f64, access_count: i32) -> Memory {
+    let now = Utc::now();
+    Memory {
+        id: Uuid::new_v4(),
+        content: "Test memory content".to_string(),
+        content_type: "text".to_string(),
+        metadata: serde_json::json!({}),
+        tier: Tier::Working,
+        status: Status::Active,
+        importance_score: importance,
+        recency_score: 0.5,   // Will be calculated
+        relevance_score: 0.5, // Will be calculated
+        access_count,
+        last_accessed_at: Some(now - Duration::hours(hours_ago)),
+        created_at: now - Duration::hours(hours_ago * 2),
+        updated_at: now - Duration::hours(hours_ago),
+        embedding: None,
+        tags: vec![],
+        related_memory_ids: vec![],
+        summary_embedding: None,
+        consolidation_strength: Some(1.0),
+        decay_rate: Some(1.0),
+        recall_probability: Some(0.8),
+        last_recall_interval: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_recency_score_calculation() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        // Test fresh memory (0 hours ago)
+        let fresh_memory = create_test_memory(0, 0.5, 0);
+        let score = engine.calculate_recency_score(&fresh_memory, None).unwrap();
+        assert!(
+            score > 0.99,
+            "Fresh memory should have recency score > 0.99, got {}",
+            score
+        );
+
+        // Test old memory (168 hours = 1 week ago)
+        let old_memory = create_test_memory(168, 0.5, 0);
+        let score = engine.calculate_recency_score(&old_memory, None).unwrap();
+        assert!(
+            score < 0.5,
+            "Week-old memory should have recency score < 0.5, got {}",
+            score
+        );
+
+        // Test custom decay lambda
+        let score_custom = engine
+            .calculate_recency_score(&old_memory, Some(0.001))
+            .unwrap();
+        assert!(
+            score_custom > score,
+            "Lower decay lambda should result in higher score"
+        );
+    }
+
+    #[test]
+    fn test_importance_score_normalization() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        // Test boundary values
+        let mut memory = create_test_memory(1, 0.0, 0);
+        let score = engine.calculate_importance_score(&memory).unwrap();
+        assert_eq!(score, 0.0, "Importance 0.0 should remain 0.0");
+
+        memory.importance_score = 1.0;
+        let score = engine.calculate_importance_score(&memory).unwrap();
+        assert_eq!(score, 1.0, "Importance 1.0 should remain 1.0");
+
+        // Test out-of-bounds values
+        memory.importance_score = 1.5;
+        let score = engine.calculate_importance_score(&memory).unwrap();
+        assert_eq!(score, 1.0, "Importance > 1.0 should be clamped to 1.0");
+
+        memory.importance_score = -0.5;
+        let score = engine.calculate_importance_score(&memory).unwrap();
+        assert_eq!(score, 0.0, "Importance < 0.0 should be clamped to 0.0");
+    }
+
+    #[test]
+    fn test_relevance_score_with_context() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(1, 0.8, 50);
+
+        // Test without context
+        let mut context = ScoringContext {
+            query_embedding: None,
+            context_factors: HashMap::new(),
+            time_reference: None,
+        };
+
+        let (score_no_context, _) = engine.calculate_relevance_score(&memory, &context).unwrap();
+        assert!(score_no_context > 0.0 && score_no_context <= 1.0);
+
+        // Test with context factors
+        context
+            .context_factors
+            .insert("user_preference".to_string(), 0.9);
+        context
+            .context_factors
+            .insert("task_relevance".to_string(), 0.7);
+
+        let (score_with_context, details) =
+            engine.calculate_relevance_score(&memory, &context).unwrap();
+        assert!(
+            score_with_context >= score_no_context,
+            "Context should increase relevance"
+        );
+        assert_eq!(details.context_factors_applied.len(), 2);
+    }
+
+    #[test]
+    fn test_relevance_with_embeddings() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        // Create memory with embedding
+        let mut memory = create_test_memory(1, 0.5, 10);
+        let embedding_vec = vec![0.5; 384]; // 384-dimensional embedding
+        memory.embedding = Some(Vector::from(embedding_vec.clone()));
+
+        // Create similar query embedding
+        let mut query_vec = embedding_vec.clone();
+        query_vec[0] = 0.6; // Slightly different
+
+        let context = ScoringContext {
+            query_embedding: Some(Vector::from(query_vec)),
+            context_factors: HashMap::new(),
+            time_reference: None,
+        };
+
+        let (score, details) = engine.calculate_relevance_score(&memory, &context).unwrap();
+        assert!(score > 0.8, "Similar embeddings should have high relevance");
+        assert!(details.semantic_similarity.is_some());
+    }
+
+    #[test]
+    fn test_combined_score_calculation() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(24, 0.8, 30); // 1 day old, high importance, moderate access
+        let context = ScoringContext {
+            query_embedding: None,
+            context_factors: HashMap::new(),
+            time_reference: None,
+        };
+
+        // Test with default weights
+        let result = engine
+            .calculate_combined_score(&memory, &context, false)
+            .unwrap();
+        assert!(result.combined_score >= 0.0 && result.combined_score <= 1.0);
+        assert_eq!(result.recency_weight, 0.333);
+        assert_eq!(result.importance_weight, 0.333);
+        assert_eq!(result.relevance_weight, 0.334);
+
+        // Test weight normalization
+        let result_sum = result.recency_weight + result.importance_weight + result.relevance_weight;
+        assert!(
+            (result_sum - 1.0).abs() < 1e-10,
+            "Weights should sum to 1.0"
+        );
+    }
+
+    #[test]
+    fn test_custom_weight_configuration() {
+        let mut config = ThreeComponentConfig::default();
+        config.recency_weight = 0.5;
+        config.importance_weight = 0.3;
+        config.relevance_weight = 0.2;
+
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(1, 0.5, 10);
+        let context = ScoringContext::default();
+
+        let result = engine
+            .calculate_combined_score(&memory, &context, false)
+            .unwrap();
+        assert_eq!(result.recency_weight, 0.5);
+        assert_eq!(result.importance_weight, 0.3);
+        assert_eq!(result.relevance_weight, 0.2);
+    }
+
+    #[test]
+    fn test_batch_scoring() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memories = vec![
+            create_test_memory(0, 1.0, 100), // Fresh, very important, high access
+            create_test_memory(48, 0.5, 10), // 2 days old, medium importance, low access
+            create_test_memory(168, 0.1, 1), // 1 week old, low importance, minimal access
+        ];
+
+        let context = ScoringContext::default();
+        let results = engine
+            .batch_calculate_scores(&memories, &context, false)
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+
+        // Verify ordering (first should have highest score)
+        assert!(results[0].combined_score > results[1].combined_score);
+        assert!(results[1].combined_score > results[2].combined_score);
+    }
+
+    #[test]
+    fn test_scoring_explanation() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(12, 0.7, 25);
+        let context = ScoringContext::default();
+
+        let result = engine
+            .calculate_combined_score(&memory, &context, true)
+            .unwrap();
+
+        // When explain=true, explanation should be populated
+        assert!(result.explanation.is_some());
+        let explanation = result.explanation.unwrap();
+
+        assert!(explanation.contains("Recency"));
+        assert!(explanation.contains("Importance"));
+        assert!(explanation.contains("Relevance"));
+        assert!(explanation.contains("Combined"));
+    }
+
+    #[test]
+    fn test_edge_case_no_last_accessed() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let mut memory = create_test_memory(24, 0.5, 0);
+        memory.last_accessed_at = None; // No last access time
+
+        // Should fall back to created_at
+        let score = engine.calculate_recency_score(&memory, None).unwrap();
+        assert!(
+            score > 0.0 && score <= 1.0,
+            "Should handle missing last_accessed_at"
+        );
+    }
+
+    #[test]
+    fn test_zero_access_count() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(1, 0.5, 0);
+        let context = ScoringContext::default();
+
+        let (relevance, details) = engine.calculate_relevance_score(&memory, &context).unwrap();
+        assert!(
+            relevance > 0.0,
+            "Should handle zero access count gracefully"
+        );
+        assert_eq!(details.access_pattern_score, 0.0);
+    }
+
+    #[test]
+    fn test_cosine_similarity_normalization() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        // Test orthogonal vectors (should give 0.5 after normalization)
+        let vec1 = Vector::from(vec![1.0, 0.0]);
+        let vec2 = Vector::from(vec![0.0, 1.0]);
+
+        let similarity = engine.calculate_cosine_similarity(&vec1, &vec2).unwrap();
+        assert!(
+            (similarity - 0.5).abs() < 1e-10,
+            "Orthogonal vectors should give 0.5"
+        );
+
+        // Test identical vectors (should give 1.0)
+        let similarity = engine.calculate_cosine_similarity(&vec1, &vec1).unwrap();
+        assert!(
+            (similarity - 1.0).abs() < 1e-10,
+            "Identical vectors should give 1.0"
+        );
+
+        // Test opposite vectors (should give 0.0 after normalization)
+        let vec3 = Vector::from(vec![-1.0, 0.0]);
+        let similarity = engine.calculate_cosine_similarity(&vec1, &vec3).unwrap();
+        assert!(
+            (similarity - 0.0).abs() < 1e-10,
+            "Opposite vectors should give 0.0"
+        );
+    }
+
+    #[test]
+    fn test_performance_targets() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let memory = create_test_memory(1, 0.5, 10);
+        let context = ScoringContext::default();
+
+        // Measure single score calculation time
+        let start = std::time::Instant::now();
+        let _ = engine
+            .calculate_combined_score(&memory, &context, false)
+            .unwrap();
+        let duration = start.elapsed();
+
+        // Should complete within 5ms (performance target)
+        assert!(
+            duration.as_millis() < 5,
+            "Single score calculation took {:?}",
+            duration
+        );
+
+        // Test batch performance
+        let memories: Vec<Memory> = (0..100)
+            .map(|i| create_test_memory(i, 0.5, i as i32))
+            .collect();
+
+        let start = std::time::Instant::now();
+        let _ = engine
+            .batch_calculate_scores(&memories, &context, false)
+            .unwrap();
+        let duration = start.elapsed();
+
+        // Should complete 100 memories within reasonable time
+        assert!(
+            duration.as_millis() < 100,
+            "Batch scoring of 100 memories took {:?}",
+            duration
+        );
+    }
+
+    #[test]
+    fn test_tier_specific_scoring() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let mut working_memory = create_test_memory(1, 0.8, 50);
+        working_memory.tier = Tier::Working;
+
+        let mut warm_memory = working_memory.clone();
+        warm_memory.tier = Tier::Warm;
+
+        let mut cold_memory = working_memory.clone();
+        cold_memory.tier = Tier::Cold;
+
+        let context = ScoringContext::default();
+
+        // All memories should score correctly regardless of tier
+        for memory in &[working_memory, warm_memory, cold_memory] {
+            let result = engine
+                .calculate_combined_score(memory, &context, false)
+                .unwrap();
+            assert!(result.combined_score >= 0.0 && result.combined_score <= 1.0);
+        }
+    }
+
+    #[test]
+    fn test_invalid_embedding_dimensions() {
+        let config = ThreeComponentConfig::default();
+        let engine = ThreeComponentEngine::new(config).unwrap();
+
+        let vec1 = Vector::from(vec![1.0, 2.0, 3.0]);
+        let vec2 = Vector::from(vec![1.0, 2.0]); // Different dimension
+
+        // Should handle gracefully (implementation would need dimension check)
+        let result = engine.calculate_cosine_similarity(&vec1, &vec2);
+        assert!(result.is_err() || result.unwrap() == 0.0);
+    }
+}

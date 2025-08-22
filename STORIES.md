@@ -1,342 +1,344 @@
-## Epic: Implement Human-Like Memory Consolidation & Cold Storage System
+# Epic: Upgrade Memory System to SOTA Cognitive Architecture
 
-
-### Story 2: Consolidation Mathematics Engine
-**Assignee:** Algorithm Subagent  
-**Story Points:** 8  
-**Priority:** Critical
-
-**Description:**
-Implement the mathematical models for memory decay, consolidation, and recall probability calculations.
-
-**Acceptance Criteria:**
-- [ ] Implement forgetting curve formula: p(t) = [1 - exp(-r*e^(-t/gn))] / (1 - e^-1)
-- [ ] Implement consolidation update: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
-- [ ] Calculate decay rate based on access patterns
-- [ ] Handle edge cases (new memories, never accessed, etc.)
-- [ ] Configurable thresholds for memory tiers (0.86 for cold, 0.3 for frozen)
-- [ ] Batch processing capability for efficiency
-- [ ] Mathematical accuracy within 0.001 tolerance
-
-**Definition of Done:**
-- Unit tests cover all mathematical functions with known inputs/outputs
-- Property-based tests verify mathematical properties hold
-- Benchmarks show <10ms calculation time per memory
-- Code reviewed by second developer
-- Mathematical correctness verified against research paper examples
-- Documentation includes formula derivations
-
-**Test Requirements:**
-```rust
-#[test]
-fn test_forgetting_curve_new_memory() { /* ... */ }
-#[test]
-fn test_consolidation_strength_increases() { /* ... */ }
-#[test]
-fn test_recall_probability_decreases_over_time() { /* ... */ }
-#[test]
-fn test_batch_calculation_performance() { /* ... */ }
-```
-
----
-
-### Story 3: Memory Similarity & Merging System
-**Assignee:** ML Subagent  
-**Story Points:** 13  
-**Priority:** High
-
-**Description:**
-Implement semantic similarity detection and intelligent memory merging to reduce redundancy.
-
-**Acceptance Criteria:**
-- [ ] Calculate cosine similarity between memory embeddings
-- [ ] Identify memory clusters with similarity > 0.9
-- [ ] Merge algorithm preserves all metadata in combined format
-- [ ] Generate new embedding for merged content
-- [ ] Track merge history for potential unmerge
-- [ ] Handle parent-child relationships during merge
-- [ ] Configurable similarity thresholds per tier
-- [ ] Async processing to avoid blocking operations
-
-**Definition of Done:**
-- Integration tests verify correct merging behavior
-- No data loss during merge operations
-- Merged memories are retrievable by original queries
-- Performance: can process 10,000 memories in <30 seconds
-- Rollback capability tested
-- Merge events logged in audit trail
-
-**Test Requirements:**
-```rust
-#[test]
-async fn test_similarity_detection_accuracy() { /* ... */ }
-#[test]
-async fn test_merge_preserves_metadata() { /* ... */ }
-#[test]
-async fn test_merge_improves_search_quality() { /* ... */ }
-#[test]
-async fn test_merge_rollback() { /* ... */ }
-```
-
----
-
-### Story 4: Automated Tier Migration Service
-**Assignee:** Backend Subagent 1  
-**Story Points:** 8  
-**Priority:** Critical
-
-**Description:**
-Create background service that automatically migrates memories between tiers based on recall probability and consolidation strength.
-
-**Acceptance Criteria:**
-- [ ] Background task runs every configurable interval (default 1 hour)
-- [ ] Migrate Working→Warm when recall probability < 0.7
-- [ ] Migrate Warm→Cold when recall probability < 0.5
-- [ ] Migrate Cold→Frozen when recall probability < 0.2
-- [ ] Batch migrations for efficiency (100 memories per transaction)
-- [ ] Respect tier capacity limits
-- [ ] Emit metrics for monitoring
-- [ ] Graceful shutdown handling
-- [ ] Configurable via environment variables
-
-**Definition of Done:**
-- Service runs continuously for 24 hours without memory leaks
-- Migrations logged with timing and count metrics
-- Error recovery tested (database failures, etc.)
-- CPU usage < 5% during normal operation
-- Integration tests verify tier transitions
-- Monitoring dashboard shows migration patterns
-
-**Test Requirements:**
-```rust
-#[tokio::test]
-async fn test_migration_service_lifecycle() { /* ... */ }
-#[tokio::test]
-async fn test_tier_capacity_limits_respected() { /* ... */ }
-#[tokio::test]
-async fn test_migration_rollback_on_error() { /* ... */ }
-```
-
----
-
-### Story 5: Frozen Storage Implementation
-**Assignee:** Backend Subagent 2  
-**Story Points:** 13  
-**Priority:** High
-
-**Description:**
-Implement the frozen storage tier with compression, archival, and intentionally slow retrieval.
-
-**Acceptance Criteria:**
-- [ ] Compress memories using zstd before frozen storage
-- [ ] Store in separate frozen_memories table or S3-compatible storage
-- [ ] Retrieval requires explicit "unfreeze" operation
-- [ ] Unfreeze operation takes 2-5 seconds (simulated cognitive effort)
-- [ ] Batch unfreezing capability for related memories
-- [ ] Memory graph relationships preserved in frozen state
-- [ ] Search excludes frozen memories unless explicitly requested
-- [ ] Compression ratio > 5:1 for text content
-
-**Definition of Done:**
-- Frozen memories use 80% less storage than active memories
-- Retrieval time consistently 2-5 seconds
-- Data integrity verified after freeze/unfreeze cycle
-- S3 integration tested if configured
-- Benchmarks show 100K memories can be frozen
-- API documentation updated
-
-**Test Requirements:**
-```rust
-#[test]
-async fn test_freeze_compression_ratio() { /* ... */ }
-#[test]
-async fn test_unfreeze_preserves_data() { /* ... */ }
-#[test]
-async fn test_frozen_search_exclusion() { /* ... */ }
-#[test]
-async fn test_batch_unfreeze_performance() { /* ... */ }
-```
-
----
-
-### Story 6: Subgoal-Based Memory Chunking
+## Story 2: Add Memory Consolidation Mechanics
 **Assignee:** Cognitive Subagent  
+**Story Points:** 13  
+**Priority:** Critical  
+**Dependencies:** Story 1
+
+**Description:**
+Implement consolidation strength tracking that increases with recalls, mimicking human memory.
+
+**Acceptance Criteria:**
+- [ ] Add `consolidation_strength` field (FLOAT, default 1.0)
+- [ ] Add `decay_rate` field (FLOAT, default 1.0)
+- [ ] Add `recall_count` field (INTEGER, default 0)
+- [ ] Add `last_recall_interval` field (INTERVAL)
+- [ ] Implement formula: P(recall) = r × exp(-g × t / (1 + n)) × cos_similarity
+- [ ] Update consolidation_strength on each access: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
+- [ ] Trigger tier migration when P(recall) < 0.86
+- [ ] Create background job for consolidation calculations
+
+**Definition of Done:**
+- Mathematical tests verify consolidation formula
+- Consolidation increases with repeated access
+- Tier migrations trigger at correct thresholds
+- Background job runs without blocking operations
+- Performance: batch process 1000 memories in < 1 second
+- Metrics track consolidation patterns
+
+---
+
+## Story 3: Build Multi-Stage Importance Assessment Pipeline
+**Assignee:** ML Subagent  
 **Story Points:** 8  
-**Priority:** High
+**Priority:** High  
+**Dependencies:** None
 
 **Description:**
-Implement HiAgent-style hierarchical memory chunking for completed subgoals.
+Create tiered evaluation system for real-time memory importance assessment.
 
 **Acceptance Criteria:**
-- [ ] Detect task/subgoal completion patterns
-- [ ] Chunk related memories into subgoal units
-- [ ] Generate summary for each completed subgoal
-- [ ] Create new embedding for summary
-- [ ] Maintain links to original memories
-- [ ] 26.4% reduction in context size (per research)
-- [ ] Queryable by subgoal or original content
-- [ ] Configurable chunking strategies
+- [ ] Stage 1: Pattern matching (<10ms) for keywords/phrases
+- [ ] Stage 2: Semantic similarity (10-100ms) using cached embeddings
+- [ ] Stage 3: LLM scoring (100ms-1s) only for Stage 1-2 passes
+- [ ] Pattern library includes: "remember", "prefer", "decide", "correct", "important"
+- [ ] Configurable confidence thresholds per stage
+- [ ] Async processing for Stage 3 to prevent blocking
+- [ ] Circuit breaker for LLM calls
+- [ ] Metrics for stage progression rates
 
 **Definition of Done:**
-- Chunking reduces memory count by >25%
-- Summaries accurately represent chunked content
-- Original memories retrievable from chunks
-- Performance improvement measurable in search
-- Integration tests verify chunking behavior
-- Documentation includes chunking strategies
-
-**Test Requirements:**
-```rust
-#[test]
-fn test_subgoal_detection_accuracy() { /* ... */ }
-#[test]
-fn test_chunk_summary_quality() { /* ... */ }
-#[test]
-fn test_context_reduction_percentage() { /* ... */ }
-```
+- Stage 1 processes in < 10ms consistently
+- Stage 2 uses cached embeddings effectively
+- Stage 3 LLM calls < 20% of total evaluations
+- Integration tests verify pipeline flow
+- Monitoring dashboard shows stage metrics
+- Graceful degradation under load
 
 ---
 
-### Story 7: Memory Access Pattern Analyzer
-**Assignee:** Analytics Subagent  
-**Story Points:** 5  
-**Priority:** Medium
+## Story 4: Implement Silent Memory Harvester
+**Assignee:** Integration Subagent  
+**Story Points:** 13  
+**Priority:** Critical  
+**Dependencies:** Story 3
 
 **Description:**
-Build analytics system to track and analyze memory access patterns for optimizing consolidation parameters.
+Build automatic memory extraction from Claude conversations without user interruption.
 
 **Acceptance Criteria:**
-- [ ] Track access frequency, recency, and patterns
-- [ ] Identify memory access clusters
-- [ ] Calculate optimal decay rates per memory type
-- [ ] Generate access heatmaps
-- [ ] Predict future access likelihood
-- [ ] Export metrics to Prometheus
-- [ ] Real-time pattern detection
-- [ ] Anomaly detection for unusual access patterns
+- [ ] MCP tool `background_memory_harvest` with silent mode
+- [ ] Extract patterns: preferences, facts, decisions, corrections, emotions
+- [ ] Confidence scoring with 0.7 threshold for auto-store
+- [ ] Deduplication at 0.85 similarity threshold
+- [ ] Trigger every 10 messages OR 5 minutes
+- [ ] Batch processing for efficiency
+- [ ] No user-visible output unless explicitly requested
+- [ ] Track extraction metrics
 
 **Definition of Done:**
-- Analytics process <1ms overhead per access
-- Predictions achieve >70% accuracy
-- Grafana dashboard displays patterns
-- No performance impact on main operations
-- Unit tests cover all analytics functions
-- Documentation includes metric definitions
+- Zero user interruption during harvesting
+- Extraction accuracy > 80% on test conversations
+- Deduplication prevents redundant storage
+- Performance: process 50 messages in < 2 seconds
+- Integration tests verify silent operation
+- User can query "what did you remember" on demand
 
 ---
 
-### Story 8: Consolidation REST API & MCP Tools
-**Assignee:** API Subagent  
-**Story Points:** 5  
-**Priority:** Medium
+## Story 5: Implement Semantic Deduplication System
+**Assignee:** Data Subagent  
+**Story Points:** 8  
+**Priority:** High  
+**Dependencies:** Story 1
 
 **Description:**
-Expose consolidation features through REST API and MCP tools for Claude Desktop integration.
+Prevent memory bloat through intelligent deduplication and merging.
 
 **Acceptance Criteria:**
-- [ ] POST /api/v1/memories/consolidate - trigger consolidation
-- [ ] GET /api/v1/memories/frozen - list frozen memories
-- [ ] POST /api/v1/memories/{id}/unfreeze - unfreeze specific memory
-- [ ] GET /api/v1/analytics/consolidation - get consolidation metrics
-- [ ] MCP tool: consolidate_memories
-- [ ] MCP tool: search_frozen_memories
-- [ ] OpenAPI documentation generated
-- [ ] Rate limiting on consolidation endpoints
+- [ ] Detect memories with cosine similarity > 0.85
+- [ ] Merge algorithm preserves all metadata
+- [ ] Combined embedding generation for merged memories
+- [ ] Track merge history for potential unmerge
+- [ ] Hierarchical compression (critical=lossless, normal=lossy)
+- [ ] Auto-prune when P(recall) < 0.2 after 30 days
+- [ ] Maintain 20% memory headroom
+- [ ] Audit trail for all merge/prune operations
 
 **Definition of Done:**
-- All endpoints return correct HTTP status codes
-- API tests achieve 100% coverage
-- MCP tools work in Claude Desktop
-- Response times <100ms (except unfreeze)
-- Error messages are user-friendly
-- API versioning implemented
+- Deduplication reduces storage by > 30%
+- No information loss in critical memories
+- Merge operations reversible for 7 days
+- Compression achieves 3:1 ratio minimum
+- Performance: deduplicate 10K memories in < 30 seconds
+- Pruning runs daily without service interruption
 
 ---
 
-### Story 9: Memory Reflection & Insight Generation
+## Story 6: Create Reflection & Insight Generator
 **Assignee:** AI Subagent  
 **Story Points:** 13  
-**Priority:** Medium
+**Priority:** Medium  
+**Dependencies:** Stories 1, 2
 
 **Description:**
-Implement reflection system that generates insights from consolidated memory patterns.
+Generate higher-level insights from accumulated memories through reflection.
 
 **Acceptance Criteria:**
-- [ ] Periodic reflection task (daily/weekly)
-- [ ] Identify contradictions in memories
-- [ ] Synthesize related memories into insights
-- [ ] Generate meta-memories from patterns
-- [ ] Importance scoring for insights
-- [ ] Link insights to source memories
+- [ ] Trigger reflection when importance sum > 150 points
+- [ ] Generate 2-3 insights per reflection
+- [ ] Create meta-memories linking source memories
+- [ ] Build knowledge graph from relationships
+- [ ] Importance scoring for insights (1.5x base memories)
 - [ ] Configurable reflection strategies
-- [ ] LLM integration for insight generation
+- [ ] LLM prompt templates for insight generation
+- [ ] Prevent insight loops/redundancy
 
 **Definition of Done:**
 - Insights are meaningful and actionable
-- No hallucinated information in insights
 - Source memories traceable from insights
-- Reflection completes in <5 minutes for 10K memories
-- A/B tests show improved retrieval with insights
+- Knowledge graph visualizable
+- Reflection completes in < 30 seconds
+- A/B tests show 25% better retrieval with insights
 - User feedback mechanism implemented
 
 ---
 
-### Story 10: Performance Testing & Optimization
-**Assignee:** Performance Subagent  
-**Story Points:** 8  
-**Priority:** High
+## Story 7: Add Event-Triggered Scoring System
+**Assignee:** Backend Subagent  
+**Story Points:** 5  
+**Priority:** High  
+**Dependencies:** Story 3
 
 **Description:**
-Comprehensive performance testing and optimization of consolidation system.
+Implement immediate evaluation for critical content patterns.
 
 **Acceptance Criteria:**
-- [ ] Load test with 1M+ memories
-- [ ] Consolidation maintains <10ms p99 latency
-- [ ] Memory usage grows logarithmically, not linearly
-- [ ] Frozen storage retrieval 2-5 seconds consistently
-- [ ] No memory leaks over 7-day test
-- [ ] Database connection pool optimized
-- [ ] Benchmark suite automated in CI/CD
-- [ ] Performance regression detection
+- [ ] Define TriggerEvent enum with 5 types
+- [ ] Pattern detection for each trigger type
+- [ ] Immediate processing pipeline bypass
+- [ ] Boost importance by 2x for triggered events
+- [ ] Configure trigger patterns via JSON
+- [ ] Metrics for trigger frequency
+- [ ] A/B testing framework for patterns
+- [ ] User-specific trigger customization
 
 **Definition of Done:**
-- All performance targets met or exceeded
-- Benchmarks documented and baselined
-- Performance dashboard deployed
-- Optimization recommendations documented
-- Load testing reproducible
-- Performance regression tests in CI
-
-**Test Requirements:**
-```rust
-#[bench]
-fn bench_consolidation_calculation() { /* ... */ }
-#[bench]
-fn bench_similarity_detection() { /* ... */ }
-#[bench]
-fn bench_tier_migration() { /* ... */ }
-#[bench]
-fn bench_frozen_retrieval() { /* ... */ }
-```
+- All trigger types detected with > 90% accuracy
+- Triggered memories process in < 50ms
+- Configuration hot-reloadable
+- Unit tests cover all trigger patterns
+- Metrics dashboard shows trigger distribution
+- Documentation includes pattern examples
 
 ---
 
-## Cross-Story Integration Tests
+## Story 8: Implement Frozen Memory Tier
+**Assignee:** Storage Subagent  
+**Story Points:** 13  
+**Priority:** Medium  
+**Dependencies:** Story 2
 
-All stories must pass these integration tests:
+**Description:**
+Add fourth memory tier with compression and intentional retrieval delay.
 
-```rust
-#[tokio::test]
-async fn test_end_to_end_memory_lifecycle() {
-    // Create memory → Access multiple times → 
-    // Watch consolidation increase → Tier migration → 
-    // Eventually freeze → Explicit unfreeze → Verify data
-}
+**Acceptance Criteria:**
+- [ ] Add 'frozen' to MemoryTier enum
+- [ ] Compress with zstd (level 3) before freezing
+- [ ] Store in separate table or S3
+- [ ] Implement 2-5 second unfreeze delay
+- [ ] Batch freeze/unfreeze operations
+- [ ] Migration rules: Cold→Frozen when P(recall) < 0.2
+- [ ] Search excludes frozen unless explicit
+- [ ] Compression ratio > 5:1 for text
 
-#[tokio::test]
-async fn test_system_under_load() {
-    // 10K concurrent operations
-    // Verify consolidation doesn't block operations
-    // Verify tier migrations handle load
-    // Verify frozen storage remains responsive
-}
+**Definition of Done:**
+- Frozen memories use 80% less storage
+- Unfreeze delay consistently 2-5 seconds
+- Data integrity verified post freeze/unfreeze
+- Can freeze 100K memories in batch
+- S3 integration tested if configured
+- API includes freeze/unfreeze endpoints
+
+---
+
+## Story 9: Enhance Memory-Aware Retrieval
+**Assignee:** Search Subagent  
+**Story Points:** 8  
+**Priority:** High  
+**Dependencies:** Stories 1, 2, 8
+
+**Description:**
+Upgrade search to consider memory state and relationships.
+
+**Acceptance Criteria:**
+- [ ] Search excludes frozen by default
+- [ ] Option to include frozen with warning
+- [ ] Boost recently consolidated memories (2x)
+- [ ] Include reflection/insights in results
+- [ ] Return memory lineage/provenance
+- [ ] Explain relevance scoring
+- [ ] Support temporal search queries
+- [ ] Cache frequent query patterns
+
+**Definition of Done:**
+- Search accuracy improves by 30%
+- Frozen exclusion reduces latency by 50%
+- Lineage tracking works 3 levels deep
+- Explanation includes all score components
+- p95 search latency < 200ms
+- Cache hit rate > 60%
+
+---
+
+## Story 10: Production Performance Optimization
+**Assignee:** Performance Subagent  
+**Story Points:** 8  
+**Priority:** High  
+**Dependencies:** All other stories
+
+**Description:**
+Optimize system to meet production benchmarks.
+
+**Acceptance Criteria:**
+- [ ] p95 latency < 2 seconds for all operations
+- [ ] 90% token reduction vs full context
+- [ ] Maintain 20% memory headroom
+- [ ] Batch operations with configurable size
+- [ ] Connection pooling optimized
+- [ ] Index optimization for new fields
+- [ ] Query plan analysis and optimization
+- [ ] Monitoring alerts for performance degradation
+
+**Definition of Done:**
+- Load test passes with 10K concurrent users
+- Memory growth logarithmic, not linear
+- All queries use indexes effectively
+- Benchmarks documented and baselined
+- Performance dashboard deployed
+- Regression tests prevent degradation
+
+---
+
+## Story 11: Memory Harvester Configuration UI
+**Assignee:** Frontend Subagent  
+**Story Points:** 5  
+**Priority:** Medium  
+**Dependencies:** Story 4
+
+**Description:**
+Create user interface for configuring memory harvesting preferences.
+
+**Acceptance Criteria:**
+- [ ] Toggle for enabling/disabling harvesting
+- [ ] Confidence threshold slider (0.5-0.9)
+- [ ] Pattern selection checkboxes
+- [ ] Harvest frequency configuration
+- [ ] View recently harvested memories
+- [ ] Export memory history
+- [ ] Privacy mode toggle
+- [ ] Statistics dashboard
+
+**Definition of Done:**
+- UI responsive on all devices
+- Changes apply without restart
+- User preferences persisted
+- Export includes all metadata
+- Privacy mode fully disables harvesting
+- Help documentation included
+
+---
+
+## Story 12: Integration Testing Suite
+**Assignee:** QA Subagent  
+**Story Points:** 8  
+**Priority:** High  
+**Dependencies:** Stories 1-11
+
+**Description:**
+Comprehensive test suite for memory system integration.
+
+**Acceptance Criteria:**
+- [ ] End-to-end memory lifecycle tests
+- [ ] Load tests with 1M+ memories
+- [ ] Consolidation behavior validation
+- [ ] Tier migration verification
+- [ ] Deduplication accuracy tests
+- [ ] Performance regression tests
+- [ ] Chaos testing for resilience
+- [ ] Multi-user isolation tests
+
+**Definition of Done:**
+- 90% code coverage achieved
+- All edge cases documented and tested
+- Performance benchmarks automated
+- Tests run in CI/CD pipeline
+- Failure scenarios properly handled
+- Test data generators included
+
+---
+
+## Execution Waves:
+
+**Wave 1 (Foundation):**
+- Story 1: Three-Component Scoring
+- Story 2: Consolidation Mechanics
+- Story 3: Multi-Stage Assessment
+
+**Wave 2 (Collection):**
+- Story 4: Silent Harvester
+- Story 5: Deduplication
+- Story 7: Event Triggers
+
+**Wave 3 (Intelligence):**
+- Story 6: Reflection Generator
+- Story 8: Frozen Tier
+- Story 9: Enhanced Retrieval
+
+**Wave 4 (Polish):**
+- Story 10: Performance Optimization
+- Story 11: Configuration UI
+- Story 12: Integration Testing
+
+Each story is designed to be worked on by a specialized subagent, with clear dependencies marked for coordination.

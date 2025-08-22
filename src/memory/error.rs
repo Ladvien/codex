@@ -53,6 +53,18 @@ pub enum MemoryError {
     #[error("Safety violation: {message}")]
     SafetyViolation { message: String },
 
+    #[error("Compression error: {message}")]
+    CompressionError { message: String },
+
+    #[error("Decompression error: {message}")]
+    DecompressionError { message: String },
+
+    #[error("Serialization error: {message}")]
+    SerializationError { message: String },
+
+    #[error("Data integrity error: {message}")]
+    IntegrityError { message: String },
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }

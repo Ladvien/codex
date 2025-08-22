@@ -1,3 +1,4 @@
+pub mod compression;
 pub mod connection;
 pub mod consolidation_job;
 pub mod enhanced_retrieval;
@@ -20,6 +21,10 @@ pub mod reflection_engine;
 pub mod silent_harvester;
 pub mod three_component_scoring;
 
+pub use compression::{
+    CompressionResult as ZstdCompressionResult, CompressionStats, FrozenMemoryCompression, 
+    MemoryData, StorageSavings, ZstdCompressionEngine,
+};
 pub use consolidation_job::{
     spawn_consolidation_job, ConsolidationJob, ConsolidationJobConfig, ConsolidationJobResult,
     ConsolidationPerformanceMetrics,

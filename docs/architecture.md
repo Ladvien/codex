@@ -1,8 +1,8 @@
-# Agentic Memory System Architecture
+# Enhanced Agentic Memory System Architecture v2.0
 
-## Overview
+## Executive Summary
 
-The Agentic Memory System is a production-grade, fault-tolerant memory solution designed for Claude Code and Claude Desktop applications. It provides hierarchical memory storage with intelligent tiering, vector-based search, and comprehensive monitoring.
+The Enhanced Agentic Memory System is a cognitive-inspired, production-grade memory solution that mimics human memory consolidation patterns. It features a 4-tier storage hierarchy, intelligent forgetting curves, autonomous memory harvesting from Claude conversations, and sophisticated consolidation mechanics based on cutting-edge research in LLM memory systems.
 
 ## System Architecture Diagram
 
@@ -22,8 +22,29 @@ The Agentic Memory System is a production-grade, fault-tolerant memory solution 
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │  │                           MCP Server                                        │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
-│  │  │   Handlers   │  │ Circuit      │  │ Rate Limiter │  │ Auth & Valid │   │ │
-│  │  │              │  │ Breaker      │  │              │  │              │   │ │
+│  │  │   Handlers   │  │   Silent     │  │ Rate Limiter │  │ Auth & Valid │   │ │
+│  │  │              │  │  Harvester   │  │              │  │              │   │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
+│  └─────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         COGNITIVE PROCESSING LAYER                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │                    Memory Consolidation Engine                              │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
+│  │  │  Three-Score │  │  Forgetting  │  │  Similarity  │  │  Reflection  │   │ │
+│  │  │   Scoring    │  │    Curve     │  │   Merger     │  │  Generator   │   │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
+│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │                    Importance Assessment Pipeline                           │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
+│  │  │   Pattern    │  │   Semantic   │  │     LLM      │  │    Event     │   │ │
+│  │  │   Matching   │  │  Similarity  │  │   Scoring    │  │   Triggers   │   │ │
+│  │  │   (<10ms)    │  │ (10-100ms)   │  │ (100ms-1s)   │  │  (Immediate) │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -35,16 +56,15 @@ The Agentic Memory System is a production-grade, fault-tolerant memory solution 
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │  │                      Memory Repository                                      │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
-│  │  │    CRUD      │  │    Search    │  │ Tier Manager │  │ Migration    │   │ │
-│  │  │  Operations  │  │   & Vector   │  │              │  │   Engine     │   │ │
+│  │  │    CRUD      │  │  Enhanced    │  │   4-Tier     │  │  Automated   │   │ │
+│  │  │  Operations  │  │    Search    │  │   Manager    │  │  Migration   │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
-│                                     │                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
 │  │                         Supporting Services                                 │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
-│  │  │   Embedder   │  │   Backup     │  │  Monitoring  │  │   Security   │   │ │
-│  │  │   Service    │  │   Manager    │  │   & Metrics  │  │   & Audit    │   │ │
+│  │  │   Embedder   │  │ Deduplicator │  │  Harvester   │  │  Analytics   │   │ │
+│  │  │   Service    │  │   & Merger   │  │   Service    │  │   Engine     │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -55,234 +75,373 @@ The Agentic Memory System is a production-grade, fault-tolerant memory solution 
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                      PostgreSQL 14+ with pgvector                               │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                          Memory Tiers                                       │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                      │ │
-│  │  │   Working    │  │     Warm     │  │     Cold     │                      │ │
-│  │  │   Memory     │  │   Storage    │  │   Archive    │                      │ │
-│  │  │              │  │              │  │              │                      │ │
-│  │  │  <1ms P99    │  │  <100ms P99  │  │  <20s P99    │                      │ │
-│  │  │   Hot Data   │  │ Recent Data  │  │ Archive Data │                      │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘                      │ │
+│  │                          4-Tier Memory Storage                              │ │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐           │ │
+│  │  │  Working   │  │    Warm    │  │    Cold    │  │   Frozen   │           │ │
+│  │  │   Memory   │  │  Storage   │  │  Archive   │  │   Storage  │           │ │
+│  │  │            │  │            │  │            │  │            │           │ │
+│  │  │  <1ms P99  │  │ <100ms P99 │  │  <1s P99   │  │ 2-5s delay │           │ │
+│  │  │ P(r) > 0.7 │  │ P(r) > 0.5 │  │ P(r) > 0.2 │  │ P(r) < 0.2 │           │ │
+│  │  └────────────┘  └────────────┘  └────────────┘  └────────────┘           │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                       Supporting Tables                                     │ │
+│  │                       Enhanced Schema Tables                                │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │ │
-│  │  │   Summaries  │  │   Clusters   │  │   Migration  │  │    Backup    │   │ │
-│  │  │              │  │              │  │   History    │  │   Metadata   │   │ │
+│  │  │ Consolidation│  │   Insights   │  │   Merge      │  │   Harvest    │   │ │
+│  │  │     Log      │  │  & Patterns  │  │   History    │  │   Metadata   │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Core Components
+## Core Enhancements
 
-### 1. Client Layer
-- **Claude Code**: IDE integration for development workflows
-- **Claude Desktop**: Conversational interface with memory persistence
-- **Other Clients**: Extensible for future applications
+### 1. Cognitive Processing Layer (NEW)
 
-### 2. MCP Protocol Layer
-- **MCP Server**: Handles Model Context Protocol communications
-- **Circuit Breaker**: Prevents cascade failures with configurable thresholds
-- **Rate Limiter**: Protects against abuse with per-client limits
-- **Authentication & Validation**: Secure request processing
+#### Memory Consolidation Engine
+Implements human-like memory consolidation based on forgetting curve research:
 
-### 3. Application Layer
-
-#### Memory Repository
-Central orchestrator for all memory operations:
-- **CRUD Operations**: Create, Read, Update, Delete with full ACID compliance
-- **Search & Vector**: Hybrid search combining text and semantic similarity
-- **Tier Manager**: Intelligent promotion/demotion based on access patterns
-- **Migration Engine**: Background tier transitions with minimal impact
-
-#### Supporting Services
-- **Embedder Service**: Generates vector embeddings for semantic search
-- **Backup Manager**: Automated backups with encryption and verification
-- **Monitoring & Metrics**: Real-time system health and performance tracking
-- **Security & Audit**: Authentication, authorization, and audit logging
-
-### 4. Data Layer
-
-#### PostgreSQL with pgvector Extension
-Production-grade database with vector search capabilities:
-- **Connection pooling** with automatic failover
-- **Read replicas** for read-heavy workloads
-- **WAL archiving** for point-in-time recovery
-- **Automated vacuum and index maintenance**
-
-#### Memory Tiers
-Hierarchical storage optimized for different access patterns:
-
-- **Working Memory** (Hot Tier)
-  - Performance: <1ms P99 latency
-  - Capacity: Recent and frequently accessed memories
-  - Indexing: Optimized for speed with HNSW vector indexes
-  - Use Case: Active conversations and current work context
-
-- **Warm Storage** (Warm Tier)
-  - Performance: <100ms P99 latency
-  - Capacity: Moderately accessed historical data
-  - Indexing: Balanced indexes for reasonable performance
-  - Use Case: Recent project history and related context
-
-- **Cold Archive** (Cold Tier)
-  - Performance: <20s P99 latency (acceptable for archival)
-  - Capacity: Long-term storage with high compression
-  - Indexing: Optimized for storage efficiency
-  - Use Case: Long-term memory and compliance retention
-
-## Data Flow Architecture
-
-### Write Path
+**Three-Component Scoring Formula:**
 ```
-Client Request → MCP Server → Authentication → Rate Limiting → Repository
-     ↓
-Embedding Generation → Tier Assignment → Database Write → Index Update
-     ↓
-Audit Logging → Metrics Collection → Response
+memory_score = α × recency_score + β × importance_score + γ × relevance_score
+
+where:
+- recency_score = e^(-λt), λ = 0.005 per hour
+- importance_score = LLM-generated (0-1)
+- relevance_score = cosine_similarity during retrieval
+- α = β = γ = 0.333 (configurable)
 ```
 
-### Read Path
+**Forgetting Curve Implementation:**
 ```
-Client Query → MCP Server → Authentication → Repository → Search Engine
-     ↓
-Tier-Specific Query → Vector Search → Result Ranking → Access Tracking
-     ↓
-Response Enrichment → Metrics Collection → Client Response
-```
+P(recall) = [1 - exp(-r*e^(-t/gn))] / (1 - e^-1)
+gn = gn-1 + (1 - e^-t)/(1 + e^-t)
 
-### Background Processes
-```
-Tier Migration: Working → Warm → Cold (based on access patterns)
-Backup Schedule: Hourly incremental, Daily full, Weekly verification
-Health Monitoring: Continuous metrics collection and alerting
-Index Maintenance: Automated VACUUM, ANALYZE, and REINDEX
+where:
+- r = decay rate (individual per memory)
+- gn = consolidation strength (increases with recalls)
+- t = time since last access
 ```
 
-## Scalability Architecture
+#### Multi-Stage Importance Assessment
+Real-time evaluation pipeline with tiered processing:
 
-### Horizontal Scaling
-- **Read Replicas**: Scale read operations independently
-- **Connection Pooling**: Efficient connection reuse and management
-- **Caching Layer**: Redis for frequently accessed metadata
-- **Load Balancing**: Multiple MCP server instances with sticky sessions
+1. **Stage 1: Pattern Matching** (<10ms)
+   - Keywords: "remember", "prefer", "decide", "important"
+   - User corrections and emotional content
+   - Explicit memory requests
 
-### Vertical Scaling
-- **Memory Tiers**: Intelligent data placement reduces resource pressure
-- **Index Optimization**: Tier-specific indexing strategies
-- **Query Optimization**: Prepared statements and query plan caching
-- **Resource Monitoring**: Automatic scaling triggers based on metrics
+2. **Stage 2: Semantic Similarity** (10-100ms)
+   - Compare against existing important memories
+   - Use cached embeddings for speed
+   - Threshold: 0.7 confidence
 
-## Security Architecture
+3. **Stage 3: LLM Scoring** (100ms-1s)
+   - Only for Stage 1-2 passes
+   - Deep contextual understanding
+   - Circuit breaker protection
 
-### Multi-Layer Security
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    Security Layers                           │
-├──────────────────────────────────────────────────────────────┤
-│ 1. Network Security    │ TLS 1.3, VPN, Firewall Rules       │
-│ 2. Authentication      │ JWT tokens, API keys, mTLS         │
-│ 3. Authorization       │ RBAC, fine-grained permissions     │
-│ 4. Data Validation     │ Input sanitization, SQL injection  │
-│ 5. Audit Logging       │ Comprehensive activity tracking    │
-│ 6. Encryption          │ At-rest and in-transit encryption  │
-│ 7. Compliance          │ GDPR, SOC2, data retention         │
-└──────────────────────────────────────────────────────────────┘
-```
+### 2. Silent Memory Harvesting System (NEW)
 
-### Threat Mitigation
-- **SQL Injection**: Parameterized queries and input validation
-- **XSS Prevention**: Content sanitization and output encoding
-- **DoS Protection**: Rate limiting and circuit breakers
-- **Data Breaches**: Encryption at rest and column-level security
-- **Insider Threats**: Audit logging and least privilege access
-
-## Monitoring Architecture
-
-### Observability Stack
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Monitoring Stack                             │
-├─────────────────────────────────────────────────────────────────┤
-│ Metrics Collection │ Prometheus + Custom Exporters            │
-│ Visualization      │ Grafana dashboards + Custom reports      │
-│ Alerting          │ AlertManager + PagerDuty integration     │
-│ Log Aggregation   │ Structured logging + ELK stack           │
-│ Distributed Trace │ Jaeger for request flow analysis         │
-│ Health Checks     │ Deep health probes + Dependency checks   │
-│ SLI/SLO Tracking  │ Custom SLI metrics + Error budgets       │
-└─────────────────────────────────────────────────────────────────┘
+#### Autonomous Claude Conversation Harvesting
+```javascript
+class SilentMemoryHarvester {
+    triggers: {
+        message_interval: 10,      // Every 10 messages
+        time_interval: 300,        // Every 5 minutes
+        pattern_detection: true,   // On important patterns
+        conversation_start: true   // Load context at start
+    },
+    
+    extraction_patterns: [
+        "user_preferences",    // "I prefer...", "I like..."
+        "user_facts",          // "I work at...", "My name is..."
+        "decisions_made",      // "Let's go with...", "I've decided..."
+        "code_snippets",       // Artifact contents
+        "task_outcomes",       // "Completed...", "Failed to..."
+        "learned_patterns",    // Repeated requests/corrections
+        "emotional_context"    // User frustration/satisfaction
+    ],
+    
+    confidence_threshold: 0.7,
+    deduplication_threshold: 0.85
+}
 ```
 
-### Key Metrics
-- **Performance**: Latency percentiles, throughput, error rates
-- **Business**: Memory creation rate, search success rate, tier distribution
-- **Infrastructure**: CPU, memory, disk usage, connection pool status
-- **Security**: Failed authentication attempts, suspicious activity patterns
+**Silent Operation Protocol:**
+- No user interruption during harvesting
+- Background processing via MCP tools
+- Only announce when explicitly requested
+- "What did you remember?" query available
 
-## Disaster Recovery Architecture
+### 3. Enhanced 4-Tier Memory System
 
-### Recovery Strategies
+#### Tier Characteristics
+
+| Tier | Latency | P(recall) | Capacity | Storage | Use Case |
+|------|---------|-----------|----------|---------|----------|
+| **Working** | <1ms P99 | >0.7 | Active memories | Uncompressed | Current context |
+| **Warm** | <100ms P99 | 0.5-0.7 | Recent history | Light compression | Recent projects |
+| **Cold** | <1s P99 | 0.2-0.5 | Archived data | Compressed | Historical reference |
+| **Frozen** | 2-5s delay | <0.2 | Deep archive | Heavy compression (5:1) | Rarely accessed |
+
+#### Automated Tier Migration
+```rust
+async fn migrate_memories() {
+    // Runs every hour
+    Working → Warm when P(recall) < 0.7
+    Warm → Cold when P(recall) < 0.5
+    Cold → Frozen when P(recall) < 0.2
+    
+    // Batch processing for efficiency
+    batch_size: 100
+    respect_capacity_limits: true
+}
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                 Disaster Recovery Tiers                        │
-├─────────────────────────────────────────────────────────────────┤
-│ RTO < 1 hour   │ Automated failover to hot standby           │
-│ RPO < 5 min    │ Synchronous replication + WAL streaming     │
-│ Data Integrity │ Checksums + Regular backup verification     │
-│ Geographic     │ Multi-region backup storage                 │
-│ Testing        │ Monthly DR drills + Automated validation    │
-└─────────────────────────────────────────────────────────────────┘
+
+### 4. Semantic Deduplication & Merging (NEW)
+
+#### Intelligent Memory Compression
+```rust
+struct DeduplicationEngine {
+    similarity_threshold: 0.85,
+    merge_strategy: "preserve_all_metadata",
+    compression_levels: {
+        critical: "lossless",
+        normal: "lossy_acceptable",
+        archive: "maximum_compression"
+    },
+    auto_prune_threshold: 0.2,  // P(recall) after 30 days
+    target_headroom: 0.20        // 20% free capacity
+}
 ```
 
-### Backup Strategy
-- **Full Backups**: Daily with compression and encryption
-- **Incremental**: Hourly WAL segment archiving
-- **Verification**: Automated restore testing in isolated environment
-- **Retention**: 30 days online, 90 days cold storage, 7 years compliance
-- **Cross-Region**: Geo-redundant storage for disaster scenarios
+**Expected Outcomes:**
+- 30% storage reduction through deduplication
+- 70% reduction in context tokens
+- Maintains information integrity
 
-## Technology Stack
+### 5. Reflection & Insight Generation (NEW)
 
-### Core Technologies
-- **Runtime**: Rust 1.70+ with async/await
-- **Database**: PostgreSQL 14+ with pgvector extension
-- **Embeddings**: Configurable embedding service integration
-- **Protocol**: MCP (Model Context Protocol) for Claude integration
-- **Monitoring**: Prometheus + Grafana + AlertManager
+#### Meta-Memory Creation
+```python
+class ReflectionGenerator:
+    trigger_threshold: 150  # Accumulated importance points
+    
+    async def generate_insights(memories):
+        # Identify patterns across memories
+        patterns = detect_patterns(memories)
+        
+        # Generate 2-3 insights per reflection
+        insights = llm_synthesize(patterns)
+        
+        # Create knowledge graph
+        graph = build_relationships(insights, memories)
+        
+        # Store as meta-memories with 1.5x importance
+        store_insights(insights, importance_multiplier=1.5)
+```
 
-### Development Tools
-- **Testing**: Integration tests with testcontainers
-- **CI/CD**: GitHub Actions with automated testing
-- **Documentation**: Automated API docs generation
-- **Code Quality**: Clippy, rustfmt, cargo audit
-- **Performance**: Criterion benchmarks and flame graphs
+### 6. Event-Triggered Scoring (NEW)
 
-### Production Infrastructure
-- **Containerization**: Docker with multi-stage builds
-- **Orchestration**: Docker Compose for local, Kubernetes for production
-- **Load Balancing**: HAProxy or cloud load balancers
-- **Certificate Management**: Let's Encrypt with automatic renewal
-- **Configuration**: Environment variables with secrets management
+#### Critical Content Detection
+```rust
+enum TriggerEvent {
+    ExplicitRemember,    // "Remember that..." → 2x importance
+    ErrorCorrection,     // User corrects Claude → 1.8x
+    EmotionalContent,    // Frustration/satisfaction → 1.5x
+    DecisionMade,        // "Let's go with..." → 1.7x
+    PreferenceStated,    // "I prefer..." → 1.6x
+}
+```
+
+## Enhanced Data Schema
+
+### Core Memory Table
+```sql
+CREATE TABLE memories (
+    id UUID PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    tier memory_tier NOT NULL,
+    
+    -- Three-component scoring
+    importance_score FLOAT NOT NULL,
+    recency_score FLOAT NOT NULL,
+    relevance_score FLOAT DEFAULT 0,
+    combined_score FLOAT GENERATED ALWAYS AS 
+        (0.333 * recency_score + 0.333 * importance_score + 0.333 * relevance_score),
+    
+    -- Consolidation mechanics
+    consolidation_strength FLOAT DEFAULT 1.0,
+    decay_rate FLOAT DEFAULT 1.0,
+    recall_count INTEGER DEFAULT 0,
+    recall_probability FLOAT,
+    last_recall_interval INTERVAL,
+    
+    -- Metadata
+    created_at TIMESTAMPTZ NOT NULL,
+    last_accessed_at TIMESTAMPTZ,
+    harvest_source TEXT,  -- 'explicit', 'auto', 'reflection'
+    merge_parent_ids UUID[],
+    
+    -- Indexes
+    INDEX idx_combined_score (combined_score DESC),
+    INDEX idx_recall_probability (recall_probability),
+    INDEX idx_tier_probability (tier, recall_probability)
+);
+```
+
+### Supporting Tables
+```sql
+-- Consolidation tracking
+CREATE TABLE consolidation_log (
+    memory_id UUID REFERENCES memories(id),
+    timestamp TIMESTAMPTZ,
+    old_strength FLOAT,
+    new_strength FLOAT,
+    trigger_type TEXT
+);
+
+-- Frozen storage with compression
+CREATE TABLE frozen_memories (
+    id UUID PRIMARY KEY,
+    compressed_content BYTEA,  -- zstd compressed
+    compression_ratio FLOAT,
+    original_size INTEGER,
+    metadata JSONB
+);
+
+-- Harvesting metadata
+CREATE TABLE harvest_sessions (
+    id UUID PRIMARY KEY,
+    conversation_id TEXT,
+    timestamp TIMESTAMPTZ,
+    memories_extracted INTEGER,
+    patterns_detected JSONB,
+    confidence_scores FLOAT[]
+);
+
+-- Insights and reflections
+CREATE TABLE insights (
+    id UUID PRIMARY KEY,
+    content TEXT,
+    source_memory_ids UUID[],
+    importance_multiplier FLOAT DEFAULT 1.5,
+    insight_type TEXT,
+    created_at TIMESTAMPTZ
+);
+```
 
 ## Performance Characteristics
 
 ### Latency Targets (P99)
-- **Working Memory**: <1ms (achieved through hot caching)
-- **Warm Storage**: <100ms (balanced indexes and connection pooling)
-- **Cold Archive**: <20s (acceptable for long-term retrieval)
+- **Working Memory**: <1ms (hot cache + optimized indexes)
+- **Warm Storage**: <100ms (balanced performance)
+- **Cold Archive**: <1s (acceptable for archived data)
+- **Frozen Storage**: 2-5s (intentional cognitive delay)
+- **Consolidation Calculation**: <10ms per memory
+- **Similarity Detection**: <50ms for 1000 memories
+- **Harvesting**: <2s for 50 messages
 
 ### Throughput Targets
-- **Memory Creation**: >1000 ops/sec sustained
-- **Search Operations**: >500 ops/sec with complex queries
-- **Concurrent Users**: >100 simultaneous connections
-- **Data Volume**: >1TB with sub-linear performance degradation
+- **Memory Creation**: >1000 ops/sec
+- **Deduplication**: 10,000 memories in <30s
+- **Tier Migration**: 1000 memories per second
+- **Reflection Generation**: <30s for full analysis
+- **Pattern Matching**: >10,000 ops/sec
 
-### Scalability Characteristics
-- **Memory Usage**: Linear with data volume, optimized for efficiency
-- **CPU Utilization**: Sub-linear scaling through efficient algorithms
-- **Network Bandwidth**: Minimal overhead through result pagination
-- **Storage Growth**: Predictable with automated tier management
+### Storage Efficiency
+- **Working → Warm**: 20% size reduction
+- **Warm → Cold**: 50% size reduction
+- **Cold → Frozen**: 80% size reduction (5:1 compression)
+- **Overall Token Reduction**: 90% vs full context
+- **Deduplication Savings**: 30% fewer memories
 
-This architecture provides a robust, scalable foundation for the Agentic Memory System with comprehensive fault tolerance, monitoring, and security features suitable for production deployment.
+## Monitoring & Analytics
+
+### Key Performance Indicators
+```yaml
+Memory Health:
+  - Consolidation strength distribution
+  - Tier distribution percentages
+  - Deduplication rate
+  - Insight generation frequency
+
+Harvesting Metrics:
+  - Memories per conversation
+  - Pattern detection accuracy
+  - Extraction confidence scores
+  - Silent operation success rate
+
+Cognitive Metrics:
+  - Average recall probability
+  - Forgetting curve accuracy
+  - Consolidation effectiveness
+  - Reflection quality scores
+
+System Performance:
+  - Tier migration latency
+  - Search relevance scores
+  - Memory retrieval accuracy
+  - Storage efficiency ratio
+```
+
+## Implementation Priorities
+
+### Phase 1: Foundation (Weeks 1-2)
+1. Three-component scoring system
+2. Consolidation mechanics
+3. Database schema updates
+
+### Phase 2: Collection (Weeks 3-4)
+1. Silent memory harvester
+2. Multi-stage assessment pipeline
+3. Event-triggered scoring
+
+### Phase 3: Intelligence (Weeks 5-6)
+1. Semantic deduplication
+2. Frozen tier implementation
+3. Reflection generator
+
+### Phase 4: Optimization (Weeks 7-8)
+1. Performance tuning
+2. Integration testing
+3. Production deployment
+
+## Security & Privacy Considerations
+
+### Memory Harvesting Privacy
+```yaml
+User Controls:
+  - Opt-in/opt-out toggles
+  - Memory visibility settings
+  - Deletion rights (GDPR compliant)
+  - Export capabilities
+
+Data Protection:
+  - End-to-end encryption for sensitive memories
+  - User-specific encryption keys
+  - Audit trail for all harvesting
+  - Automatic PII detection and masking
+```
+
+## Future Enhancements
+
+### Planned Features
+1. **Multi-Modal Memories**: Support for images, code, documents
+2. **Collaborative Memory**: Shared team knowledge bases
+3. **Temporal Reasoning**: Time-aware memory relationships
+4. **Causal Chains**: Track decision consequences
+5. **Memory Personas**: Context-specific memory sets
+6. **Active Learning**: Request clarification on uncertain memories
+
+### Research Integration
+- Continuous integration of latest memory research
+- A/B testing framework for consolidation algorithms
+- User study feedback loops
+- Performance benchmarking against human memory
+
+## Conclusion
+
+This enhanced architecture transforms the memory system from a simple storage mechanism to a cognitive system that truly "remembers" like humans do - strengthening important memories through use, gracefully forgetting the irrelevant, and generating insights from accumulated knowledge. The silent harvesting capability ensures Claude continuously learns from interactions without interrupting the user experience, while the 4-tier system with consolidation mechanics provides unprecedented efficiency and scale.

@@ -1,6 +1,8 @@
 use super::error::{MemoryError, Result};
 use super::event_triggers::EventTriggeredScoringEngine;
 use super::models::*;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use chrono::Utc;
 use pgvector::Vector;
 use sqlx::postgres::types::PgInterval;
@@ -1026,85 +1028,299 @@ impl MemoryRepository {
         Ok(())
     }
 
-    /// Freeze a memory by moving it to compressed storage
+    /// Freeze a memory by moving it to compressed storage using zstd compression
     pub async fn freeze_memory(
         &self,
         memory_id: Uuid,
-        _reason: Option<String>,
+        reason: Option<String>,
     ) -> Result<FreezeMemoryResponse> {
+        use super::compression::{ZstdCompressionEngine, FrozenMemoryCompression};
+        use std::time::Instant;
+
+        let start_time = Instant::now();
         let mut tx = self.pool.begin().await?;
 
-        // Call the database function to freeze the memory
-        let frozen_row = sqlx::query("SELECT freeze_memory($1) as frozen_id")
-            .bind(memory_id)
-            .fetch_one(&mut *tx)
-            .await?;
+        // Get the memory to freeze with validation
+        let memory = sqlx::query_as::<_, Memory>(
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+        )
+        .bind(memory_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| MemoryError::NotFound {
+            id: memory_id.to_string(),
+        })?;
 
-        let frozen_id: Uuid = frozen_row.get("frozen_id");
+        // Ensure we only freeze cold memories with P(r) < 0.2
+        if memory.tier != MemoryTier::Cold {
+            return Err(MemoryError::InvalidRequest {
+                message: format!(
+                    "Can only freeze memories in cold tier, found {:?}", 
+                    memory.tier
+                ),
+            });
+        }
 
-        // Get the frozen memory details for the response
-        let frozen_memory =
-            sqlx::query_as::<_, FrozenMemory>("SELECT * FROM frozen_memories WHERE id = $1")
-                .bind(frozen_id)
-                .fetch_one(&mut *tx)
-                .await?;
+        let recall_probability = memory.recall_probability.unwrap_or(0.0);
+        if recall_probability >= 0.2 {
+            return Err(MemoryError::InvalidRequest {
+                message: format!(
+                    "Can only freeze memories with P(r) < 0.2, found {:.3}",
+                    recall_probability
+                ),
+            });
+        }
+
+        info!(
+            "Freezing memory {} (P(r)={:.3}, content_length={})",
+            memory_id, recall_probability, memory.content.len()
+        );
+
+        // Compress the memory data using zstd
+        let compression_engine = ZstdCompressionEngine::new();
+        let compression_result = compression_engine
+            .compress_memory_data(&memory.content, &memory.metadata)?;
+
+        // Validate compression quality
+        FrozenMemoryCompression::validate_compression_quality(
+            compression_result.compression_ratio,
+            memory.content.len(),
+        )?;
+
+        let (compressed_data, original_size, compressed_size, compression_ratio) = 
+            FrozenMemoryCompression::to_database_format(compression_result);
+
+        debug!(
+            "Compression completed: {:.2}:1 ratio, {} -> {} bytes",
+            compression_ratio, original_size, compressed_size
+        );
+
+        // Create frozen memory record
+        let frozen_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO frozen_memories (
+                id, original_memory_id, compressed_content, 
+                original_metadata, original_content_hash, original_embedding,
+                original_tier, freeze_reason, compression_ratio,
+                original_size_bytes, compressed_size_bytes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            "#
+        )
+        .bind(frozen_id)
+        .bind(memory.id)
+        .bind(&compressed_data)
+        .bind(&memory.metadata)
+        .bind(&memory.content_hash)
+        .bind(memory.embedding.as_ref())
+        .bind(memory.tier)
+        .bind(reason.as_deref().unwrap_or("Auto-frozen: P(r) < 0.2 threshold"))
+        .bind(compression_ratio)
+        .bind(original_size)
+        .bind(compressed_size)
+        .execute(&mut *tx)
+        .await?;
+
+        // Update original memory to frozen tier
+        sqlx::query(
+            "UPDATE memories SET tier = 'frozen', status = 'archived', updated_at = NOW() WHERE id = $1"
+        )
+        .bind(memory_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Log the migration
+        let processing_time_ms = start_time.elapsed().as_millis() as i32;
+        sqlx::query(
+            r#"
+            INSERT INTO migration_history (
+                memory_id, from_tier, to_tier, migration_reason,
+                migration_duration_ms, success
+            ) VALUES ($1, $2, 'frozen', $3, $4, true)
+            "#
+        )
+        .bind(memory_id)
+        .bind(memory.tier)
+        .bind(format!("Frozen with {:.2}:1 compression", compression_ratio))
+        .bind(processing_time_ms)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
+        info!(
+            "Successfully froze memory {} with {:.2}:1 compression in {}ms",
+            memory_id, compression_ratio, processing_time_ms
+        );
+
         Ok(FreezeMemoryResponse {
             frozen_id,
-            compression_ratio: frozen_memory.compression_ratio,
-            original_tier: MemoryTier::Cold, // Default, could be retrieved from original memory
-            frozen_at: frozen_memory.frozen_at,
+            compression_ratio: Some(compression_ratio),
+            original_tier: memory.tier,
+            frozen_at: Utc::now(),
         })
     }
 
-    /// Unfreeze a memory and restore it to active status
+    /// Unfreeze a memory and restore it to active status with zstd decompression
     pub async fn unfreeze_memory(
         &self,
         frozen_id: Uuid,
         target_tier: Option<MemoryTier>,
     ) -> Result<UnfreezeMemoryResponse> {
+        use super::compression::ZstdCompressionEngine;
         use rand::Rng;
         use tokio::time::{sleep, Duration};
+        use std::time::Instant;
         
+        let start_time = Instant::now();
         let mut tx = self.pool.begin().await?;
 
-        // Get the frozen memory details first
-        let _frozen_memory =
-            sqlx::query_as::<_, FrozenMemory>("SELECT * FROM frozen_memories WHERE id = $1")
-                .bind(frozen_id)
-                .fetch_one(&mut *tx)
-                .await?;
+        // Get the frozen memory details
+        let frozen_memory = sqlx::query_as::<_, FrozenMemory>(
+            "SELECT * FROM frozen_memories WHERE id = $1"
+        )
+        .bind(frozen_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| MemoryError::NotFound {
+            id: frozen_id.to_string(),
+        })?;
+
+        info!(
+            "Unfreezing memory {} (compression_ratio: {:.2}:1)",
+            frozen_id, 
+            frozen_memory.compression_ratio.unwrap_or(0.0)
+        );
 
         // Implement intentional 2-5 second delay for frozen memory retrieval
         let mut rng = rand::thread_rng();
         let delay_seconds = rng.gen_range(2..=5);
         
-        info!("Unfreezing memory {} with {}-second intentional delay", frozen_id, delay_seconds);
+        info!("Applying {}-second intentional delay for frozen tier retrieval", delay_seconds);
         sleep(Duration::from_secs(delay_seconds)).await;
 
-        // Call the database function to unfreeze the memory
-        let memory_row = sqlx::query("SELECT unfreeze_memory($1) as memory_id")
-            .bind(frozen_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
-        let memory_id: Uuid = memory_row.get("memory_id");
-
-        // If a target tier was specified, update it
-        let restoration_tier = if let Some(tier) = target_tier {
-            sqlx::query("UPDATE memories SET tier = $1 WHERE id = $2")
-                .bind(tier)
-                .bind(memory_id)
-                .execute(&mut *tx)
-                .await?;
-            tier
-        } else {
-            MemoryTier::Working // Default restoration tier
+        // Decompress the memory data using zstd
+        let compression_engine = ZstdCompressionEngine::new();
+        
+        // First, try to extract the compressed data
+        // The frozen_memory.compressed_content is stored as JSONB but contains BYTEA data
+        let compressed_data = match &frozen_memory.compressed_content {
+            serde_json::Value::String(base64_data) => {
+                // If it's a base64 string, decode it
+                BASE64_STANDARD
+                    .decode(base64_data.as_bytes())
+                    .map_err(|e| MemoryError::DecompressionError {
+                        message: format!("Failed to decode base64 compressed data: {}", e),
+                    })?
+            },
+            serde_json::Value::Array(byte_array) => {
+                // If it's an array of numbers, convert to bytes
+                byte_array.iter()
+                    .map(|v| v.as_u64().unwrap_or(0) as u8)
+                    .collect()
+            },
+            _ => {
+                // Fallback: treat as raw bytes (this shouldn't happen with proper BYTEA storage)
+                return Err(MemoryError::DecompressionError {
+                    message: "Invalid compressed data format in database".to_string(),
+                });
+            }
         };
 
+        let decompressed_data = compression_engine.decompress_memory_data(&compressed_data)?;
+
+        debug!(
+            "Decompression completed: restored {} bytes of content",
+            decompressed_data.content.len()
+        );
+
+        // Determine restoration tier
+        let restoration_tier = target_tier
+            .or(Some(frozen_memory.original_tier))
+            .unwrap_or(MemoryTier::Working);
+
+        // Restore the original memory
+        let memory_id = frozen_memory.original_memory_id;
+        let rows_affected = sqlx::query(
+            r#"
+            UPDATE memories 
+            SET 
+                content = $1,
+                tier = $2,
+                status = 'active',
+                metadata = $3,
+                updated_at = NOW()
+            WHERE id = $4
+            "#
+        )
+        .bind(&decompressed_data.content)
+        .bind(restoration_tier)
+        .bind(&decompressed_data.metadata)
+        .bind(memory_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            // Create new memory if original was deleted
+            sqlx::query(
+                r#"
+                INSERT INTO memories (
+                    id, content, content_hash, embedding, tier, status,
+                    importance_score, metadata, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, 'active', 0.5, $6, NOW(), NOW())
+                "#
+            )
+            .bind(memory_id)
+            .bind(&decompressed_data.content)
+            .bind(&frozen_memory.original_content_hash)
+            .bind(frozen_memory.original_embedding.as_ref())
+            .bind(restoration_tier)
+            .bind(&decompressed_data.metadata)
+            .execute(&mut *tx)
+            .await?;
+
+            info!("Recreated deleted memory {} during unfreeze", memory_id);
+        }
+
+        // Update frozen memory access tracking
+        sqlx::query(
+            r#"
+            UPDATE frozen_memories 
+            SET 
+                unfreeze_count = COALESCE(unfreeze_count, 0) + 1,
+                last_unfrozen_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+            "#
+        )
+        .bind(frozen_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Log the migration
+        let processing_time_ms = start_time.elapsed().as_millis() as i32;
+        sqlx::query(
+            r#"
+            INSERT INTO migration_history (
+                memory_id, from_tier, to_tier, migration_reason,
+                migration_duration_ms, success
+            ) VALUES ($1, 'frozen', $2, $3, $4, true)
+            "#
+        )
+        .bind(memory_id)
+        .bind(restoration_tier)
+        .bind(format!("Unfrozen after {} second delay", delay_seconds))
+        .bind(processing_time_ms)
+        .execute(&mut *tx)
+        .await?;
+
         tx.commit().await?;
+
+        info!(
+            "Successfully unfroze memory {} to {:?} tier in {}ms (including {}s delay)",
+            memory_id, restoration_tier, processing_time_ms, delay_seconds
+        );
 
         Ok(UnfreezeMemoryResponse {
             memory_id,

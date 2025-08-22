@@ -1,5 +1,5 @@
 use codex_memory::memory::{
-    models::{CreateMemoryRequest, BatchFreezeResult, BatchUnfreezeResult, MemoryTier},
+    models::{CreateMemoryRequest, MemoryTier, SearchRequest},
     MemoryRepository,
 };
 use sqlx::PgPool;
@@ -41,7 +41,7 @@ async fn create_test_memories_with_low_recall(
         sqlx::query("UPDATE memories SET recall_probability = $1 WHERE id = $2")
             .bind(0.1) // Below 0.2 threshold
             .bind(memory.id)
-            .execute(&repository.pool)
+            .execute(repository.pool())
             .await
             .unwrap();
 
@@ -229,7 +229,7 @@ async fn test_compression_ratio_requirement() {
     sqlx::query("UPDATE memories SET recall_probability = $1 WHERE id = $2")
         .bind(0.1)
         .bind(memory.id)
-        .execute(&repository.pool)
+        .execute(repository.pool())
         .await
         .unwrap();
 
@@ -280,7 +280,7 @@ async fn test_frozen_memory_search_exclusion() {
     sqlx::query("UPDATE memories SET recall_probability = $1 WHERE id = $2")
         .bind(0.1)
         .bind(memory.id)
-        .execute(&repository.pool)
+        .execute(repository.pool())
         .await
         .unwrap();
 
@@ -290,18 +290,23 @@ async fn test_frozen_memory_search_exclusion() {
         .unwrap();
 
     // Test that frozen memories are excluded from normal search
-    let search_results = repository
-        .search_memories_by_content("searchable content", 10, 0)
+    let search_request = SearchRequest {
+        query_text: Some("searchable content".to_string()),
+        limit: Some(10),
+        ..Default::default()
+    };
+    let search_response = repository
+        .search_memories(search_request)
         .await
         .unwrap();
 
     // Verify the frozen memory is not in search results
-    let found_memory = search_results.iter().find(|m| m.id == memory.id);
+    let found_memory = search_response.results.iter().find(|r| r.memory.id == memory.id);
     assert!(found_memory.is_none(), "Frozen memory should be excluded from search results");
 
     // Test explicit frozen memory search
     let frozen_results = repository
-        .search_frozen_memories("searchable content", 10, 0)
+        .search_frozen_memories("searchable content", 10)
         .await
         .unwrap();
 
@@ -346,7 +351,7 @@ async fn test_recall_probability_migration_rule() {
         sqlx::query("UPDATE memories SET recall_probability = $1 WHERE id = $2")
             .bind(recall_prob)
             .bind(memory.id)
-            .execute(&repository.pool)
+            .execute(repository.pool())
             .await
             .unwrap();
     }
@@ -398,7 +403,7 @@ async fn test_data_integrity_after_freeze_unfreeze() {
     sqlx::query("UPDATE memories SET recall_probability = $1 WHERE id = $2")
         .bind(0.1)
         .bind(memory.id)
-        .execute(&repository.pool)
+        .execute(repository.pool())
         .await
         .unwrap();
 
@@ -415,7 +420,7 @@ async fn test_data_integrity_after_freeze_unfreeze() {
 
     // Retrieve the unfrozen memory
     let unfrozen_memory = repository
-        .get_memory_by_id(unfreeze_result.memory_id)
+        .get_memory(unfreeze_result.memory_id)
         .await
         .unwrap();
 

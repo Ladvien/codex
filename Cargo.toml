@@ -84,6 +84,9 @@ rand = "0.8"
 # Base64 encoding for cursors
 base64 = "0.22"
 
+# Compression for frozen tier
+zstd = "0.13"
+
 # MCP server
 jsonrpc-core = "18.0"
 jsonrpc-tcp-server = "18.0"

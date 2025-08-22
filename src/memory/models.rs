@@ -573,13 +573,18 @@ impl Serialize for MemoryConsolidationLog {
 pub struct FrozenMemory {
     pub id: Uuid,
     pub original_memory_id: Uuid,
-    pub compressed_content: serde_json::Value, // Matches JSONB in database
+    pub compressed_content: serde_json::Value, // Matches JSONB in database for compatibility, but contains BYTEA
     pub original_metadata: Option<serde_json::Value>, // Matches database
+    pub original_content_hash: String,
+    pub original_embedding: Option<Vector>,
+    pub original_tier: MemoryTier,
     pub freeze_reason: Option<String>,
     pub frozen_at: DateTime<Utc>,
     pub unfreeze_count: Option<i32>,             // Matches database
     pub last_unfrozen_at: Option<DateTime<Utc>>, // Matches database
     pub compression_ratio: Option<f64>,
+    pub original_size_bytes: Option<i32>,
+    pub compressed_size_bytes: Option<i32>,
 }
 
 impl Serialize for FrozenMemory {
@@ -588,16 +593,21 @@ impl Serialize for FrozenMemory {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("FrozenMemory", 9)?;
+        let mut state = serializer.serialize_struct("FrozenMemory", 13)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("original_memory_id", &self.original_memory_id)?;
         state.serialize_field("compressed_content", &self.compressed_content)?;
         state.serialize_field("original_metadata", &self.original_metadata)?;
+        state.serialize_field("original_content_hash", &self.original_content_hash)?;
+        state.serialize_field("original_embedding", &self.original_embedding.as_ref().map(|v| v.as_slice()))?;
+        state.serialize_field("original_tier", &self.original_tier)?;
         state.serialize_field("freeze_reason", &self.freeze_reason)?;
         state.serialize_field("frozen_at", &self.frozen_at)?;
         state.serialize_field("unfreeze_count", &self.unfreeze_count)?;
         state.serialize_field("last_unfrozen_at", &self.last_unfrozen_at)?;
         state.serialize_field("compression_ratio", &self.compression_ratio)?;
+        state.serialize_field("original_size_bytes", &self.original_size_bytes)?;
+        state.serialize_field("compressed_size_bytes", &self.compressed_size_bytes)?;
         state.end()
     }
 }

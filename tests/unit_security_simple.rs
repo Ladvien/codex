@@ -82,7 +82,10 @@ async fn test_validation_manager() -> Result<()> {
     // Test SQL injection detection
     let sql_injection = "'; DROP TABLE users; --";
     let sql_result = validator.validate_input(sql_injection);
-    assert!(sql_result.is_err(), "Should detect and reject SQL injection");
+    assert!(
+        sql_result.is_err(),
+        "Should detect and reject SQL injection"
+    );
 
     // Test normal input passes through
     let normal_input = "This is normal text input";

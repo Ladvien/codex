@@ -516,6 +516,7 @@ async fn test_memory_tier_performance() -> Result<()> {
                             MemoryTier::Working => 0.8 + (i as f64 * 0.002),
                             MemoryTier::Warm => 0.5 + (i as f64 * 0.003),
                             MemoryTier::Cold => 0.2 + (i as f64 * 0.001),
+                            MemoryTier::Frozen => 0.1 + (i as f64 * 0.0005),
                         }),
                         metadata: Some(serde_json::json!({
                             "test_id": test_id,

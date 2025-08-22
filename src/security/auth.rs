@@ -514,7 +514,8 @@ mod tests {
                 session.last_activity = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_secs() - 120;
+                    .as_secs()
+                    - 120;
             }
         }
 

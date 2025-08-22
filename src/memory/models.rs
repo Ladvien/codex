@@ -710,3 +710,333 @@ pub struct BatchUnfreezeResult {
     pub average_delay_seconds: f32,
     pub unfrozen_memory_ids: Vec<Uuid>,
 }
+
+// New model structures for Migration 008: Missing Database Tables
+
+/// Session types for harvest operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum HarvestSessionType {
+    Silent,
+    Manual,
+    Scheduled,
+    Forced,
+}
+
+/// Session status for harvest operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum HarvestSessionStatus {
+    InProgress,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// Harvest session tracking for silent harvester operations
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct HarvestSession {
+    pub id: Uuid,
+    pub session_type: HarvestSessionType,
+    pub trigger_reason: String,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub status: HarvestSessionStatus,
+    
+    // Processing metrics
+    pub messages_processed: i32,
+    pub patterns_extracted: i32,
+    pub patterns_stored: i32,
+    pub duplicates_filtered: i32,
+    pub processing_time_ms: i64,
+    
+    // Configuration snapshot for reproducibility
+    pub config_snapshot: serde_json::Value,
+    
+    // Error handling
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+    
+    // Performance metrics
+    pub extraction_time_ms: i64,
+    pub deduplication_time_ms: i64,
+    pub storage_time_ms: i64,
+    
+    // Resource usage tracking
+    pub memory_usage_mb: Option<f64>,
+    pub cpu_usage_percent: Option<f64>,
+    
+    pub created_at: DateTime<Utc>,
+}
+
+/// Pattern types for harvest operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum HarvestPatternType {
+    Preference,
+    Fact,
+    Decision,
+    Correction,
+    Emotion,
+    Goal,
+    Relationship,
+    Skill,
+}
+
+/// Pattern status for tracking lifecycle
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum HarvestPatternStatus {
+    Extracted,
+    Stored,
+    Duplicate,
+    Rejected,
+}
+
+/// Extracted patterns before they become memories
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct HarvestPattern {
+    pub id: Uuid,
+    pub harvest_session_id: Uuid,
+    pub pattern_type: HarvestPatternType,
+    pub content: String,
+    pub confidence_score: f64,
+    pub source_message_id: Option<String>,
+    pub context: Option<String>,
+    pub metadata: serde_json::Value,
+    
+    // Processing status
+    pub status: HarvestPatternStatus,
+    pub memory_id: Option<Uuid>, // Links to created memory if stored
+    pub rejection_reason: Option<String>,
+    
+    // Extraction metrics
+    pub extraction_confidence: Option<f64>,
+    pub similarity_to_existing: Option<f64>,
+    
+    pub extracted_at: DateTime<Utc>,
+}
+
+/// Consolidation event types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum ConsolidationEventType {
+    TierMigration,
+    ImportanceUpdate,
+    AccessDecay,
+    BatchConsolidation,
+    ManualOverride,
+}
+
+/// Comprehensive tier migration and consolidation tracking
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ConsolidationEvent {
+    pub id: Uuid,
+    pub event_type: ConsolidationEventType,
+    pub memory_id: Uuid,
+    
+    // Tier migration details
+    pub source_tier: Option<String>,
+    pub target_tier: Option<String>,
+    pub migration_reason: Option<String>,
+    
+    // Consolidation strength tracking
+    pub old_consolidation_strength: Option<f64>,
+    pub new_consolidation_strength: Option<f64>,
+    pub strength_delta: Option<f64>,
+    
+    // Recall probability tracking
+    pub old_recall_probability: Option<f64>,
+    pub new_recall_probability: Option<f64>,
+    pub probability_delta: Option<f64>,
+    
+    // Performance metrics
+    pub processing_time_ms: Option<i32>,
+    
+    // Context and metadata
+    pub triggered_by: Option<String>, // 'user', 'system', 'scheduler', 'background_service'
+    pub context_metadata: serde_json::Value,
+    
+    pub created_at: DateTime<Utc>,
+}
+
+/// Memory access types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum MemoryAccessType {
+    Search,
+    DirectRetrieval,
+    SimilarityMatch,
+    ReflectionAnalysis,
+    ConsolidationProcess,
+}
+
+/// Detailed memory access tracking
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MemoryAccessLog {
+    pub id: Uuid,
+    pub memory_id: Uuid,
+    pub access_type: MemoryAccessType,
+    
+    // Access context
+    pub session_id: Option<Uuid>, // Could reference various session types
+    pub user_context: Option<String>,
+    pub query_context: Option<String>,
+    
+    // Performance metrics
+    pub retrieval_time_ms: Option<i32>,
+    pub similarity_score: Option<f64>,
+    pub ranking_position: Option<i32>,
+    
+    // Impact tracking
+    pub importance_boost: f64,
+    pub access_count_increment: i32,
+    
+    pub accessed_at: DateTime<Utc>,
+}
+
+/// System metrics snapshot types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "varchar", rename_all = "lowercase")]
+pub enum SystemMetricsSnapshotType {
+    Hourly,
+    Daily,
+    Weekly,
+    OnDemand,
+    Incident,
+}
+
+/// System performance monitoring snapshots
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct SystemMetricsSnapshot {
+    pub id: Uuid,
+    pub snapshot_type: SystemMetricsSnapshotType,
+    
+    // Memory tier statistics
+    pub working_memory_count: i32,
+    pub warm_memory_count: i32,
+    pub cold_memory_count: i32,
+    pub frozen_memory_count: i32,
+    
+    // Storage metrics
+    pub total_storage_bytes: i64,
+    pub compressed_storage_bytes: i64,
+    pub average_compression_ratio: Option<f64>,
+    
+    // Performance metrics
+    pub average_query_time_ms: Option<f64>,
+    pub p95_query_time_ms: Option<f64>,
+    pub p99_query_time_ms: Option<f64>,
+    pub slow_query_count: i32,
+    
+    // Memory system health
+    pub consolidation_backlog: i32,
+    pub migration_queue_size: i32,
+    pub failed_operations_count: i32,
+    
+    // Vector index performance
+    pub vector_index_size_mb: Option<f64>,
+    pub vector_search_performance: serde_json::Value,
+    
+    // System resources
+    pub database_cpu_percent: Option<f64>,
+    pub database_memory_mb: Option<f64>,
+    pub connection_count: Option<i32>,
+    pub active_connections: Option<i32>,
+    
+    pub recorded_at: DateTime<Utc>,
+}
+
+// Request/Response structures for new table operations
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateHarvestSessionRequest {
+    pub session_type: HarvestSessionType,
+    pub trigger_reason: String,
+    pub config_snapshot: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateHarvestSessionRequest {
+    pub status: Option<HarvestSessionStatus>,
+    pub messages_processed: Option<i32>,
+    pub patterns_extracted: Option<i32>,
+    pub patterns_stored: Option<i32>,
+    pub duplicates_filtered: Option<i32>,
+    pub processing_time_ms: Option<i64>,
+    pub error_message: Option<String>,
+    pub extraction_time_ms: Option<i64>,
+    pub deduplication_time_ms: Option<i64>,
+    pub storage_time_ms: Option<i64>,
+    pub memory_usage_mb: Option<f64>,
+    pub cpu_usage_percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateHarvestPatternRequest {
+    pub harvest_session_id: Uuid,
+    pub pattern_type: HarvestPatternType,
+    pub content: String,
+    pub confidence_score: f64,
+    pub source_message_id: Option<String>,
+    pub context: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateConsolidationEventRequest {
+    pub event_type: ConsolidationEventType,
+    pub memory_id: Uuid,
+    pub source_tier: Option<String>,
+    pub target_tier: Option<String>,
+    pub migration_reason: Option<String>,
+    pub old_consolidation_strength: Option<f64>,
+    pub new_consolidation_strength: Option<f64>,
+    pub old_recall_probability: Option<f64>,
+    pub new_recall_probability: Option<f64>,
+    pub triggered_by: Option<String>,
+    pub context_metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMemoryAccessLogRequest {
+    pub memory_id: Uuid,
+    pub access_type: MemoryAccessType,
+    pub session_id: Option<Uuid>,
+    pub user_context: Option<String>,
+    pub query_context: Option<String>,
+    pub retrieval_time_ms: Option<i32>,
+    pub similarity_score: Option<f64>,
+    pub ranking_position: Option<i32>,
+    pub importance_boost: Option<f64>,
+    pub access_count_increment: Option<i32>,
+}
+
+// Analytics structures for the new tables
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct HarvestSuccessRate {
+    pub total_sessions: i32,
+    pub successful_sessions: i32,
+    pub failed_sessions: i32,
+    pub success_rate: f64,
+    pub average_processing_time_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TierMigrationStats {
+    pub source_tier: String,
+    pub target_tier: String,
+    pub migration_count: i32,
+    pub avg_processing_time_ms: f64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TopHarvestPattern {
+    pub pattern_type: HarvestPatternType,
+    pub total_extracted: i32,
+    pub total_stored: i32,
+    pub avg_confidence: f64,
+    pub success_rate: f64,
+}

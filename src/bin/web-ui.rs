@@ -1,8 +1,7 @@
 use codex_memory::{
     api::{create_api_router, AppState},
-    config::Config,
     memory::{connection::create_pool, MemoryRepository},
-    Config as CodexConfig,
+    Config,
 };
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -16,16 +15,16 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 Starting Memory Harvester Configuration Web UI");
 
     // Load configuration
-    let config = match Config::from_file("config.toml") {
+    let config = match Config::from_env() {
         Ok(config) => config,
         Err(e) => {
-            warn!("Could not load config file, using defaults: {}", e);
+            warn!("Could not load config from environment, using defaults: {}", e);
             Config::default()
         }
     };
 
     // Create database connection pool
-    let pool = create_pool(&config.database.url, config.database.max_connections).await?;
+    let pool = create_pool(&config.database_url, 10).await?;
     let repository = Arc::new(MemoryRepository::new(pool));
 
     // Create application state

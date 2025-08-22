@@ -2007,6 +2007,576 @@ impl MemoryRepository {
             unfrozen_memory_ids,
         })
     }
+
+    // ==========================================
+    // Harvest Session Management Methods
+    // ==========================================
+
+    /// Create a new harvest session
+    pub async fn create_harvest_session(
+        &self,
+        request: CreateHarvestSessionRequest,
+    ) -> Result<HarvestSession> {
+        let session_id = Uuid::new_v4();
+        let now = Utc::now();
+        
+        let config_snapshot = request.config_snapshot.unwrap_or_else(|| serde_json::json!({}));
+        
+        let session = sqlx::query_as!(
+            HarvestSession,
+            r#"
+            INSERT INTO harvest_sessions (
+                id, session_type, trigger_reason, started_at, status,
+                messages_processed, patterns_extracted, patterns_stored, 
+                duplicates_filtered, processing_time_ms, config_snapshot,
+                error_message, retry_count, extraction_time_ms,
+                deduplication_time_ms, storage_time_ms, created_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, 0, 0, 0, 0, 0, $6, NULL, 0, 0, 0, 0, $7
+            )
+            RETURNING id, session_type as "session_type: HarvestSessionType", 
+                     trigger_reason, started_at, completed_at, 
+                     status as "status: HarvestSessionStatus",
+                     messages_processed, patterns_extracted, patterns_stored,
+                     duplicates_filtered, processing_time_ms, config_snapshot,
+                     error_message, retry_count, extraction_time_ms,
+                     deduplication_time_ms, storage_time_ms,
+                     memory_usage_mb, cpu_usage_percent, created_at
+            "#,
+            session_id,
+            request.session_type as HarvestSessionType,
+            request.trigger_reason,
+            now,
+            HarvestSessionStatus::InProgress as HarvestSessionStatus,
+            config_snapshot,
+            now
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError { 
+            message: format!("Failed to create harvest session: {}", e) 
+        })?;
+
+        Ok(session)
+    }
+
+    /// Update an existing harvest session
+    pub async fn update_harvest_session(
+        &self,
+        session_id: Uuid,
+        request: UpdateHarvestSessionRequest,
+    ) -> Result<HarvestSession> {
+        let mut tx = self.pool.begin().await.map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to begin transaction: {}", e),
+        })?;
+
+        // Build dynamic update query
+        let mut set_clauses = Vec::new();
+        let mut param_index = 2; // $1 is reserved for session_id
+
+        if request.status.is_some() {
+            set_clauses.push(format!("status = ${}", param_index));
+            param_index += 1;
+        }
+        if request.messages_processed.is_some() {
+            set_clauses.push(format!("messages_processed = ${}", param_index));
+            param_index += 1;
+        }
+        if request.patterns_extracted.is_some() {
+            set_clauses.push(format!("patterns_extracted = ${}", param_index));
+            param_index += 1;
+        }
+        if request.patterns_stored.is_some() {
+            set_clauses.push(format!("patterns_stored = ${}", param_index));
+            param_index += 1;
+        }
+        if request.duplicates_filtered.is_some() {
+            set_clauses.push(format!("duplicates_filtered = ${}", param_index));
+            param_index += 1;
+        }
+        if request.processing_time_ms.is_some() {
+            set_clauses.push(format!("processing_time_ms = ${}", param_index));
+            param_index += 1;
+        }
+        if request.error_message.is_some() {
+            set_clauses.push(format!("error_message = ${}", param_index));
+            param_index += 1;
+        }
+
+        if set_clauses.is_empty() {
+            return self.get_harvest_session(session_id).await;
+        }
+
+        let query = format!(
+            r#"
+            UPDATE harvest_sessions 
+            SET {}
+            WHERE id = $1
+            RETURNING id, session_type as "session_type: HarvestSessionType", 
+                     trigger_reason, started_at, completed_at, 
+                     status as "status: HarvestSessionStatus",
+                     messages_processed, patterns_extracted, patterns_stored,
+                     duplicates_filtered, processing_time_ms, config_snapshot,
+                     error_message, retry_count, extraction_time_ms,
+                     deduplication_time_ms, storage_time_ms,
+                     memory_usage_mb, cpu_usage_percent, created_at
+            "#,
+            set_clauses.join(", ")
+        );
+
+        let mut query_builder = sqlx::query_as::<_, HarvestSession>(&query);
+        query_builder = query_builder.bind(session_id);
+
+        if let Some(status) = request.status {
+            query_builder = query_builder.bind(status as HarvestSessionStatus);
+        }
+        if let Some(messages_processed) = request.messages_processed {
+            query_builder = query_builder.bind(messages_processed);
+        }
+        if let Some(patterns_extracted) = request.patterns_extracted {
+            query_builder = query_builder.bind(patterns_extracted);
+        }
+        if let Some(patterns_stored) = request.patterns_stored {
+            query_builder = query_builder.bind(patterns_stored);
+        }
+        if let Some(duplicates_filtered) = request.duplicates_filtered {
+            query_builder = query_builder.bind(duplicates_filtered);
+        }
+        if let Some(processing_time_ms) = request.processing_time_ms {
+            query_builder = query_builder.bind(processing_time_ms);
+        }
+        if let Some(error_message) = request.error_message {
+            query_builder = query_builder.bind(error_message);
+        }
+
+        let session = query_builder
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| MemoryError::DatabaseError {
+                message: format!("Failed to update harvest session: {}", e),
+            })?;
+
+        tx.commit().await.map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to commit harvest session update: {}", e),
+        })?;
+
+        Ok(session)
+    }
+
+    /// Get a harvest session by ID
+    pub async fn get_harvest_session(&self, session_id: Uuid) -> Result<HarvestSession> {
+        let session = sqlx::query_as!(
+            HarvestSession,
+            r#"
+            SELECT id, session_type as "session_type: HarvestSessionType", 
+                   trigger_reason, started_at, completed_at, 
+                   status as "status: HarvestSessionStatus",
+                   messages_processed, patterns_extracted, patterns_stored,
+                   duplicates_filtered, processing_time_ms, config_snapshot,
+                   error_message, retry_count, extraction_time_ms,
+                   deduplication_time_ms, storage_time_ms,
+                   memory_usage_mb, cpu_usage_percent, created_at
+            FROM harvest_sessions
+            WHERE id = $1
+            "#,
+            session_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Harvest session not found: {}", e),
+        })?;
+
+        Ok(session)
+    }
+
+    /// Get harvest success rate statistics
+    pub async fn get_harvest_success_rate(&self, days_back: i32) -> Result<HarvestSuccessRate> {
+        let stats = sqlx::query_as!(
+            HarvestSuccessRate,
+            r#"
+            SELECT 
+                COUNT(*)::INTEGER as total_sessions,
+                COUNT(*) FILTER (WHERE status = 'completed')::INTEGER as successful_sessions,
+                COUNT(*) FILTER (WHERE status = 'failed')::INTEGER as failed_sessions,
+                (COUNT(*) FILTER (WHERE status = 'completed')::FLOAT / GREATEST(COUNT(*), 1)::FLOAT) as success_rate,
+                COALESCE(AVG(processing_time_ms), 0)::FLOAT as average_processing_time_ms
+            FROM harvest_sessions 
+            WHERE started_at > NOW() - ($1 || ' days')::INTERVAL
+            "#,
+            days_back
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to get harvest success rate: {}", e),
+        })?;
+
+        Ok(stats)
+    }
+
+    // ==========================================
+    // Harvest Pattern Management Methods
+    // ==========================================
+
+    /// Create a new harvest pattern
+    pub async fn create_harvest_pattern(
+        &self,
+        request: CreateHarvestPatternRequest,
+    ) -> Result<HarvestPattern> {
+        let pattern_id = Uuid::new_v4();
+        let now = Utc::now();
+        let metadata = request.metadata.unwrap_or_else(|| serde_json::json!({}));
+        
+        let pattern = sqlx::query_as!(
+            HarvestPattern,
+            r#"
+            INSERT INTO harvest_patterns (
+                id, harvest_session_id, pattern_type, content, confidence_score,
+                source_message_id, context, metadata, status, memory_id,
+                rejection_reason, extraction_confidence, similarity_to_existing,
+                extracted_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, 'extracted', NULL, NULL, NULL, NULL, $9
+            )
+            RETURNING id, harvest_session_id, 
+                     pattern_type as "pattern_type: HarvestPatternType",
+                     content, confidence_score, source_message_id, context,
+                     metadata, status as "status: HarvestPatternStatus",
+                     memory_id, rejection_reason, extraction_confidence,
+                     similarity_to_existing, extracted_at
+            "#,
+            pattern_id,
+            request.harvest_session_id,
+            request.pattern_type as HarvestPatternType,
+            request.content,
+            request.confidence_score,
+            request.source_message_id,
+            request.context,
+            metadata,
+            now
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to create harvest pattern: {}", e),
+        })?;
+
+        Ok(pattern)
+    }
+
+    /// Get top performing harvest patterns
+    pub async fn get_top_harvest_patterns(
+        &self,
+        limit: i32,
+        days_back: i32,
+    ) -> Result<Vec<TopHarvestPattern>> {
+        let patterns = sqlx::query_as!(
+            TopHarvestPattern,
+            r#"
+            SELECT 
+                pattern_type as "pattern_type: HarvestPatternType",
+                COUNT(*)::INTEGER as total_extracted,
+                COUNT(*) FILTER (WHERE status = 'stored')::INTEGER as total_stored,
+                AVG(confidence_score)::FLOAT as avg_confidence,
+                (COUNT(*) FILTER (WHERE status = 'stored')::FLOAT / COUNT(*)::FLOAT) as success_rate
+            FROM harvest_patterns
+            WHERE extracted_at > NOW() - ($2 || ' days')::INTERVAL
+            GROUP BY pattern_type
+            ORDER BY success_rate DESC, total_stored DESC
+            LIMIT $1
+            "#,
+            limit,
+            days_back
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to get top harvest patterns: {}", e),
+        })?;
+
+        Ok(patterns)
+    }
+
+    // ==========================================
+    // Consolidation Event Management Methods
+    // ==========================================
+
+    /// Create a consolidation event
+    pub async fn create_consolidation_event(
+        &self,
+        request: CreateConsolidationEventRequest,
+    ) -> Result<ConsolidationEvent> {
+        let event_id = Uuid::new_v4();
+        let now = Utc::now();
+        let context_metadata = request.context_metadata.unwrap_or_else(|| serde_json::json!({}));
+        
+        // Calculate deltas if both old and new values are provided
+        let strength_delta = match (request.old_consolidation_strength, request.new_consolidation_strength) {
+            (Some(old), Some(new)) => Some(new - old),
+            _ => None,
+        };
+        
+        let probability_delta = match (request.old_recall_probability, request.new_recall_probability) {
+            (Some(old), Some(new)) => Some(new - old),
+            _ => None,
+        };
+        
+        let event = sqlx::query_as!(
+            ConsolidationEvent,
+            r#"
+            INSERT INTO consolidation_events (
+                id, event_type, memory_id, source_tier, target_tier,
+                migration_reason, old_consolidation_strength, new_consolidation_strength,
+                strength_delta, old_recall_probability, new_recall_probability,
+                probability_delta, processing_time_ms, triggered_by,
+                context_metadata, created_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, $13, $14, $15
+            )
+            RETURNING id, event_type as "event_type: ConsolidationEventType",
+                     memory_id, source_tier, target_tier, migration_reason,
+                     old_consolidation_strength, new_consolidation_strength,
+                     strength_delta, old_recall_probability, new_recall_probability,
+                     probability_delta, processing_time_ms, triggered_by,
+                     context_metadata, created_at
+            "#,
+            event_id,
+            request.event_type as ConsolidationEventType,
+            request.memory_id,
+            request.source_tier,
+            request.target_tier,
+            request.migration_reason,
+            request.old_consolidation_strength,
+            request.new_consolidation_strength,
+            strength_delta,
+            request.old_recall_probability,
+            request.new_recall_probability,
+            probability_delta,
+            request.triggered_by,
+            context_metadata,
+            now
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to create consolidation event: {}", e),
+        })?;
+
+        Ok(event)
+    }
+
+    /// Get tier migration statistics
+    pub async fn get_tier_migration_stats(&self, days_back: i32) -> Result<Vec<TierMigrationStats>> {
+        let stats = sqlx::query_as!(
+            TierMigrationStats,
+            r#"
+            SELECT 
+                COALESCE(ce.source_tier, 'unknown') as source_tier,
+                COALESCE(ce.target_tier, 'unknown') as target_tier,
+                COUNT(*)::INTEGER as migration_count,
+                COALESCE(AVG(ce.processing_time_ms), 0)::FLOAT as avg_processing_time_ms,
+                -- Calculate success rate by checking if memory actually moved to target tier
+                (COUNT(*) FILTER (WHERE m.tier::text = ce.target_tier)::FLOAT / COUNT(*)::FLOAT) as success_rate
+            FROM consolidation_events ce
+            JOIN memories m ON ce.memory_id = m.id
+            WHERE ce.event_type = 'tier_migration'
+            AND ce.created_at > NOW() - ($1 || ' days')::INTERVAL
+            GROUP BY ce.source_tier, ce.target_tier
+            ORDER BY migration_count DESC
+            "#,
+            days_back
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to get tier migration stats: {}", e),
+        })?;
+
+        Ok(stats)
+    }
+
+    // ==========================================
+    // Memory Access Log Management Methods
+    // ==========================================
+
+    /// Create a memory access log entry
+    pub async fn create_memory_access_log(
+        &self,
+        request: CreateMemoryAccessLogRequest,
+    ) -> Result<MemoryAccessLog> {
+        let log_id = Uuid::new_v4();
+        let now = Utc::now();
+        
+        let log_entry = sqlx::query_as!(
+            MemoryAccessLog,
+            r#"
+            INSERT INTO memory_access_log (
+                id, memory_id, access_type, session_id, user_context,
+                query_context, retrieval_time_ms, similarity_score,
+                ranking_position, importance_boost, access_count_increment,
+                accessed_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+            )
+            RETURNING id, memory_id, access_type as "access_type: MemoryAccessType",
+                     session_id, user_context, query_context, retrieval_time_ms,
+                     similarity_score, ranking_position, importance_boost,
+                     access_count_increment, accessed_at
+            "#,
+            log_id,
+            request.memory_id,
+            request.access_type as MemoryAccessType,
+            request.session_id,
+            request.user_context,
+            request.query_context,
+            request.retrieval_time_ms,
+            request.similarity_score,
+            request.ranking_position,
+            request.importance_boost.unwrap_or(0.0),
+            request.access_count_increment.unwrap_or(1),
+            now
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to create memory access log: {}", e),
+        })?;
+
+        Ok(log_entry)
+    }
+
+    // ==========================================
+    // System Metrics Management Methods
+    // ==========================================
+
+    /// Create a system metrics snapshot
+    pub async fn create_system_metrics_snapshot(
+        &self,
+        snapshot_type: SystemMetricsSnapshotType,
+    ) -> Result<SystemMetricsSnapshot> {
+        let snapshot_id = Uuid::new_v4();
+        let now = Utc::now();
+        
+        // Get current memory tier statistics
+        let tier_stats = sqlx::query!(
+            r#"
+            SELECT 
+                COUNT(*) FILTER (WHERE tier = 'working' AND status = 'active') as working_count,
+                COUNT(*) FILTER (WHERE tier = 'warm' AND status = 'active') as warm_count,
+                COUNT(*) FILTER (WHERE tier = 'cold' AND status = 'active') as cold_count,
+                COUNT(*) FILTER (WHERE tier = 'frozen') as frozen_count,
+                SUM(LENGTH(content::text)) as total_storage_bytes
+            FROM memories
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to get memory tier statistics: {}", e),
+        })?;
+        
+        let snapshot = sqlx::query_as!(
+            SystemMetricsSnapshot,
+            r#"
+            INSERT INTO system_metrics_snapshots (
+                id, snapshot_type, working_memory_count, warm_memory_count,
+                cold_memory_count, frozen_memory_count, total_storage_bytes,
+                compressed_storage_bytes, average_compression_ratio,
+                average_query_time_ms, p95_query_time_ms, p99_query_time_ms,
+                slow_query_count, consolidation_backlog, migration_queue_size,
+                failed_operations_count, vector_index_size_mb,
+                vector_search_performance, database_cpu_percent,
+                database_memory_mb, connection_count, active_connections,
+                recorded_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0,
+                NULL, '{}', NULL, NULL, NULL, NULL, $8
+            )
+            RETURNING id, snapshot_type as "snapshot_type: SystemMetricsSnapshotType",
+                     working_memory_count, warm_memory_count, cold_memory_count,
+                     frozen_memory_count, total_storage_bytes, compressed_storage_bytes,
+                     average_compression_ratio, average_query_time_ms, p95_query_time_ms,
+                     p99_query_time_ms, slow_query_count, consolidation_backlog,
+                     migration_queue_size, failed_operations_count, vector_index_size_mb,
+                     vector_search_performance, database_cpu_percent, database_memory_mb,
+                     connection_count, active_connections, recorded_at
+            "#,
+            snapshot_id,
+            snapshot_type as SystemMetricsSnapshotType,
+            tier_stats.working_count.unwrap_or(0) as i32,
+            tier_stats.warm_count.unwrap_or(0) as i32,
+            tier_stats.cold_count.unwrap_or(0) as i32,
+            tier_stats.frozen_count.unwrap_or(0) as i32,
+            tier_stats.total_storage_bytes.unwrap_or(0),
+            now
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to create system metrics snapshot: {}", e),
+        })?;
+
+        Ok(snapshot)
+    }
+
+    /// Get recent system metrics snapshots
+    pub async fn get_recent_system_metrics_snapshots(
+        &self,
+        snapshot_type: Option<SystemMetricsSnapshotType>,
+        limit: i32,
+    ) -> Result<Vec<SystemMetricsSnapshot>> {
+        let snapshots = match snapshot_type {
+            Some(st) => {
+                sqlx::query_as!(
+                    SystemMetricsSnapshot,
+                    r#"
+                    SELECT id, snapshot_type as "snapshot_type: SystemMetricsSnapshotType",
+                           working_memory_count, warm_memory_count, cold_memory_count,
+                           frozen_memory_count, total_storage_bytes, compressed_storage_bytes,
+                           average_compression_ratio, average_query_time_ms, p95_query_time_ms,
+                           p99_query_time_ms, slow_query_count, consolidation_backlog,
+                           migration_queue_size, failed_operations_count, vector_index_size_mb,
+                           vector_search_performance, database_cpu_percent, database_memory_mb,
+                           connection_count, active_connections, recorded_at
+                    FROM system_metrics_snapshots
+                    WHERE snapshot_type = $1
+                    ORDER BY recorded_at DESC
+                    LIMIT $2
+                    "#,
+                    st as SystemMetricsSnapshotType,
+                    limit
+                )
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as!(
+                    SystemMetricsSnapshot,
+                    r#"
+                    SELECT id, snapshot_type as "snapshot_type: SystemMetricsSnapshotType",
+                           working_memory_count, warm_memory_count, cold_memory_count,
+                           frozen_memory_count, total_storage_bytes, compressed_storage_bytes,
+                           average_compression_ratio, average_query_time_ms, p95_query_time_ms,
+                           p99_query_time_ms, slow_query_count, consolidation_backlog,
+                           migration_queue_size, failed_operations_count, vector_index_size_mb,
+                           vector_search_performance, database_cpu_percent, database_memory_mb,
+                           connection_count, active_connections, recorded_at
+                    FROM system_metrics_snapshots
+                    ORDER BY recorded_at DESC
+                    LIMIT $1
+                    "#,
+                    limit
+                )
+                .fetch_all(&self.pool)
+                .await
+            }
+        }.map_err(|e| MemoryError::DatabaseError {
+            message: format!("Failed to get system metrics snapshots: {}", e),
+        })?;
+
+        Ok(snapshots)
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]

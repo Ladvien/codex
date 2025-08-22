@@ -1,34 +1,5 @@
 # Epic: Upgrade Memory System to SOTA Cognitive Architecture
 
-## Story 4: Implement Silent Memory Harvester
-**Assignee:** Integration Subagent  
-**Story Points:** 13  
-**Priority:** Critical  
-**Dependencies:** None
-
-**Description:**
-Build automatic memory extraction from Claude conversations without user interruption.
-
-**Acceptance Criteria:**
-- [ ] MCP tool `background_memory_harvest` with silent mode
-- [ ] Extract patterns: preferences, facts, decisions, corrections, emotions
-- [ ] Confidence scoring with 0.7 threshold for auto-store
-- [ ] Deduplication at 0.85 similarity threshold
-- [ ] Trigger every 10 messages OR 5 minutes
-- [ ] Batch processing for efficiency
-- [ ] No user-visible output unless explicitly requested
-- [ ] Track extraction metrics
-
-**Definition of Done:**
-- Zero user interruption during harvesting
-- Extraction accuracy > 80% on test conversations
-- Deduplication prevents redundant storage
-- Performance: process 50 messages in < 2 seconds
-- Integration tests verify silent operation
-- User can query "what did you remember" on demand
-
----
-
 ## Story 5: Implement Semantic Deduplication System
 **Assignee:** Data Subagent  
 **Story Points:** 8  

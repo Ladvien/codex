@@ -2,6 +2,7 @@ use crate::embedding::EmbeddingService;
 use crate::memory::{ImportanceAssessmentPipeline, Memory, MemoryRepository, MemoryTier};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use futures::future;
 use prometheus::{Counter, Histogram, Registry};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,6 @@ use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio::time::{interval, timeout};
 use tracing::{debug, error, info, trace, warn};
-use futures::future;
 
 #[derive(Debug, Error)]
 pub enum HarvesterError {
@@ -708,7 +708,6 @@ pub struct DeduplicationService {
     cache_ttl: Duration,
 }
 
-
 impl DeduplicationService {
     pub fn new(
         threshold: f64,
@@ -1317,7 +1316,6 @@ impl HarvestingEngine {
             .map_err(HarvesterError::RepositoryFailed)
             .map_err(Into::into)
     }
-
 
     /// Get current metrics summary
     pub async fn get_metrics_summary(&self) -> HarvesterMetricsSummary {

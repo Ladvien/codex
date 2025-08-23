@@ -557,7 +557,7 @@ impl MCPHandlers {
         }
     }
 
-    /// Execute harvest_conversation tool
+    /// Execute harvest_conversation tool with progressive responses
     async fn execute_harvest_conversation(&self, args: &Value) -> Result<Value> {
         let message = args.get("message").and_then(|m| m.as_str());
 
@@ -578,51 +578,149 @@ impl MCPHandlers {
             .and_then(|s| s.as_bool())
             .unwrap_or(true);
 
+        // New: Support for quick mode (ultra-minimal response)
+        let quick_mode = args
+            .get("quick_mode")
+            .and_then(|q| q.as_bool())
+            .unwrap_or(true);  // Default to quick mode
+
+        // New: Support for chunked harvesting
+        let chunk_size = args
+            .get("chunk_size")
+            .and_then(|c| c.as_u64())
+            .unwrap_or(500);  // Default 500 words per chunk
+
         // Add message to harvester queue if provided
         if let Some(message_content) = message {
-            let conversation_message = ConversationMessage {
-                id: Uuid::new_v4().to_string(),
-                content: message_content.to_string(),
-                timestamp: Utc::now(),
-                role: role.to_string(),
-                context: context.to_string(),
-            };
+            // Check if message is large and needs chunking
+            let word_count = message_content.split_whitespace().count();
+            
+            if word_count > chunk_size as usize {
+                // Large message - process in chunks to avoid timeout
+                let words: Vec<&str> = message_content.split_whitespace().collect();
+                let chunks: Vec<String> = words
+                    .chunks(chunk_size as usize)
+                    .map(|chunk| chunk.join(" "))
+                    .collect();
+                
+                // Process chunks asynchronously
+                let harvester = self.harvester_service.clone();
+                let chunk_count = chunks.len();
+                let role_owned = role.to_string();
+                let context_owned = context.to_string();
+                
+                tokio::spawn(async move {
+                    for (i, chunk) in chunks.iter().enumerate() {
+                        let conversation_message = ConversationMessage {
+                            id: Uuid::new_v4().to_string(),
+                            content: chunk.to_string(),
+                            timestamp: Utc::now(),
+                            role: role_owned.clone(),
+                            context: format!("{}_chunk_{}", context_owned, i + 1),
+                        };
+                        
+                        if let Err(e) = harvester.add_message(conversation_message).await {
+                            error!("Failed to add chunk {}/{}: {}", i + 1, chunk_count, e);
+                        }
+                        
+                        // Process each chunk immediately
+                        if let Err(e) = harvester.force_harvest().await {
+                            error!("Failed to harvest chunk {}/{}: {}", i + 1, chunk_count, e);
+                        }
+                    }
+                    info!("Completed chunked harvest of {} chunks", chunk_count);
+                });
+                
+                // Return immediately for chunked processing
+                return Ok(format_tool_response(&format!(
+                    "✓ Processing {} chunks ({}w each)", 
+                    chunk_count, 
+                    chunk_size
+                )));
+            } else {
+                // Normal sized message - process as usual
+                let conversation_message = ConversationMessage {
+                    id: Uuid::new_v4().to_string(),
+                    content: message_content.to_string(),
+                    timestamp: Utc::now(),
+                    role: role.to_string(),
+                    context: context.to_string(),
+                };
 
-            self.harvester_service
-                .add_message(conversation_message)
-                .await?;
+                self.harvester_service
+                    .add_message(conversation_message)
+                    .await?;
+            }
         }
 
         // Force harvest if requested
         if force_harvest {
-            match self.harvester_service.force_harvest().await {
-                Ok(result) => {
-                    let response_text = if silent_mode {
-                        format!(
-                            "Harvest completed: {} messages processed",
-                            result.messages_processed
-                        )
-                    } else {
-                        format!("Force harvest completed:\n• Messages processed: {}\n• Patterns extracted: {}\n• Patterns stored: {}\n• Duplicates filtered: {}\n• Processing time: {}ms",
-                                result.messages_processed,
-                                result.patterns_extracted,
-                                result.patterns_stored,
-                                result.duplicates_filtered,
-                                result.processing_time_ms)
-                    };
-                    Ok(format_tool_response(&response_text))
-                }
-                Err(e) => {
-                    error!("Force harvest failed: {}", e);
-                    Err(anyhow::anyhow!("Harvest failed: {}", e))
-                }
+            if quick_mode {
+                // Ultra-minimal response mode - start harvest and return immediately
+                let harvester = self.harvester_service.clone();
+                let harvest_id = Uuid::new_v4();
+                
+                tokio::spawn(async move {
+                    match harvester.force_harvest().await {
+                        Ok(result) => {
+                            info!("[{}] Harvest complete: {} patterns", 
+                                 harvest_id, result.patterns_stored);
+                        }
+                        Err(e) => {
+                            error!("[{}] Harvest failed: {}", harvest_id, e);
+                        }
+                    }
+                });
+                
+                // Return minimal response immediately
+                Ok(format_tool_response("✓"))
+                
+            } else {
+                // Normal async mode with slightly more detail
+                let harvester = self.harvester_service.clone();
+                
+                // Get quick stats before starting
+                let stats = self.repository.get_statistics().await.ok();
+                let pre_count = stats
+                    .as_ref()
+                    .and_then(|s| s.total_active)
+                    .unwrap_or(0);
+                
+                tokio::spawn(async move {
+                    match harvester.force_harvest().await {
+                        Ok(result) => {
+                            info!("Background harvest completed: {} patterns stored", 
+                                 result.patterns_stored);
+                        }
+                        Err(e) => {
+                            error!("Background harvest failed: {}", e);
+                        }
+                    }
+                });
+                
+                // Return summary statistics instead of full details
+                let response_text = if silent_mode {
+                    format!("✓ Harvesting ({} existing)", pre_count)
+                } else {
+                    format!("✓ Harvest started\n• Current memories: {}\n• Processing in background", 
+                           pre_count)
+                };
+                Ok(format_tool_response(&response_text))
             }
         } else {
             // Silent queuing mode
             let response_text = if message.is_some() {
-                "Message queued for background harvesting"
+                if quick_mode {
+                    "✓ Queued"
+                } else {
+                    "Message queued for background harvesting"
+                }
             } else {
-                "Background harvesting is active and monitoring conversations"
+                if quick_mode {
+                    "✓ Active"
+                } else {
+                    "Background harvesting is active and monitoring conversations"
+                }
             };
             Ok(format_tool_response(response_text))
         }

@@ -251,14 +251,14 @@ impl MathEngine {
         // Note: Removed hard-coded bypass for recent access to ensure mathematical consistency
         // The forgetting curve formula handles small time values correctly
 
-        // Normalize time by consolidation strength
+        // Ensure consolidation strength is within bounds
         let consolidation_strength = params
             .consolidation_strength
             .max(self.config.min_consolidation_strength);
         let normalized_time = time_since_access / consolidation_strength;
 
-        // Calculate recall probability using exact forgetting curve formula
-        let probability = self.forgetting_curve_formula(normalized_time, params.decay_rate)?;
+        // Calculate recall probability using Ebbinghaus forgetting curve: R(t) = e^(-t/S)
+        let probability = self.ebbinghaus_forgetting_curve(time_since_access, consolidation_strength)?;
 
         let calculation_time = start_time.elapsed().as_millis() as u64;
 

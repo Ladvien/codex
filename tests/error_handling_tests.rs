@@ -313,9 +313,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
     let successful_updates = update_operations.iter().filter(|r| r.is_ok()).count();
     let failed_updates = update_operations.iter().filter(|r| r.is_err()).count();
 
-    println!(
-        "Concurrent updates: {successful_updates} succeeded, {failed_updates} failed"
-    );
+    println!("Concurrent updates: {successful_updates} succeeded, {failed_updates} failed");
 
     // At least one update should succeed
     assert!(
@@ -349,9 +347,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
     let successful_deletions = deletion_operations.iter().filter(|r| r.is_ok()).count();
     let failed_deletions = deletion_operations.iter().filter(|r| r.is_err()).count();
 
-    println!(
-        "Concurrent deletions: {successful_deletions} succeeded, {failed_deletions} failed"
-    );
+    println!("Concurrent deletions: {successful_deletions} succeeded, {failed_deletions} failed");
 
     // Exactly one deletion should succeed
     assert!(
@@ -403,9 +399,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
 
     // All operations should handle concurrency gracefully
     let successful_ops = mixed_operations.iter().filter(|r| r.is_ok()).count();
-    println!(
-        "Reader/writer test: {successful_ops} operations succeeded out of 10"
-    );
+    println!("Reader/writer test: {successful_ops} operations succeeded out of 10");
 
     assert!(
         successful_ops >= 9,
@@ -604,9 +598,7 @@ async fn test_database_error_handling() -> Result<()> {
     let successful_workers = rapid_operations.iter().filter(|r| r.is_ok()).count();
     let failed_workers = rapid_operations.iter().filter(|r| r.is_err()).count();
 
-    println!(
-        "Rapid operations: {successful_workers} workers succeeded, {failed_workers} failed"
-    );
+    println!("Rapid operations: {successful_workers} workers succeeded, {failed_workers} failed");
 
     // Most operations should succeed despite stress
     assert!(

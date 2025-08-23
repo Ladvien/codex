@@ -94,7 +94,6 @@ mod architecture_tests {
     #[test]
     fn test_no_circular_dependencies() {
         // This test passes if the code compiles, which means no circular dependencies
-        
 
         println!("✅ No circular dependencies detected");
     }

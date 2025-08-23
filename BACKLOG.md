@@ -21,32 +21,31 @@ Generated from comprehensive code review by specialized agent team
   - Remaining unwrap() calls are in test code only (acceptable per Rust practices)
 - **Commits:** [ce7d7c0], [23b50f4], [2f35bca], [f9b120f]
 
-#### CODEX-002: Fix Critical N+1 Query Pattern [13 pts]
+#### ✅ CODEX-002: Fix Critical N+1 Query Pattern [13 pts] - COMPLETED
 - **Priority:** P0 - Performance Blocker  
 - **Components:** repository.rs:1940-1972
-- **Acceptance Criteria:**
-  - Replace individual UPDATE loops with batch UNNEST operation
-  - Single SQL statement for batch consolidation updates
-  - >10x performance improvement for batch operations
-  - Transaction safety maintained
-- **Technical Details:**
-  - Current: O(n) database round trips
-  - Target: O(1) batch update
-  - Performance impact: 100-1000ms for 10-100 items
+- **Status:** COMPLETED - N+1 query pattern eliminated
+- **Completion Details:**
+  - Replaced loop-based consolidation updates with single batch UPDATE using UNNEST
+  - Single SQL statement processes all updates atomically
+  - Expected >10x performance improvement for batch operations
+  - Transaction safety and error handling maintained
+  - Comprehensive performance test suite added
+- **Commits:** [acbc7dd]
 
-#### CODEX-003: Add Critical Missing Indexes [8 pts]
+#### ✅ CODEX-003: Add Critical Missing Indexes [8 pts] - COMPLETED
 - **Priority:** P0 - Performance Blocker
 - **Components:** Database migrations
-- **Acceptance Criteria:**
-  - Add composite index: (content_hash, tier, status)
-  - Add working memory index: (tier, status, id)  
-  - Add consolidation index: (tier, recall_probability)
-  - Create indexes CONCURRENTLY
-  - Verify with EXPLAIN ANALYZE
-- **Technical Details:**
-  - Duplicate detection causing full table scans
-  - Working memory queries sequential scan
-  - Missing indexes block core operations
+- **Status:** COMPLETED - Critical indexes created
+- **Completion Details:**
+  - Added composite index: (content_hash, tier, status) for duplicate detection
+  - Added working memory index: (tier, status, id) for capacity queries
+  - Added consolidation index: (tier, recall_probability) for candidate selection
+  - Added cleanup index: (status, last_accessed_at) for maintenance
+  - Fixed HNSW parameters: m=48, ef_construction=200 for 1536-dim vectors
+  - All indexes created CONCURRENTLY with validation
+- **Migration:** 011_critical_missing_indexes.sql
+- **Commits:** [e37322e], [959448c]
 
 #### CODEX-004: Fix MCP Authentication Bypass [21 pts]
 - **Priority:** P0 - Security Vulnerability

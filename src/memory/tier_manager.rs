@@ -754,7 +754,7 @@ mod tests {
                 return;
             }
         };
-        
+
         let repository = Arc::new(MemoryRepository::new(pool));
         let config = TierManagerConfig::default();
 

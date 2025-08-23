@@ -72,11 +72,7 @@ async fn test_working_memory_capacity_enforcement() -> Result<()> {
     for i in 0..5 {
         let request = CreateMemoryRequest {
             content: format!("Memory item {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Memory {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Memory {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5),
             parent_id: None,
@@ -136,11 +132,7 @@ async fn test_lru_eviction_order() -> Result<()> {
     for i in 0..5 {
         let request = CreateMemoryRequest {
             content: format!("Memory {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Memory {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Memory {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5),
             parent_id: None,
@@ -208,11 +200,7 @@ async fn test_memory_pressure_metric() -> Result<()> {
     for i in 0..3 {
         let request = CreateMemoryRequest {
             content: format!("Memory {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Memory {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Memory {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5),
             parent_id: None,
@@ -232,11 +220,7 @@ async fn test_memory_pressure_metric() -> Result<()> {
     for i in 3..5 {
         let request = CreateMemoryRequest {
             content: format!("Memory {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Memory {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Memory {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5),
             parent_id: None,
@@ -297,11 +281,7 @@ async fn test_automatic_tier_migration_on_pressure() -> Result<()> {
     for i in 0..7 {
         let request = CreateMemoryRequest {
             content: format!("Memory {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Memory {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Memory {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5 + (i as f64 * 0.05)), // Varying importance
             parent_id: None,
@@ -365,11 +345,7 @@ async fn test_concurrent_memory_creation_at_capacity() -> Result<()> {
     for i in 0..5 {
         let request = CreateMemoryRequest {
             content: format!("Initial memory {i}"),
-            embedding: Some(
-                embedder
-                    .generate_embedding(&format!("Initial {i}"))
-                    .await?,
-            ),
+            embedding: Some(embedder.generate_embedding(&format!("Initial {i}")).await?),
             tier: Some(MemoryTier::Working),
             importance_score: Some(0.5),
             parent_id: None,

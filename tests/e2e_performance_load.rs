@@ -223,7 +223,8 @@ async fn test_warm_storage_query_performance() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Create test memories in warm tier with varied content for realistic search
-    let test_contents = ["Database optimization techniques for high-performance applications",
+    let test_contents = [
+        "Database optimization techniques for high-performance applications",
         "Rust programming patterns and best practices for systems development",
         "Machine learning algorithms implementation in distributed systems",
         "Web security protocols and authentication mechanisms",
@@ -232,7 +233,8 @@ async fn test_warm_storage_query_performance() -> Result<()> {
         "Data structures and algorithms for efficient memory management",
         "Concurrent programming models and synchronization primitives",
         "Network protocols and communication patterns in distributed systems",
-        "Testing strategies for large-scale software systems"];
+        "Testing strategies for large-scale software systems",
+    ];
 
     let mut memory_ids = Vec::new();
     for (i, content) in test_contents.iter().enumerate() {
@@ -589,14 +591,17 @@ async fn test_large_dataset_search_performance() -> Result<()> {
     let dataset_size = 500; // Moderate size for CI/test environments
 
     // Content templates for variety
-    let content_templates = ["Software engineering best practices for {}: {}",
+    let content_templates = [
+        "Software engineering best practices for {}: {}",
         "Database design patterns in {}: {}",
         "Performance optimization techniques for {}: {}",
         "Security considerations in {}: {}",
         "Testing strategies for {}: {}",
-        "Documentation and maintenance of {}: {}"];
+        "Documentation and maintenance of {}: {}",
+    ];
 
-    let technologies = ["Rust",
+    let technologies = [
+        "Rust",
         "PostgreSQL",
         "Docker",
         "Kubernetes",
@@ -607,14 +612,17 @@ async fn test_large_dataset_search_performance() -> Result<()> {
         "Go",
         "JavaScript",
         "C++",
-        "Swift"];
+        "Swift",
+    ];
 
-    let details = ["implementation details and architecture decisions",
+    let details = [
+        "implementation details and architecture decisions",
         "deployment strategies and operational considerations",
         "monitoring and observability requirements",
         "scaling and performance optimization",
         "security and compliance requirements",
-        "maintenance and technical debt management"];
+        "maintenance and technical debt management",
+    ];
 
     for i in 0..dataset_size {
         let template = &content_templates[i % content_templates.len()];
@@ -684,9 +692,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
     let mut search_measurements = Vec::new();
 
     for (query, limit, tier) in search_test_cases {
-        println!(
-            "Testing search: '{query}' (tier: {tier:?}, limit: {limit:?})"
-        );
+        println!("Testing search: '{query}' (tier: {tier:?}, limit: {limit:?})");
 
         let search_request = create_search_request(query, limit, tier, None);
         let start = Instant::now();

@@ -310,9 +310,7 @@ async fn test_ollama_embedding_integration() -> Result<()> {
     println!("✅ Successfully generated batch embeddings");
     println!("  - Batch size: {}", batch_embeddings.len());
     println!("  - Batch time: {batch_time:?}");
-    println!(
-        "  - Throughput: {embeddings_per_second:.1} embeddings/second"
-    );
+    println!("  - Throughput: {embeddings_per_second:.1} embeddings/second");
 
     // Test 4: Determinism check
     println!("4. Testing embedding determinism...");
@@ -608,9 +606,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
     ];
 
     for (name, where_clause) in &batch_queries {
-        let query = format!(
-            "SELECT id, content FROM e2e_test_memories WHERE {where_clause}"
-        );
+        let query = format!("SELECT id, content FROM e2e_test_memories WHERE {where_clause}");
 
         let results = sqlx::query(&query).fetch_all(&pool).await?;
 
@@ -623,9 +619,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
         "Batch queries should complete quickly"
     );
 
-    println!(
-        "✅ Performance characteristics acceptable ({performance_time:?})"
-    );
+    println!("✅ Performance characteristics acceptable ({performance_time:?})");
 
     // Step 8: Cleanup
     println!("Step 8: Cleaning up test data...");

@@ -3130,7 +3130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_query_builder_parameterization() {
+    fn test_safe_query_builder_parameterization() -> anyhow::Result<()> {
         let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
 
         // Add tier filter
@@ -3156,6 +3156,8 @@ mod tests {
         assert!(!query.contains("0.5"));
         assert!(!query.contains("0.9"));
         assert!(!query.contains("Working"));
+        
+        Ok(())
     }
 
     #[test]
@@ -3271,7 +3273,7 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_query_building_safety() {
+    fn test_complex_query_building_safety() -> anyhow::Result<()> {
         let mut builder = SafeQueryBuilder::new("SELECT * FROM memories WHERE status = 'active'");
 
         // Build a complex query with multiple filters
@@ -3307,6 +3309,8 @@ mod tests {
         assert!(!query.contains("UNION"));
         assert!(!query.contains("--"));
         assert!(!query.contains("/*"));
+        
+        Ok(())
     }
 
     #[tokio::test]

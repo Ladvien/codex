@@ -20,7 +20,7 @@ impl DatabaseSetup {
     /// - Contain only letters, digits, underscores, dollar signs  
     /// - Be 1-63 characters long
     /// - Not be a reserved keyword
-    fn validate_database_identifier(identifier: &str) -> Result<String> {
+    pub fn validate_database_identifier(identifier: &str) -> Result<String> {
         if identifier.is_empty() {
             return Err(anyhow::anyhow!("Database identifier cannot be empty"));
         }
@@ -74,7 +74,7 @@ impl DatabaseSetup {
 
     /// Validate and format vector data for safe embedding in SQL queries
     /// This prevents injection via malformed vector values
-    fn validate_and_format_vector(vector: &[f32]) -> Result<String> {
+    pub fn validate_and_format_vector(vector: &[f32]) -> Result<String> {
         if vector.is_empty() {
             return Err(anyhow::anyhow!("Vector cannot be empty"));
         }

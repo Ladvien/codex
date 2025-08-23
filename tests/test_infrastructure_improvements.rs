@@ -52,9 +52,7 @@ impl BenchmarkSuite {
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
     {
-        println!(
-            "Benchmarking: {operation_name} ({operation_count} iterations)"
-        );
+        println!("Benchmarking: {operation_name} ({operation_count} iterations)");
 
         let start_time = Instant::now();
         let mut last_result = None;
@@ -872,9 +870,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
     let overall_start = Instant::now();
 
     for (scenario_name, operation_count, expect_all_success) in test_scenarios {
-        println!(
-            "Running test scenario: {scenario_name} ({operation_count} operations)"
-        );
+        println!("Running test scenario: {scenario_name} ({operation_count} operations)");
 
         let scenario_start = Instant::now();
         let mut successes = 0;
@@ -1133,9 +1129,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                 "Needs Improvement"
             };
 
-            println!(
-                "  {scenario}: {avg_time:.2}ms avg ({performance_grade})"
-            );
+            println!("  {scenario}: {avg_time:.2}ms avg ({performance_grade})");
         }
     }
 

@@ -93,9 +93,7 @@ async fn test_authentication_workflow_e2e() -> Result<()> {
         );
         assert_eq!(claims.permissions, *permissions, "Permissions should match");
 
-        println!(
-            "✓ Authentication successful for user: {username} (role: {role})"
-        );
+        println!("✓ Authentication successful for user: {username} (role: {role})");
     }
 
     // Test expired token
@@ -372,9 +370,7 @@ async fn test_input_validation_workflow_e2e() -> Result<()> {
         "'; DROP TABLE memories; --",
     ] {
         let validated_query = validator.validate_input(malicious_query)?;
-        println!(
-            "Search query '{malicious_query}' validated to: '{validated_query}'"
-        );
+        println!("Search query '{malicious_query}' validated to: '{validated_query}'");
 
         let search_request = create_search_request(&validated_query, Some(5), None);
         let search_results = env.repository.search_memories(search_request).await?;

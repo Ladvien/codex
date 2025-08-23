@@ -126,10 +126,7 @@ fn test_memory_status_values() {
     for (i, status1) in statuses.iter().enumerate() {
         for (j, status2) in statuses.iter().enumerate() {
             if i != j {
-                assert_ne!(
-                    status1, status2,
-                    "Status {i} should not equal status {j}"
-                );
+                assert_ne!(status1, status2, "Status {i} should not equal status {j}");
             }
         }
     }

@@ -13,6 +13,9 @@ pub mod rate_limiter;
 pub mod tools;
 pub mod transport;
 
+#[cfg(test)]
+pub mod security_tests;
+
 pub use auth::{AuthContext, AuthMethod, MCPAuth, MCPAuthConfig};
 pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,

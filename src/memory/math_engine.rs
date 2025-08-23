@@ -653,7 +653,7 @@ pub mod benchmarks {
         let sum: f64 = times.iter().sum();
         let avg = sum / times.len() as f64;
 
-        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let median = if times.len() % 2 == 0 {
             (times[times.len() / 2 - 1] + times[times.len() / 2]) / 2.0
         } else {

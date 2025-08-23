@@ -53,7 +53,7 @@ pub struct MCPAuthConfig {
     pub jwt_secret: String,
     pub jwt_expiry_seconds: u64,
     pub api_keys: HashMap<String, ApiKeyInfo>,
-    pub allowed_certificates: HashSet<String>,
+    pub allowed_certificates: HashMap<String, CertificateInfo>,
     pub require_scope: Vec<String>,
     pub performance_target_ms: u64,
 }
@@ -66,6 +66,19 @@ pub struct ApiKeyInfo {
     pub expires_at: Option<chrono::DateTime<Utc>>,
     pub last_used: Option<chrono::DateTime<Utc>>,
     pub usage_count: u64,
+}
+
+/// Certificate information for proper validation
+#[derive(Debug, Clone)]
+pub struct CertificateInfo {
+    pub thumbprint: String,
+    pub client_id: String,
+    pub subject: String,
+    pub issuer: String,
+    pub not_before: chrono::DateTime<Utc>,
+    pub not_after: chrono::DateTime<Utc>,
+    pub scopes: Vec<String>,
+    pub revoked: bool,
 }
 
 impl Default for MCPAuthConfig {
@@ -178,12 +191,94 @@ impl MCPAuthConfig {
     }
 
     /// Load allowed certificates from environment variables
-    fn load_certificates_from_env() -> HashSet<String> {
-        let mut certs = HashSet::new();
+    fn load_certificates_from_env() -> HashMap<String, CertificateInfo> {
+        let mut certs = HashMap::new();
 
-        if let Ok(cert_thumbprints) = env::var("MCP_ALLOWED_CERTS") {
-            for thumbprint in cert_thumbprints.split(',') {
-                certs.insert(thumbprint.trim().to_string());
+        // Load certificate information from JSON format
+        if let Ok(certs_json) = env::var("MCP_ALLOWED_CERTS") {
+            match serde_json::from_str::<HashMap<String, Value>>(&certs_json) {
+                Ok(cert_configs) => {
+                    for (thumbprint, cert_info) in cert_configs {
+                        if let (
+                            Some(client_id),
+                            Some(subject),
+                            Some(issuer),
+                            Some(not_before_str),
+                            Some(not_after_str),
+                        ) = (
+                            cert_info.get("client_id").and_then(|v| v.as_str()),
+                            cert_info.get("subject").and_then(|v| v.as_str()),
+                            cert_info.get("issuer").and_then(|v| v.as_str()),
+                            cert_info.get("not_before").and_then(|v| v.as_str()),
+                            cert_info.get("not_after").and_then(|v| v.as_str()),
+                        ) {
+                            if let (Ok(not_before), Ok(not_after)) = (
+                                chrono::DateTime::parse_from_rfc3339(not_before_str)
+                                    .map(|dt| dt.with_timezone(&Utc)),
+                                chrono::DateTime::parse_from_rfc3339(not_after_str)
+                                    .map(|dt| dt.with_timezone(&Utc)),
+                            ) {
+                                let scopes = cert_info
+                                    .get("scopes")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|s| s.as_str().map(String::from))
+                                            .collect()
+                                    })
+                                    .unwrap_or_else(|| {
+                                        vec!["mcp:read".to_string(), "mcp:write".to_string()]
+                                    });
+
+                                let revoked = cert_info
+                                    .get("revoked")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
+
+                                certs.insert(
+                                    thumbprint.clone(),
+                                    CertificateInfo {
+                                        thumbprint,
+                                        client_id: client_id.to_string(),
+                                        subject: subject.to_string(),
+                                        issuer: issuer.to_string(),
+                                        not_before,
+                                        not_after,
+                                        scopes,
+                                        revoked,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to parse MCP_ALLOWED_CERTS: {}", e);
+                }
+            }
+        }
+
+        // Fallback: legacy thumbprint-only format (with warning)
+        if certs.is_empty() {
+            if let Ok(cert_thumbprints) = env::var("MCP_CERT_THUMBPRINTS") {
+                warn!("Using deprecated MCP_CERT_THUMBPRINTS format. Please migrate to MCP_ALLOWED_CERTS JSON format for proper certificate validation.");
+                for thumbprint in cert_thumbprints.split(',') {
+                    let thumbprint = thumbprint.trim().to_string();
+                    // Create minimal certificate info for legacy format
+                    certs.insert(
+                        thumbprint.clone(),
+                        CertificateInfo {
+                            thumbprint: thumbprint.clone(),
+                            client_id: format!("cert-{}", thumbprint),
+                            subject: "legacy-cert".to_string(),
+                            issuer: "unknown".to_string(),
+                            not_before: Utc::now() - Duration::days(365),
+                            not_after: Utc::now() + Duration::days(365),
+                            scopes: vec!["mcp:read".to_string(), "mcp:write".to_string()],
+                            revoked: false,
+                        },
+                    );
+                }
             }
         }
 
@@ -403,24 +498,55 @@ impl MCPAuth {
         })
     }
 
-    /// Validate client certificate
+    /// Validate client certificate with proper expiry and revocation checking
     async fn validate_certificate(
         &self,
         thumbprint: &str,
         request_id: &str,
     ) -> Result<AuthContext> {
-        if !self.config.allowed_certificates.contains(thumbprint) {
-            return Err(anyhow!("Certificate not allowed"));
+        let cert_info = self
+            .config
+            .allowed_certificates
+            .get(thumbprint)
+            .ok_or_else(|| anyhow!("Certificate not in allowed list"))?;
+
+        // Check if certificate is revoked
+        if cert_info.revoked {
+            return Err(anyhow!("Certificate has been revoked"));
         }
 
-        // For certificate-based auth, we grant full access
-        // In production, you'd extract more info from the certificate
+        let now = Utc::now();
+
+        // Check certificate validity period (not_before / not_after)
+        if now < cert_info.not_before {
+            return Err(anyhow!(
+                "Certificate not yet valid (not_before: {})",
+                cert_info.not_before.format("%Y-%m-%d %H:%M:%S UTC")
+            ));
+        }
+
+        if now > cert_info.not_after {
+            return Err(anyhow!(
+                "Certificate has expired (not_after: {})",
+                cert_info.not_after.format("%Y-%m-%d %H:%M:%S UTC")
+            ));
+        }
+
+        // Verify required scopes
+        if !self.has_required_scopes(&cert_info.scopes) {
+            return Err(anyhow!("Certificate does not have required permissions"));
+        }
+
+        // TODO: In production, implement certificate chain validation
+        // TODO: Check certificate revocation lists (CRL) or OCSP
+        // TODO: Validate certificate signature against trusted CA
+
         Ok(AuthContext {
-            client_id: format!("cert-{thumbprint}"),
-            user_id: format!("cert-{thumbprint}"),
+            client_id: cert_info.client_id.clone(),
+            user_id: cert_info.subject.clone(),
             method: AuthMethod::Certificate,
-            scopes: vec!["mcp:read".to_string(), "mcp:write".to_string()],
-            expires_at: None, // Certificates don't expire in this context
+            scopes: cert_info.scopes.clone(),
+            expires_at: Some(cert_info.not_after),
             request_id: request_id.to_string(),
         })
     }
@@ -500,6 +626,8 @@ impl MCPAuth {
             "enabled": self.config.enabled,
             "api_keys_configured": self.config.api_keys.len(),
             "certificates_allowed": self.config.allowed_certificates.len(),
+            "certificates_revoked": self.config.allowed_certificates.values()
+                .filter(|cert| cert.revoked).count(),
             "revoked_tokens": revoked_count,
             "performance_target_ms": self.config.performance_target_ms,
             "jwt_expiry_seconds": self.config.jwt_expiry_seconds,
@@ -527,8 +655,20 @@ mod tests {
             },
         );
 
-        let mut certs = HashSet::new();
-        certs.insert("abc123def456".to_string());
+        let mut certs = HashMap::new();
+        certs.insert(
+            "abc123def456".to_string(),
+            CertificateInfo {
+                thumbprint: "abc123def456".to_string(),
+                client_id: "test-cert-client".to_string(),
+                subject: "CN=Test Client".to_string(),
+                issuer: "CN=Test CA".to_string(),
+                not_before: Utc::now() - Duration::days(30),
+                not_after: Utc::now() + Duration::days(30),
+                scopes: vec!["mcp:read".to_string(), "mcp:write".to_string()],
+                revoked: false,
+            },
+        );
 
         MCPAuthConfig {
             enabled: true,
@@ -621,7 +761,8 @@ mod tests {
         assert!(result.is_ok());
 
         let context = result.unwrap().unwrap();
-        assert_eq!(context.client_id, "cert-abc123def456");
+        assert_eq!(context.client_id, "test-cert-client");
+        assert_eq!(context.user_id, "CN=Test Client");
         assert_eq!(context.method, AuthMethod::Certificate);
     }
 

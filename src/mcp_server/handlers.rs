@@ -13,10 +13,11 @@ use crate::mcp_server::{
 use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::SimpleEmbedder;
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use chrono::{Duration as ChronoDuration, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -311,7 +312,7 @@ impl MCPHandlers {
         }
     }
 
-    /// Execute search_memory tool
+    /// Execute search_memory tool with progressive response
     async fn execute_search_memory(&self, args: &Value) -> Result<Value> {
         let query = args.get("query").and_then(|q| q.as_str()).unwrap();
 
@@ -337,56 +338,139 @@ impl MCPHandlers {
             .and_then(|m| m.as_bool())
             .unwrap_or(true);
 
-        // Generate query embedding
-        let embedding = self.embedder.generate_embedding(query).await?;
+        // Quick mode for immediate response
+        let quick_mode = args
+            .get("quick_mode")
+            .and_then(|q| q.as_bool())
+            .unwrap_or(true);
 
-        // Create search request
-        let search_req = SearchRequest {
-            query_text: Some(query.to_string()),
-            query_embedding: Some(embedding),
-            limit: Some(limit),
-            offset: None,
-            tier,
-            tags: None,
-            date_range: None,
-            importance_range: None,
-            metadata_filters: None,
-            similarity_threshold: Some(similarity_threshold),
-            search_type: None,
-            hybrid_weights: None,
-            cursor: None,
-            include_facets: None,
-            include_metadata: Some(include_metadata),
-            ranking_boost: None,
-            explain_score: None,
-        };
+        if quick_mode {
+            // Start async search and return immediately
+            let embedder = self.embedder.clone();
+            let repository = self.repository.clone();
+            let query_owned = query.to_string();
+            
+            tokio::spawn(async move {
+                // Generate embedding in background
+                match embedder.generate_embedding(&query_owned).await {
+                    Ok(embedding) => {
+                        // Create search request
+                        let search_req = SearchRequest {
+                            query_text: Some(query_owned.clone()),
+                            query_embedding: Some(embedding),
+                            limit: Some(limit),
+                            offset: None,
+                            tier,
+                            tags: None,
+                            date_range: None,
+                            importance_range: None,
+                            metadata_filters: None,
+                            similarity_threshold: Some(similarity_threshold),
+                            search_type: None,
+                            hybrid_weights: None,
+                            cursor: None,
+                            include_facets: None,
+                            include_metadata: Some(include_metadata),
+                            ranking_boost: None,
+                            explain_score: None,
+                        };
 
-        // Perform search
-        let results = self.repository.search_memories_simple(search_req).await?;
-
-        if results.is_empty() {
-            Ok(format_tool_response(&format!(
-                "No memories found for query: {query}"
-            )))
+                        // Perform search
+                        match repository.search_memories_simple(search_req).await {
+                            Ok(results) => {
+                                info!("Search completed: {} results for '{}'", results.len(), query_owned);
+                            }
+                            Err(e) => {
+                                error!("Search failed: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Embedding generation failed: {}", e);
+                    }
+                }
+            });
+            
+            // Return minimal response immediately
+            Ok(format_tool_response(&format!("🔍 Searching for: {}", query)))
         } else {
-            let formatted_results = results
-                .iter()
-                .map(|r| {
-                    let content_preview = r.memory.content.chars().take(200).collect::<String>();
-                    format!(
-                        "[Score: {:.3}] [Tier: {:?}] {}\n  Created: {}",
-                        r.similarity_score,
-                        r.memory.tier,
-                        content_preview,
-                        r.memory.created_at.format("%Y-%m-%d %H:%M")
-                    )
-                })
-                .collect::<Vec<String>>()
-                .join("\n\n");
+            // Normal mode - generate embedding and search (with timeout protection)
+            let embedding = match tokio::time::timeout(
+                Duration::from_secs(5),
+                self.embedder.generate_embedding(query)
+            ).await {
+                Ok(Ok(emb)) => emb,
+                Ok(Err(e)) => {
+                    return Ok(format_tool_response(&format!("⚠️ Embedding failed: {}", e)));
+                }
+                Err(_) => {
+                    return Ok(format_tool_response("⚠️ Embedding generation timed out"));
+                }
+            };
 
-            let response_text =
-                format!("Found {} memories:\n\n{}", results.len(), formatted_results);
-            Ok(format_tool_response(&response_text))
+            // Create search request
+            let search_req = SearchRequest {
+                query_text: Some(query.to_string()),
+                query_embedding: Some(embedding),
+                limit: Some(limit),
+                offset: None,
+                tier,
+                tags: None,
+                date_range: None,
+                importance_range: None,
+                metadata_filters: None,
+                similarity_threshold: Some(similarity_threshold),
+                search_type: None,
+                hybrid_weights: None,
+                cursor: None,
+                include_facets: None,
+                include_metadata: Some(include_metadata),
+                ranking_boost: None,
+                explain_score: None,
+            };
+
+            // Perform search with timeout
+            let results = match tokio::time::timeout(
+                Duration::from_secs(10),
+                self.repository.search_memories_simple(search_req)
+            ).await {
+                Ok(Ok(res)) => res,
+                Ok(Err(e)) => {
+                    return Ok(format_tool_response(&format!("⚠️ Search failed: {}", e)));
+                }
+                Err(_) => {
+                    return Ok(format_tool_response("⚠️ Search timed out"));
+                }
+            };
+
+            if results.is_empty() {
+                Ok(format_tool_response(&format!(
+                    "No memories found for query: {query}"
+                )))
+            } else {
+                // Return minimal results to avoid timeout
+                let formatted_results = results
+                    .iter()
+                    .take(3) // Limit to top 3 for quick response
+                    .map(|r| {
+                        let content_preview = r.memory.content.chars().take(100).collect::<String>();
+                        format!(
+                            "[{:.2}] {}...",
+                            r.similarity_score,
+                            content_preview
+                        )
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                let response_text = format!(
+                    "Found {} memories (showing top {}):\n{}", 
+                    results.len(),
+                    results.len().min(3),
+                    formatted_results
+                );
+                Ok(format_tool_response(&response_text))
+            }
         }
     }
 
@@ -474,11 +558,11 @@ impl MCPHandlers {
         // Calculate date range
         let now = Utc::now();
         let start_date = match time_range {
-            "last_hour" => now - Duration::hours(1),
-            "last_day" => now - Duration::days(1),
-            "last_week" => now - Duration::weeks(1),
-            "last_month" => now - Duration::days(30),
-            _ => now - Duration::days(1),
+            "last_hour" => now - ChronoDuration::hours(1),
+            "last_day" => now - ChronoDuration::days(1),
+            "last_week" => now - ChronoDuration::weeks(1),
+            "last_month" => now - ChronoDuration::days(30),
+            _ => now - ChronoDuration::days(1),
         };
 
         // Search for recent memories
@@ -805,7 +889,7 @@ impl MCPHandlers {
 }
 
 /// Format duration for human-readable display
-fn format_duration(duration: chrono::Duration) -> String {
+fn format_duration(duration: ChronoDuration) -> String {
     let total_seconds = duration.num_seconds();
 
     if total_seconds < 60 {
@@ -825,10 +909,10 @@ mod tests {
 
     #[test]
     fn test_format_duration() {
-        assert_eq!(format_duration(Duration::seconds(30)), "30s");
-        assert_eq!(format_duration(Duration::minutes(5)), "5m"); // Function formats as minutes, not seconds
-        assert_eq!(format_duration(Duration::hours(2)), "2h");
-        assert_eq!(format_duration(Duration::days(3)), "3d");
+        assert_eq!(format_duration(ChronoDuration::seconds(30)), "30s");
+        assert_eq!(format_duration(ChronoDuration::minutes(5)), "5m"); // Function formats as minutes, not seconds
+        assert_eq!(format_duration(ChronoDuration::hours(2)), "2h");
+        assert_eq!(format_duration(ChronoDuration::days(3)), "3d");
     }
 
     #[tokio::test]

@@ -254,7 +254,10 @@ impl MCPHandlers {
 
     /// Execute store_memory tool
     async fn execute_store_memory(&self, args: &Value) -> Result<Value> {
-        let content = args.get("content").and_then(|c| c.as_str()).unwrap();
+        let content = args
+            .get("content")
+            .and_then(|c| c.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'content' parameter"))?;
 
         // Parse optional parameters
         let tier = args
@@ -314,7 +317,10 @@ impl MCPHandlers {
 
     /// Execute search_memory tool with progressive response
     async fn execute_search_memory(&self, args: &Value) -> Result<Value> {
-        let query = args.get("query").and_then(|q| q.as_str()).unwrap();
+        let query = args
+            .get("query")
+            .and_then(|q| q.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'query' parameter"))?;
 
         let limit = args
             .get("limit")
@@ -349,7 +355,7 @@ impl MCPHandlers {
             let embedder = self.embedder.clone();
             let repository = self.repository.clone();
             let query_owned = query.to_string();
-            
+
             tokio::spawn(async move {
                 // Generate embedding in background
                 match embedder.generate_embedding(&query_owned).await {
@@ -378,7 +384,11 @@ impl MCPHandlers {
                         // Perform search
                         match repository.search_memories_simple(search_req).await {
                             Ok(results) => {
-                                info!("Search completed: {} results for '{}'", results.len(), query_owned);
+                                info!(
+                                    "Search completed: {} results for '{}'",
+                                    results.len(),
+                                    query_owned
+                                );
                             }
                             Err(e) => {
                                 error!("Search failed: {}", e);
@@ -390,15 +400,20 @@ impl MCPHandlers {
                     }
                 }
             });
-            
+
             // Return minimal response immediately
-            Ok(format_tool_response(&format!("🔍 Searching for: {}", query)))
+            Ok(format_tool_response(&format!(
+                "🔍 Searching for: {}",
+                query
+            )))
         } else {
             // Normal mode - generate embedding and search (with timeout protection)
             let embedding = match tokio::time::timeout(
                 Duration::from_secs(5),
-                self.embedder.generate_embedding(query)
-            ).await {
+                self.embedder.generate_embedding(query),
+            )
+            .await
+            {
                 Ok(Ok(emb)) => emb,
                 Ok(Err(e)) => {
                     return Ok(format_tool_response(&format!("⚠️ Embedding failed: {}", e)));
@@ -432,8 +447,10 @@ impl MCPHandlers {
             // Perform search with timeout
             let results = match tokio::time::timeout(
                 Duration::from_secs(10),
-                self.repository.search_memories_simple(search_req)
-            ).await {
+                self.repository.search_memories_simple(search_req),
+            )
+            .await
+            {
                 Ok(Ok(res)) => res,
                 Ok(Err(e)) => {
                     return Ok(format_tool_response(&format!("⚠️ Search failed: {}", e)));
@@ -453,18 +470,15 @@ impl MCPHandlers {
                     .iter()
                     .take(3) // Limit to top 3 for quick response
                     .map(|r| {
-                        let content_preview = r.memory.content.chars().take(100).collect::<String>();
-                        format!(
-                            "[{:.2}] {}...",
-                            r.similarity_score,
-                            content_preview
-                        )
+                        let content_preview =
+                            r.memory.content.chars().take(100).collect::<String>();
+                        format!("[{:.2}] {}...", r.similarity_score, content_preview)
                     })
                     .collect::<Vec<String>>()
                     .join("\n");
 
                 let response_text = format!(
-                    "Found {} memories (showing top {}):\n{}", 
+                    "Found {} memories (showing top {}):\n{}",
                     results.len(),
                     results.len().min(3),
                     formatted_results
@@ -666,19 +680,19 @@ impl MCPHandlers {
         let quick_mode = args
             .get("quick_mode")
             .and_then(|q| q.as_bool())
-            .unwrap_or(true);  // Default to quick mode
+            .unwrap_or(true); // Default to quick mode
 
         // New: Support for chunked harvesting
         let chunk_size = args
             .get("chunk_size")
             .and_then(|c| c.as_u64())
-            .unwrap_or(500);  // Default 500 words per chunk
+            .unwrap_or(500); // Default 500 words per chunk
 
         // Add message to harvester queue if provided
         if let Some(message_content) = message {
             // Check if message is large and needs chunking
             let word_count = message_content.split_whitespace().count();
-            
+
             if word_count > chunk_size as usize {
                 // Large message - process in chunks to avoid timeout
                 let words: Vec<&str> = message_content.split_whitespace().collect();
@@ -686,13 +700,13 @@ impl MCPHandlers {
                     .chunks(chunk_size as usize)
                     .map(|chunk| chunk.join(" "))
                     .collect();
-                
+
                 // Process chunks asynchronously
                 let harvester = self.harvester_service.clone();
                 let chunk_count = chunks.len();
                 let role_owned = role.to_string();
                 let context_owned = context.to_string();
-                
+
                 tokio::spawn(async move {
                     for (i, chunk) in chunks.iter().enumerate() {
                         let conversation_message = ConversationMessage {
@@ -702,11 +716,11 @@ impl MCPHandlers {
                             role: role_owned.clone(),
                             context: format!("{}_chunk_{}", context_owned, i + 1),
                         };
-                        
+
                         if let Err(e) = harvester.add_message(conversation_message).await {
                             error!("Failed to add chunk {}/{}: {}", i + 1, chunk_count, e);
                         }
-                        
+
                         // Process each chunk immediately
                         if let Err(e) = harvester.force_harvest().await {
                             error!("Failed to harvest chunk {}/{}: {}", i + 1, chunk_count, e);
@@ -714,12 +728,11 @@ impl MCPHandlers {
                     }
                     info!("Completed chunked harvest of {} chunks", chunk_count);
                 });
-                
+
                 // Return immediately for chunked processing
                 return Ok(format_tool_response(&format!(
-                    "✓ Processing {} chunks ({}w each)", 
-                    chunk_count, 
-                    chunk_size
+                    "✓ Processing {} chunks ({}w each)",
+                    chunk_count, chunk_size
                 )));
             } else {
                 // Normal sized message - process as usual
@@ -743,51 +756,53 @@ impl MCPHandlers {
                 // Ultra-minimal response mode - start harvest and return immediately
                 let harvester = self.harvester_service.clone();
                 let harvest_id = Uuid::new_v4();
-                
+
                 tokio::spawn(async move {
                     match harvester.force_harvest().await {
                         Ok(result) => {
-                            info!("[{}] Harvest complete: {} patterns", 
-                                 harvest_id, result.patterns_stored);
+                            info!(
+                                "[{}] Harvest complete: {} patterns",
+                                harvest_id, result.patterns_stored
+                            );
                         }
                         Err(e) => {
                             error!("[{}] Harvest failed: {}", harvest_id, e);
                         }
                     }
                 });
-                
+
                 // Return minimal response immediately
                 Ok(format_tool_response("✓"))
-                
             } else {
                 // Normal async mode with slightly more detail
                 let harvester = self.harvester_service.clone();
-                
+
                 // Get quick stats before starting
                 let stats = self.repository.get_statistics().await.ok();
-                let pre_count = stats
-                    .as_ref()
-                    .and_then(|s| s.total_active)
-                    .unwrap_or(0);
-                
+                let pre_count = stats.as_ref().and_then(|s| s.total_active).unwrap_or(0);
+
                 tokio::spawn(async move {
                     match harvester.force_harvest().await {
                         Ok(result) => {
-                            info!("Background harvest completed: {} patterns stored", 
-                                 result.patterns_stored);
+                            info!(
+                                "Background harvest completed: {} patterns stored",
+                                result.patterns_stored
+                            );
                         }
                         Err(e) => {
                             error!("Background harvest failed: {}", e);
                         }
                     }
                 });
-                
+
                 // Return summary statistics instead of full details
                 let response_text = if silent_mode {
                     format!("✓ Harvesting ({} existing)", pre_count)
                 } else {
-                    format!("✓ Harvest started\n• Current memories: {}\n• Processing in background", 
-                           pre_count)
+                    format!(
+                        "✓ Harvest started\n• Current memories: {}\n• Processing in background",
+                        pre_count
+                    )
                 };
                 Ok(format_tool_response(&response_text))
             }
@@ -842,14 +857,17 @@ impl MCPHandlers {
 
     /// Execute migrate_memory tool
     async fn execute_migrate_memory(&self, args: &Value) -> Result<Value> {
-        let memory_id_str = args.get("memory_id").and_then(|id| id.as_str()).unwrap();
+        let memory_id_str = args
+            .get("memory_id")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'memory_id' parameter"))?;
         let memory_id = Uuid::parse_str(memory_id_str)?;
 
         let target_tier = args
             .get("target_tier")
             .and_then(|t| t.as_str())
             .and_then(|t| t.parse::<MemoryTier>().ok())
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("Missing or invalid required 'target_tier' parameter"))?;
 
         let reason = args
             .get("reason")
@@ -877,7 +895,10 @@ impl MCPHandlers {
 
     /// Execute delete_memory tool
     async fn execute_delete_memory(&self, args: &Value) -> Result<Value> {
-        let memory_id_str = args.get("memory_id").and_then(|id| id.as_str()).unwrap();
+        let memory_id_str = args
+            .get("memory_id")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'memory_id' parameter"))?;
         let memory_id = Uuid::parse_str(memory_id_str)?;
 
         // Perform deletion

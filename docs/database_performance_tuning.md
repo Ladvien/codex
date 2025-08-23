@@ -79,7 +79,7 @@ WITH (m = 16, ef_construction = 64);
 -- Optimize for different vector dimensions
 -- For 384-dimensional vectors: m=16, ef_construction=64
 -- For 768-dimensional vectors: m=16, ef_construction=128  
--- For 1536-dimensional vectors: m=32, ef_construction=128
+-- For 1536-dimensional vectors: m=48, ef_construction=200 (CODEX-006 optimized)
 ```
 
 ### Query Optimization

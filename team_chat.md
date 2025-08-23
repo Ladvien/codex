@@ -788,7 +788,7 @@ All stories include acceptance criteria, technical details with file paths/line 
 - **Commits:** [794fee5] [f011873] Mathematical consistency achieved
 
 #### CODEX-006: Optimize HNSW Vector Parameters [8 pts] 
-- **Status:** 🟡 AVAILABLE
+- **Status:** 🔴 CLAIMED by postgres-vector-optimizer
 - **Files:** Database migrations, vector indexes
 - **Issue:** Suboptimal m=16 for 1536-dim vectors
 

@@ -7,7 +7,7 @@ mod test_helpers;
 
 use anyhow::Result;
 use codex_memory::memory::models::{
-    CreateMemoryRequest, MemoryTier, SearchRequest, UpdateMemoryRequest,
+    CreateMemoryRequest, MemoryTier, SearchRequest, SearchType, UpdateMemoryRequest,
 };
 use codex_memory::MemoryStatus;
 use serde_json::json;
@@ -330,7 +330,7 @@ async fn test_concurrent_search_operations() -> Result<()> {
                 let search_request = SearchRequest {
                     query_text: Some(category.to_string()),
                     query_embedding: None,
-                    search_type: None,
+                    search_type: Some(SearchType::FullText),
                     hybrid_weights: None,
                     tier: None,
                     date_range: None,
@@ -364,9 +364,7 @@ async fn test_concurrent_search_operations() -> Result<()> {
                         local_results.insert(key, search_result.results.len());
                     }
                     Err(e) => {
-                        eprintln!(
-                            "Searcher {searcher_id} error for category {category}: {e}"
-                        );
+                        eprintln!("Searcher {searcher_id} error for category {category}: {e}");
                     }
                 }
 
@@ -520,7 +518,7 @@ async fn test_deadlock_prevention() -> Result<()> {
                             let search_req = SearchRequest {
                                 query_text: Some("Base memory".to_string()),
                                 query_embedding: None,
-                                search_type: None,
+                                search_type: Some(SearchType::FullText),
                                 hybrid_weights: None,
                                 tier: None,
                                 date_range: None,
@@ -586,7 +584,7 @@ async fn test_deadlock_prevention() -> Result<()> {
                             let search_req = SearchRequest {
                                 query_text: Some("memory".to_string()),
                                 query_embedding: None,
-                                search_type: None,
+                                search_type: Some(SearchType::FullText),
                                 hybrid_weights: None,
                                 tier: None,
                                 date_range: None,
@@ -763,7 +761,7 @@ async fn test_resource_leak_prevention() -> Result<()> {
                 let search_req = SearchRequest {
                     query_text: Some("Temp memory".to_string()),
                     query_embedding: None,
-                    search_type: None,
+                    search_type: Some(SearchType::FullText),
                     hybrid_weights: None,
                     tier: None,
                     date_range: None,
@@ -848,7 +846,7 @@ async fn test_resource_leak_prevention() -> Result<()> {
     let final_search = SearchRequest {
         query_text: Some("final verification".to_string()),
         query_embedding: None,
-        search_type: None,
+        search_type: Some(SearchType::FullText),
         hybrid_weights: None,
         tier: None,
         date_range: None,

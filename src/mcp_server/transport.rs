@@ -6,6 +6,7 @@
 use crate::mcp_server::handlers::MCPHandlers;
 use anyhow::Result;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, error, warn};
@@ -89,6 +90,14 @@ impl StdioTransport {
             }
         };
 
+        // Validate JSON-RPC structure according to specification
+        if let Err(validation_error) = self.validate_jsonrpc_request(&request) {
+            error!("JSON-RPC validation failed: {}", validation_error);
+            let id = request.get("id");
+            self.send_invalid_request_error(stdout, id).await?;
+            return Ok(());
+        }
+
         // Extract method and ID
         let method = match request.get("method").and_then(|m| m.as_str()) {
             Some(m) => m,
@@ -108,10 +117,13 @@ impl StdioTransport {
             return Ok(());
         }
 
+        // Extract headers from JSON-RPC extensions (if any)
+        let headers = self.extract_headers_from_request(&request);
+
         // Process request with timeout
         let response = tokio::time::timeout(
             self.request_timeout,
-            handlers.handle_request(method, request.get("params"), id),
+            handlers.handle_request_with_headers(method, request.get("params"), id, &headers),
         )
         .await;
 
@@ -192,6 +204,80 @@ impl StdioTransport {
         });
         self.send_response(stdout, &error_response).await
     }
+
+    /// Validate JSON-RPC request structure according to specification
+    fn validate_jsonrpc_request(&self, request: &Value) -> Result<(), String> {
+        // Check required jsonrpc field
+        match request.get("jsonrpc") {
+            Some(version) => {
+                if version.as_str() != Some("2.0") {
+                    return Err("Invalid JSON-RPC version, must be '2.0'".to_string());
+                }
+            }
+            None => {
+                return Err("Missing required 'jsonrpc' field".to_string());
+            }
+        }
+
+        // Validate method field exists (for regular requests)
+        if request.get("method").is_none() {
+            return Err("Missing required 'method' field".to_string());
+        }
+
+        // Validate method is a string
+        if let Some(method) = request.get("method") {
+            if method.as_str().is_none() {
+                return Err("Method field must be a string".to_string());
+            }
+        }
+
+        // Validate id field if present (can be string, number, or null)
+        if let Some(id) = request.get("id") {
+            if !id.is_string() && !id.is_number() && !id.is_null() {
+                return Err("ID field must be a string, number, or null".to_string());
+            }
+        }
+
+        // Validate params field if present (must be object or array)
+        if let Some(params) = request.get("params") {
+            if !params.is_object() && !params.is_array() {
+                return Err("Params field must be an object or array".to_string());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Extract headers from JSON-RPC request extensions or provide defaults for stdio
+    fn extract_headers_from_request(&self, request: &Value) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+
+        // Add default headers for stdio transport
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        headers.insert("Transport".to_string(), "stdio".to_string());
+
+        // Extract any custom headers from JSON-RPC extensions
+        if let Some(extensions) = request.get("extensions") {
+            if let Some(ext_headers) = extensions.get("headers") {
+                if let Some(header_obj) = ext_headers.as_object() {
+                    for (key, value) in header_obj {
+                        if let Some(value_str) = value.as_str() {
+                            headers.insert(key.clone(), value_str.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate JSON-RPC version is carried in headers for authentication
+        if let Some(jsonrpc) = request.get("jsonrpc") {
+            if let Some(version) = jsonrpc.as_str() {
+                headers.insert("JSON-RPC-Version".to_string(), version.to_string());
+            }
+        }
+
+        headers
+    }
 }
 
 /// Helper function to create JSON-RPC error responses
@@ -269,5 +355,178 @@ mod tests {
     async fn test_transport_creation() {
         let transport = StdioTransport::new(5000);
         assert_eq!(transport.request_timeout, Duration::from_millis(5000));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_valid() {
+        let transport = StdioTransport::new(5000);
+        
+        let valid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1
+        });
+
+        assert!(transport.validate_jsonrpc_request(&valid_request).is_ok());
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_missing_jsonrpc() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "method": "initialize",
+            "id": 1
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required 'jsonrpc' field"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_wrong_version() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "jsonrpc": "1.0",
+            "method": "initialize",
+            "id": 1
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid JSON-RPC version"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_missing_method() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing required 'method' field"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_invalid_method_type() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": 123,
+            "id": 1
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Method field must be a string"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_invalid_id_type() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": true
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("ID field must be a string, number, or null"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_invalid_params_type() {
+        let transport = StdioTransport::new(5000);
+        
+        let invalid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "params": "invalid"
+        });
+
+        let result = transport.validate_jsonrpc_request(&invalid_request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Params field must be an object or array"));
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_valid_with_object_params() {
+        let transport = StdioTransport::new(5000);
+        
+        let valid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "id": 1,
+            "params": {"name": "test", "arguments": {}}
+        });
+
+        assert!(transport.validate_jsonrpc_request(&valid_request).is_ok());
+    }
+
+    #[test]
+    fn test_validate_jsonrpc_request_valid_with_array_params() {
+        let transport = StdioTransport::new(5000);
+        
+        let valid_request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "batch_call",
+            "id": 1,
+            "params": [1, 2, 3]
+        });
+
+        assert!(transport.validate_jsonrpc_request(&valid_request).is_ok());
+    }
+
+    #[test]
+    fn test_extract_headers_from_request() {
+        let transport = StdioTransport::new(5000);
+        
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1,
+            "extensions": {
+                "headers": {
+                    "Authorization": "Bearer token123",
+                    "User-Agent": "TestClient/1.0"
+                }
+            }
+        });
+
+        let headers = transport.extract_headers_from_request(&request);
+        
+        assert_eq!(headers.get("Content-Type"), Some(&"application/json".to_string()));
+        assert_eq!(headers.get("Transport"), Some(&"stdio".to_string()));
+        assert_eq!(headers.get("JSON-RPC-Version"), Some(&"2.0".to_string()));
+        assert_eq!(headers.get("Authorization"), Some(&"Bearer token123".to_string()));
+        assert_eq!(headers.get("User-Agent"), Some(&"TestClient/1.0".to_string()));
+    }
+
+    #[test]
+    fn test_extract_headers_defaults_only() {
+        let transport = StdioTransport::new(5000);
+        
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": 1
+        });
+
+        let headers = transport.extract_headers_from_request(&request);
+        
+        assert_eq!(headers.get("Content-Type"), Some(&"application/json".to_string()));
+        assert_eq!(headers.get("Transport"), Some(&"stdio".to_string()));
+        assert_eq!(headers.get("JSON-RPC-Version"), Some(&"2.0".to_string()));
+        assert_eq!(headers.len(), 3);
     }
 }

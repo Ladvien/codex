@@ -227,10 +227,24 @@ impl MCPAuth {
     pub async fn authenticate_request(
         &self,
         method: &str,
-        params: Option<&Value>,
+        _params: Option<&Value>,
         headers: &HashMap<String, String>,
     ) -> Result<Option<AuthContext>> {
         let start_time = std::time::Instant::now();
+
+        // Validate JSON-RPC version in headers (added by transport layer)
+        if let Some(jsonrpc_version) = headers.get("JSON-RPC-Version") {
+            if jsonrpc_version != "2.0" {
+                return Err(anyhow::anyhow!(
+                    "Invalid JSON-RPC version: {}. Expected '2.0'", jsonrpc_version
+                ));
+            }
+        } else {
+            // If transport layer didn't set JSON-RPC-Version header, this is a protocol violation
+            return Err(anyhow::anyhow!(
+                "Missing JSON-RPC version in request headers - protocol violation"
+            ));
+        }
 
         // Skip authentication if disabled
         if !self.config.enabled {

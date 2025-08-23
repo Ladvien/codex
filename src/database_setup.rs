@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use tokio_postgres::{Config as PgConfig, NoTls};
 use tracing::{error, info};
 use url::Url;
+use regex::Regex;
 
 /// Database setup and validation utilities
 pub struct DatabaseSetup {
@@ -11,6 +12,64 @@ pub struct DatabaseSetup {
 impl DatabaseSetup {
     pub fn new(database_url: String) -> Self {
         Self { database_url }
+    }
+
+    /// Validate and sanitize database identifier to prevent injection attacks
+    /// PostgreSQL identifiers must:
+    /// - Start with letter or underscore
+    /// - Contain only letters, digits, underscores, dollar signs  
+    /// - Be 1-63 characters long
+    /// - Not be a reserved keyword
+    fn validate_database_identifier(identifier: &str) -> Result<String> {
+        if identifier.is_empty() {
+            return Err(anyhow::anyhow!("Database identifier cannot be empty"));
+        }
+
+        if identifier.len() > 63 {
+            return Err(anyhow::anyhow!(
+                "Database identifier too long (max 63 characters): {}",
+                identifier.len()
+            ));
+        }
+
+        // Check for valid PostgreSQL identifier pattern
+        let identifier_regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_$]*$")
+            .expect("Invalid regex for database identifier validation");
+        
+        if !identifier_regex.is_match(identifier) {
+            return Err(anyhow::anyhow!(
+                "Invalid database identifier '{}': must start with letter/underscore and contain only letters, digits, underscores, and dollar signs", 
+                identifier
+            ));
+        }
+
+        // Check against PostgreSQL reserved keywords
+        let reserved_keywords = [
+            "ALL", "ANALYSE", "ANALYZE", "AND", "ANY", "ARRAY", "AS", "ASC", "ASYMMETRIC",
+            "AUTHORIZATION", "BINARY", "BOTH", "CASE", "CAST", "CHECK", "COLLATE", "COLLATION",
+            "COLUMN", "CONCURRENTLY", "CONSTRAINT", "CREATE", "CROSS", "CURRENT_CATALOG",
+            "CURRENT_DATE", "CURRENT_ROLE", "CURRENT_SCHEMA", "CURRENT_TIME", "CURRENT_TIMESTAMP",
+            "CURRENT_USER", "DEFAULT", "DEFERRABLE", "DESC", "DISTINCT", "DO", "ELSE", "END",
+            "EXCEPT", "FALSE", "FETCH", "FOR", "FOREIGN", "FREEZE", "FROM", "FULL", "GRANT",
+            "GROUP", "HAVING", "ILIKE", "IN", "INITIALLY", "INNER", "INTERSECT", "INTO", "IS",
+            "ISNULL", "JOIN", "LATERAL", "LEADING", "LEFT", "LIKE", "LIMIT", "LOCALTIME",
+            "LOCALTIMESTAMP", "NATURAL", "NOT", "NOTNULL", "NULL", "OFFSET", "ON", "ONLY",
+            "OR", "ORDER", "OUTER", "OVERLAPS", "PLACING", "PRIMARY", "REFERENCES", "RETURNING",
+            "RIGHT", "SELECT", "SESSION_USER", "SIMILAR", "SOME", "SYMMETRIC", "TABLE", "TABLESAMPLE",
+            "THEN", "TO", "TRAILING", "TRUE", "UNION", "UNIQUE", "USER", "USING", "VARIADIC",
+            "VERBOSE", "WHEN", "WHERE", "WINDOW", "WITH"
+        ];
+
+        let upper_identifier = identifier.to_uppercase();
+        if reserved_keywords.contains(&upper_identifier.as_str()) {
+            return Err(anyhow::anyhow!(
+                "Database identifier '{}' is a reserved PostgreSQL keyword",
+                identifier
+            ));
+        }
+
+        // Return the validated identifier - we'll quote it during query construction
+        Ok(identifier.to_string())
     }
 
     /// Complete database setup process
@@ -160,8 +219,13 @@ impl DatabaseSetup {
                 db_info.database
             );
 
-            // Create the database
-            let create_query = format!("CREATE DATABASE \"{}\"", db_info.database);
+            // Validate database name before creating to prevent injection
+            let validated_db_name = Self::validate_database_identifier(&db_info.database)
+                .context("Invalid database name for creation")?;
+
+            // CREATE DATABASE cannot use parameters, so we use validated identifier with proper quoting
+            // The validation ensures no injection is possible
+            let create_query = format!("CREATE DATABASE \"{}\"", validated_db_name);
             client
                 .execute(&create_query, &[])
                 .await

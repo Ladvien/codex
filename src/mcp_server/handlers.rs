@@ -72,10 +72,8 @@ impl MCPHandlers {
     ) -> Value {
         debug!("Handling MCP request: {}", method);
 
-        // Skip auth for initialize method
-        if method == "initialize" {
-            return self.handle_initialize(id, params).await;
-        }
+        // SECURITY: No authentication bypass allowed - all methods must authenticate
+        // The initialize method may provide basic server info but no sensitive data
 
         // Authenticate request
         let auth_context = match &self.auth {
@@ -124,8 +122,9 @@ impl MCPHandlers {
             }
         }
 
-        // Proceed with normal request handling
+        // Proceed with request handling - all methods now require authentication
         match method {
+            "initialize" => self.handle_initialize(id, params).await,
             "tools/list" => self.handle_tools_list(id).await,
             "tools/call" => {
                 self.handle_tools_call(id, params, auth_context.as_ref())
@@ -140,10 +139,26 @@ impl MCPHandlers {
         }
     }
 
-    /// Handle initialize request
+    /// Handle initialize request - now requires authentication
+    /// Only provides basic server info, no sensitive capabilities
     async fn handle_initialize(&self, id: Option<&Value>, _params: Option<&Value>) -> Value {
-        info!("MCP server initializing");
-        create_success_response(id, MCPTools::get_server_capabilities())
+        info!("MCP server initializing (authenticated)");
+        
+        // Provide minimal server capabilities - no sensitive information exposed
+        let basic_capabilities = serde_json::json!({
+            "protocolVersion": "2025-06-18",
+            "serverInfo": {
+                "name": "codex-memory",
+                "version": "0.1.40"
+            },
+            "capabilities": {
+                "tools": {},
+                "resources": {},
+                "prompts": {}
+            }
+        });
+        
+        create_success_response(id, basic_capabilities)
     }
 
     /// Handle tools/list request

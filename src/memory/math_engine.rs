@@ -502,54 +502,50 @@ impl MathEngine {
 
     // Private helper methods
 
-    /// Implement the exact forgetting curve formula
-    /// p(t) = [1 - exp(-r * e^(-t/gn))] / (1 - e^(-1))
-    fn forgetting_curve_formula(&self, normalized_time: f64, decay_rate: f64) -> Result<f64> {
+    /// Implement the standard Ebbinghaus forgetting curve
+    /// R(t) = e^(-t/S)
+    /// 
+    /// This is the foundational memory decay formula from cognitive science research.
+    fn ebbinghaus_forgetting_curve(&self, time_hours: f64, strength: f64) -> Result<f64> {
         // Validate inputs
-        if normalized_time < 0.0 {
+        if time_hours < 0.0 {
+            // Handle negative time as perfect retention (t=0 case)
+            return Ok(1.0);
+        }
+
+        if strength <= 0.0 {
             return Err(MathEngineError::InvalidParameter {
-                parameter: "normalized_time".to_string(),
-                value: normalized_time,
-                constraint: "normalized_time >= 0.0".to_string(),
+                parameter: "strength".to_string(),
+                value: strength,
+                constraint: "strength > 0.0".to_string(),
             });
         }
 
-        if decay_rate <= 0.0 {
-            return Err(MathEngineError::InvalidParameter {
-                parameter: "decay_rate".to_string(),
-                value: decay_rate,
-                constraint: "decay_rate > 0.0".to_string(),
-            });
+        // Calculate Ebbinghaus forgetting curve: R(t) = e^(-t/S)
+        let exponent = -time_hours / strength;
+        
+        // Check for mathematical overflow
+        if exponent < -700.0 {
+            // exp(-700) approaches machine epsilon, return near-zero
+            return Ok(f64::EPSILON);
         }
-
-        // Calculate components with overflow protection
-        let exp_neg_t = (-normalized_time).exp();
-        if !exp_neg_t.is_finite() {
+        
+        if exponent > 700.0 {
             return Err(MathEngineError::MathematicalOverflow {
-                operation: "exp(-t) calculation".to_string(),
+                operation: "Ebbinghaus curve exponent calculation".to_string(),
             });
         }
 
-        let exponent = -decay_rate * exp_neg_t;
-        if !exponent.is_finite() {
+        let retention = exponent.exp();
+        
+        if !retention.is_finite() {
             return Err(MathEngineError::MathematicalOverflow {
-                operation: "-r * e^(-t) calculation".to_string(),
+                operation: "Ebbinghaus curve retention calculation".to_string(),
             });
         }
 
-        let numerator = 1.0 - exponent.exp();
-        let denominator = 1.0 - (-1.0_f64).exp();
-
-        if !numerator.is_finite() || !denominator.is_finite() || denominator.abs() < f64::EPSILON {
-            return Err(MathEngineError::MathematicalOverflow {
-                operation: "forgetting curve probability calculation".to_string(),
-            });
-        }
-
-        let probability = numerator / denominator;
-
-        // Ensure result is within valid probability range
-        Ok(probability.max(0.0).min(1.0))
+        // Ensure result is within valid probability range [0,1]
+        Ok(retention.max(0.0).min(1.0))
     }
 
     /// Implement the exact consolidation strength formula

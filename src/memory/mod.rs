@@ -123,3 +123,6 @@ pub use tier_manager::{
 // Test modules
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]  
+mod ebbinghaus_tests;

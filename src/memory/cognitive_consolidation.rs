@@ -15,17 +15,20 @@
 //!
 //! ## Mathematical Models
 //!
-//! ### Enhanced Recall Probability
+//! ### Enhanced Recall Probability (Cognitive Factors Applied to Ebbinghaus Base)
 //! ```text
-//! P(recall) = r × exp(-g × t / (1 + n)) × cos_similarity × context_boost
+//! P(recall) = R_base(t) × cognitive_factors
+//! where R_base(t) = e^(-t/S) (Ebbinghaus forgetting curve)
+//! and cognitive_factors = cos_similarity × context_boost × spacing_effect × testing_effect
 //! ```
 //! Where:
-//! - r = base recall strength (decay rate adaptation)
-//! - g = consolidation strength (strengthened by successful retrievals)
-//! - t = time since last access (normalized)
-//! - n = access count (implements testing effect)
+//! - R_base(t) = standard Ebbinghaus retention curve e^(-t/S)
+//! - S = consolidation strength (enhanced by cognitive factors)
+//! - t = time since last access (hours)
 //! - cos_similarity = semantic relatedness to current context
 //! - context_boost = environmental/emotional context matching
+//! - spacing_effect = benefit from optimal recall intervals
+//! - testing_effect = benefit from retrieval difficulty
 //!
 //! ### Consolidation Strength Update
 //! ```text
@@ -149,7 +152,7 @@ impl CognitiveConsolidationEngine {
     ) -> Result<CognitiveConsolidationResult> {
         let start_time = std::time::Instant::now();
 
-        // Calculate base consolidation using existing math engine
+        // Calculate base Ebbinghaus retention using math engine
         let params = MemoryParameters {
             consolidation_strength: memory.consolidation_strength,
             decay_rate: memory.decay_rate,
@@ -159,7 +162,7 @@ impl CognitiveConsolidationEngine {
             importance_score: memory.importance_score,
         };
 
-        let _base_recall = self.math_engine.calculate_recall_probability(&params)?;
+        let base_recall = self.math_engine.calculate_recall_probability(&params)?;
 
         // Calculate spacing effect strength
         let spacing_effect = self.calculate_spacing_effect(memory)?;
@@ -191,13 +194,22 @@ impl CognitiveConsolidationEngine {
             .min(self.config.max_strength)
             .max(0.1);
 
-        // Recalculate recall probability with new strength
+        // Apply cognitive factors to base Ebbinghaus retention
+        let cognitive_multiplier = (1.0 + clustering_bonus + context_boost - interference_penalty)
+            .max(0.1) // Prevent negative multipliers
+            .min(2.0); // Cap enhancement
+            
+        let enhanced_retention = (base_recall.recall_probability * cognitive_multiplier)
+            .max(0.0)
+            .min(1.0);
+
+        // Also recalculate with new consolidated strength for comparison
         let enhanced_params = MemoryParameters {
             consolidation_strength: new_strength,
             ..params
         };
 
-        let enhanced_recall = self
+        let _strength_based_recall = self
             .math_engine
             .calculate_recall_probability(&enhanced_params)?;
 
@@ -206,7 +218,7 @@ impl CognitiveConsolidationEngine {
         Ok(CognitiveConsolidationResult {
             new_consolidation_strength: new_strength,
             strength_increment,
-            recall_probability: enhanced_recall.recall_probability,
+            recall_probability: enhanced_retention, // Use cognitive-enhanced retention
             spacing_bonus: spacing_effect,
             difficulty_bonus: testing_effect,
             context_similarity: context_boost,

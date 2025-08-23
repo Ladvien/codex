@@ -57,13 +57,11 @@ async fn test_complete_setup_validation() -> Result<()> {
     );
 
     // Test embedding generation with various text types
-    let test_texts = vec![
-        "Simple test sentence for embedding generation.",
+    let test_texts = ["Simple test sentence for embedding generation.",
         "This is a more complex test with multiple sentences. It includes various punctuation marks and should test the robustness of the embedding generation.",
         "Short text",
         "🚀 Emoji and special characters: @#$%^&*()",
-        "Mixed language test: Hello, 世界, مرحبا",
-    ];
+        "Mixed language test: Hello, 世界, مرحبا"];
 
     for (i, text) in test_texts.iter().enumerate() {
         info!(
@@ -142,7 +140,7 @@ async fn test_complete_setup_validation() -> Result<()> {
     info!("🔄 Testing fallback system...");
 
     // Create embedder with fallbacks
-    let mut fallback_embedder = SimpleEmbedder::new_ollama(
+    let fallback_embedder = SimpleEmbedder::new_ollama(
         config.embedding.base_url.clone(),
         "non-existent-model".to_string(), // This should fail
     );
@@ -215,8 +213,7 @@ async fn test_complete_setup_validation() -> Result<()> {
     for (i, embedding) in batch_embeddings.iter().enumerate() {
         assert!(
             !embedding.is_empty(),
-            "Batch embedding {} should not be empty",
-            i
+            "Batch embedding {i} should not be empty"
         );
     }
 

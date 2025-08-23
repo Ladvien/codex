@@ -28,6 +28,12 @@ pub struct TestResult {
     pub error_message: Option<String>,
 }
 
+impl Default for TestExecutionSummary {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestExecutionSummary {
     pub fn new() -> Self {
         Self {
@@ -72,7 +78,7 @@ impl TestExecutionSummary {
                 if !result.passed {
                     println!("❌ {}: {:?}", result.test_name, result.duration);
                     if let Some(error) = &result.error_message {
-                        println!("   Error: {}", error);
+                        println!("   Error: {error}");
                     }
                 }
             }
@@ -87,7 +93,7 @@ impl TestExecutionSummary {
 
         println!("\n=== Performance Summary ===");
         let avg_duration = self.total_duration / self.total_tests as u32;
-        println!("Average test duration: {:?}", avg_duration);
+        println!("Average test duration: {avg_duration:?}");
 
         let fastest = self
             .test_results
@@ -101,10 +107,10 @@ impl TestExecutionSummary {
             .map(|r| (&r.test_name, r.duration));
 
         if let Some((name, duration)) = fastest {
-            println!("Fastest test: {} ({:?})", name, duration);
+            println!("Fastest test: {name} ({duration:?})");
         }
         if let Some((name, duration)) = slowest {
-            println!("Slowest test: {} ({:?})", name, duration);
+            println!("Slowest test: {name} ({duration:?})");
         }
     }
 }
@@ -384,7 +390,7 @@ async fn test_concurrent_operations() -> Result<()> {
             let test_id = env.test_id.clone();
             tokio::spawn(async move {
                 let request = codex_memory::memory::models::CreateMemoryRequest {
-                    content: format!("Concurrent test memory {}", i),
+                    content: format!("Concurrent test memory {i}"),
                     embedding: None,
                     tier: Some(codex_memory::memory::models::MemoryTier::Working),
                     importance_score: Some(0.6),
@@ -405,8 +411,8 @@ async fn test_concurrent_operations() -> Result<()> {
     for handle in handles {
         match handle.await {
             Ok(Ok(_)) => successful_creates += 1,
-            Ok(Err(e)) => println!("Concurrent create failed: {}", e),
-            Err(e) => println!("Task join failed: {}", e),
+            Ok(Err(e)) => println!("Concurrent create failed: {e}"),
+            Err(e) => println!("Task join failed: {e}"),
         }
     }
 

@@ -5,7 +5,6 @@
 
 use anyhow::{Context, Result};
 use codex_memory::{
-    mcp::MCPServer,
     memory::{
         connection::create_pool,
         models::{
@@ -13,7 +12,7 @@ use codex_memory::{
         },
         MemoryRepository,
     },
-    SimpleEmbedder,
+    MCPServer, MCPServerConfig, SimpleEmbedder,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -127,7 +126,11 @@ impl TestEnvironment {
         let embedder = Arc::new(SimpleEmbedder::new("test-api-key".to_string()));
 
         // Create MCP server
-        let mcp_server = MCPServer::new(Arc::clone(&repository), Arc::clone(&embedder))?;
+        let mcp_server = MCPServer::new(
+            Arc::clone(&repository),
+            Arc::clone(&embedder),
+            MCPServerConfig::default(),
+        )?;
 
         Ok(TestEnvironment {
             repository,

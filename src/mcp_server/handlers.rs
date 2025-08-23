@@ -85,7 +85,7 @@ impl MCPHandlers {
                     return create_error_response(
                         id,
                         -32001,
-                        &format!("Authentication failed: {}", e),
+                        &format!("Authentication failed: {e}"),
                     );
                 }
             },
@@ -200,7 +200,7 @@ impl MCPHandlers {
         if let Some(ref auth) = self.auth {
             if let Some(context) = auth_context {
                 if let Err(e) = auth.validate_tool_access(context, tool_name) {
-                    return create_error_response(id, -32003, &format!("Access denied: {}", e));
+                    return create_error_response(id, -32003, &format!("Access denied: {e}"));
                 }
             }
         }
@@ -230,7 +230,7 @@ impl MCPHandlers {
                 Ok(result) => create_success_response(id, result),
                 Err(e) => {
                     error!("Tool execution failed: {}", e);
-                    create_error_response(id, -32603, &format!("Tool execution failed: {}", e))
+                    create_error_response(id, -32603, &format!("Tool execution failed: {e}"))
                 }
             }
         }
@@ -366,8 +366,7 @@ impl MCPHandlers {
 
         if results.is_empty() {
             Ok(format_tool_response(&format!(
-                "No memories found for query: {}",
-                query
+                "No memories found for query: {query}"
             )))
         } else {
             let formatted_results = results
@@ -484,7 +483,7 @@ impl MCPHandlers {
 
         // Search for recent memories
         let search_req = SearchRequest {
-            query_text: Some(format!("context:{}", context)),
+            query_text: Some(format!("context:{context}")),
             query_embedding: None, // Will be generated
             limit: Some(limit),
             offset: None,
@@ -511,7 +510,7 @@ impl MCPHandlers {
         // Generate embedding for context search
         let embedding = self
             .embedder
-            .generate_embedding(&format!("context:{}", context))
+            .generate_embedding(&format!("context:{context}"))
             .await?;
         let mut search_req = search_req;
         search_req.query_embedding = Some(embedding);
@@ -702,7 +701,7 @@ impl MCPHandlers {
         // Perform deletion
         self.repository.delete_memory(memory_id).await?;
 
-        let response_text = format!("Successfully deleted memory {}", memory_id);
+        let response_text = format!("Successfully deleted memory {memory_id}");
         Ok(format_tool_response(&response_text))
     }
 }
@@ -712,7 +711,7 @@ fn format_duration(duration: chrono::Duration) -> String {
     let total_seconds = duration.num_seconds();
 
     if total_seconds < 60 {
-        format!("{}s", total_seconds)
+        format!("{total_seconds}s")
     } else if total_seconds < 3600 {
         format!("{}m", total_seconds / 60)
     } else if total_seconds < 86400 {
@@ -729,7 +728,7 @@ mod tests {
     #[test]
     fn test_format_duration() {
         assert_eq!(format_duration(Duration::seconds(30)), "30s");
-        assert_eq!(format_duration(Duration::minutes(5)), "300s");
+        assert_eq!(format_duration(Duration::minutes(5)), "5m"); // Function formats as minutes, not seconds
         assert_eq!(format_duration(Duration::hours(2)), "2h");
         assert_eq!(format_duration(Duration::days(3)), "3d");
     }

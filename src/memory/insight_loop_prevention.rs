@@ -542,11 +542,11 @@ impl LoopPreventionEngine {
 
         // Semantic richness - diversity of concepts involved
         let semantic_richness = self.calculate_semantic_richness(insight)?;
-        quality_factors.push(format!("Semantic richness: {:.2}", semantic_richness));
+        quality_factors.push(format!("Semantic richness: {semantic_richness:.2}"));
 
         // Predictive power - potential for future value
         let predictive_power = self.calculate_predictive_power(insight)?;
-        quality_factors.push(format!("Predictive power: {:.2}", predictive_power));
+        quality_factors.push(format!("Predictive power: {predictive_power:.2}"));
 
         // Overall quality score
         let overall_quality = (novelty_score
@@ -802,7 +802,7 @@ pub struct PreventionStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    
 
     fn create_test_insight() -> Insight {
         Insight {

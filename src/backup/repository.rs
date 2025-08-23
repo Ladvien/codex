@@ -1,6 +1,5 @@
 use super::{BackupError, BackupMetadata, BackupStatus, BackupType, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use tracing::debug;

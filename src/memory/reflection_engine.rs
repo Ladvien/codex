@@ -1022,7 +1022,7 @@ impl KnowledgeGraph {
         // Index by concept for fast lookup
         self.concept_index
             .entry(node.concept.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node.id);
 
         self.nodes.insert(node.id, node);

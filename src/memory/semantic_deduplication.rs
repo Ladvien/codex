@@ -111,7 +111,7 @@ impl OperationLockGuard {
             .execute(&self.pool)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to release advisory lock: {}", e),
+                message: format!("Failed to release advisory lock: {e}"),
             })?;
 
         debug!(
@@ -211,7 +211,7 @@ impl SemanticDeduplicationEngine {
         let timeout_check = start_time.elapsed().as_secs();
         if timeout_check > self.config.max_operation_time_seconds {
             return Err(MemoryError::OperationTimeout {
-                message: format!("Operation timed out after {} seconds", timeout_check),
+                message: format!("Operation timed out after {timeout_check} seconds"),
             });
         }
 
@@ -233,7 +233,7 @@ impl SemanticDeduplicationEngine {
                 .begin()
                 .await
                 .map_err(|e| MemoryError::DatabaseError {
-                    message: format!("Failed to begin transaction: {}", e),
+                    message: format!("Failed to begin transaction: {e}"),
                 })?;
 
         performance_metrics.record_phase("transaction_begin", transaction_start.elapsed());
@@ -250,7 +250,7 @@ impl SemanticDeduplicationEngine {
                     .commit()
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to commit transaction: {}", e),
+                        message: format!("Failed to commit transaction: {e}"),
                     })?;
                 performance_metrics.record_phase("transaction_commit", commit_start.elapsed());
 
@@ -298,7 +298,7 @@ impl SemanticDeduplicationEngine {
         performance_metrics.record_phase("total_operation", start_time.elapsed());
 
         // Performance validation
-        if result.execution_time_ms > (self.config.max_operation_time_seconds * 1000) as u64 {
+        if result.execution_time_ms > (self.config.max_operation_time_seconds * 1000) {
             warn!(
                 "Operation {} exceeded time limit: {}ms > {}ms",
                 operation_id,
@@ -423,7 +423,7 @@ impl SemanticDeduplicationEngine {
             .fetch_all(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to execute pgvector similarity search: {}", e),
+                message: format!("Failed to execute pgvector similarity search: {e}"),
             })?;
 
         let mut similar_memories = Vec::new();
@@ -515,7 +515,7 @@ impl SemanticDeduplicationEngine {
         // Check if any memory is critical (high importance or recent access)
         let has_critical = memories.iter().any(|m| {
             m.importance_score > 0.8
-                || m.last_accessed_at.map_or(false, |last| {
+                || m.last_accessed_at.is_some_and(|last| {
                     Utc::now().signed_duration_since(last) < Duration::hours(24)
                 })
         });
@@ -644,7 +644,7 @@ impl SemanticDeduplicationEngine {
             .fetch_all(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to load memories in transaction: {}", e),
+                message: format!("Failed to load memories in transaction: {e}"),
             })?;
 
         Ok(memories)
@@ -845,7 +845,7 @@ impl SemanticDeduplicationEngine {
         .execute(self.repository.pool())
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to record performance metrics: {}", e),
+            message: format!("Failed to record performance metrics: {e}"),
         })?;
 
         Ok(())
@@ -991,7 +991,7 @@ impl SemanticDeduplicationEngine {
             let active_ops = self.active_operations.read().await;
             if active_ops.contains(operation_id) {
                 return Err(MemoryError::ConcurrencyError {
-                    message: format!("Operation {} is already in progress", operation_id),
+                    message: format!("Operation {operation_id} is already in progress"),
                 });
             }
         }
@@ -1003,7 +1003,7 @@ impl SemanticDeduplicationEngine {
             .fetch_one(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to acquire advisory lock: {}", e),
+                message: format!("Failed to acquire advisory lock: {e}"),
             })?;
 
         if !acquired {
@@ -1300,7 +1300,7 @@ impl MemoryMerger {
         for (i, memory) in memories.iter().enumerate() {
             if let serde_json::Value::Object(metadata_map) = &memory.metadata {
                 for (key, value) in metadata_map {
-                    let prefixed_key = format!("memory_{}_{}", i, key);
+                    let prefixed_key = format!("memory_{i}_{key}");
                     combined.insert(prefixed_key, value.clone());
                 }
             }
@@ -1477,7 +1477,7 @@ impl MemoryMerger {
             .fetch_one(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to create merged memory: {}", e),
+                message: format!("Failed to create merged memory: {e}"),
             })?;
 
         Ok(Memory {
@@ -1678,14 +1678,13 @@ impl MemoryMerger {
         .fetch_one(&mut **transaction)
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to verify merged memory exists: {}", e),
+            message: format!("Failed to verify merged memory exists: {e}"),
         })?;
 
         if !merged_exists {
             return Err(MemoryError::SafetyViolation {
                 message: format!(
-                    "Cannot archive original memories: merged memory {} does not exist",
-                    merged_memory_id
+                    "Cannot archive original memories: merged memory {merged_memory_id} does not exist"
                 ),
             });
         }
@@ -1698,7 +1697,7 @@ impl MemoryMerger {
                     .fetch_optional(&mut **transaction)
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to check memory status: {}", e),
+                        message: format!("Failed to check memory status: {e}"),
                     })?;
 
             match current_status {
@@ -1724,7 +1723,7 @@ impl MemoryMerger {
                     .execute(&mut **transaction)
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to create archive backup: {}", e),
+                        message: format!("Failed to create archive backup: {e}"),
                     })?;
 
                     // Update status to archived
@@ -1735,7 +1734,7 @@ impl MemoryMerger {
                     .execute(&mut **transaction)
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to archive memory: {}", e),
+                        message: format!("Failed to archive memory: {e}"),
                     })?;
 
                     if archive_result.rows_affected() == 0 {
@@ -1906,7 +1905,7 @@ impl AuditTrail {
         .execute(&mut **transaction)
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to create merge audit entry: {}", e),
+            message: format!("Failed to create merge audit entry: {e}"),
         })?;
 
         Ok(AuditEntry {
@@ -1979,7 +1978,7 @@ impl AuditTrail {
         .execute(&mut **transaction)
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to complete merge audit entry: {}", e),
+            message: format!("Failed to complete merge audit entry: {e}"),
         })?;
 
         Ok(())
@@ -2090,7 +2089,7 @@ impl AuditTrail {
                 .begin()
                 .await
                 .map_err(|e| MemoryError::DatabaseError {
-                    message: format!("Failed to begin reversal transaction: {}", e),
+                    message: format!("Failed to begin reversal transaction: {e}"),
                 })?;
 
         let result = self
@@ -2103,7 +2102,7 @@ impl AuditTrail {
                     .commit()
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to commit reversal transaction: {}", e),
+                        message: format!("Failed to commit reversal transaction: {e}"),
                     })?;
                 info!("Successfully reversed operation: {}", operation_id);
                 Ok(reversal_result)
@@ -2136,7 +2135,7 @@ impl AuditTrail {
             .fetch_optional(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to fetch operation details: {}", e),
+                message: format!("Failed to fetch operation details: {e}"),
             })?
             .ok_or_else(|| MemoryError::NotFound {
                 id: operation_id.to_string(),
@@ -2151,8 +2150,7 @@ impl AuditTrail {
         if status != "completed" {
             return Err(MemoryError::InvalidRequest {
                 message: format!(
-                    "Operation {} is not in completed state: {}",
-                    operation_id, status
+                    "Operation {operation_id} is not in completed state: {status}"
                 ),
             });
         }
@@ -2160,12 +2158,12 @@ impl AuditTrail {
         if let Some(cutoff) = reversible_until {
             if Utc::now() > cutoff {
                 return Err(MemoryError::InvalidRequest {
-                    message: format!("Operation {} is past its reversal deadline", operation_id),
+                    message: format!("Operation {operation_id} is past its reversal deadline"),
                 });
             }
         } else {
             return Err(MemoryError::InvalidRequest {
-                message: format!("Operation {} is not reversible", operation_id),
+                message: format!("Operation {operation_id} is not reversible"),
             });
         }
 
@@ -2182,8 +2180,7 @@ impl AuditTrail {
             _ => {
                 return Err(MemoryError::InvalidRequest {
                     message: format!(
-                        "Unsupported operation type for reversal: {}",
-                        operation_type
+                        "Unsupported operation type for reversal: {operation_type}"
                     ),
                 });
             }
@@ -2201,7 +2198,7 @@ impl AuditTrail {
         .execute(&mut **transaction)
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to mark operation as reversed: {}", e),
+            message: format!("Failed to mark operation as reversed: {e}"),
         })?;
 
         Ok(reversal_result)
@@ -2225,7 +2222,7 @@ impl AuditTrail {
             .iter()
             .map(|id| {
                 Uuid::parse_str(id.as_str().unwrap_or("")).map_err(|e| MemoryError::InvalidData {
-                    message: format!("Invalid UUID in memory_ids: {}", e),
+                    message: format!("Invalid UUID in memory_ids: {e}"),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -2242,7 +2239,7 @@ impl AuditTrail {
             .fetch_all(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to fetch merge history: {}", e),
+                message: format!("Failed to fetch merge history: {e}"),
             })?;
 
         if merge_rows.is_empty() {
@@ -2267,7 +2264,7 @@ impl AuditTrail {
             .execute(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to restore memory {}: {}", memory_id, e),
+                message: format!("Failed to restore memory {memory_id}: {e}"),
             })?;
 
             if restore_result.rows_affected() > 0 {
@@ -2293,7 +2290,7 @@ impl AuditTrail {
         .execute(&mut **transaction)
         .await
         .map_err(|e| MemoryError::DatabaseError {
-            message: format!("Failed to archive merged memory: {}", e),
+            message: format!("Failed to archive merged memory: {e}"),
         })?;
 
         info!("Archived merged memory result: {}", merged_memory_id);
@@ -2329,7 +2326,7 @@ impl AuditTrail {
             .iter()
             .map(|id| {
                 Uuid::parse_str(id.as_str().unwrap_or("")).map_err(|e| MemoryError::InvalidData {
-                    message: format!("Invalid UUID in pruned_memory_ids: {}", e),
+                    message: format!("Invalid UUID in pruned_memory_ids: {e}"),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -2349,7 +2346,7 @@ impl AuditTrail {
             .execute(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to restore pruned memory {}: {}", memory_id, e),
+                message: format!("Failed to restore pruned memory {memory_id}: {e}"),
             })?;
 
             if restore_result.rows_affected() > 0 {
@@ -2407,7 +2404,7 @@ impl AutoPruner {
                 .begin()
                 .await
                 .map_err(|e| MemoryError::DatabaseError {
-                    message: format!("Failed to begin pruning transaction: {}", e),
+                    message: format!("Failed to begin pruning transaction: {e}"),
                 })?;
 
         let result = self
@@ -2420,7 +2417,7 @@ impl AutoPruner {
                     .commit()
                     .await
                     .map_err(|e| MemoryError::DatabaseError {
-                        message: format!("Failed to commit pruning transaction: {}", e),
+                        message: format!("Failed to commit pruning transaction: {e}"),
                     })?;
                 info!(
                     "Safe pruning completed: {} memories pruned, {} bytes freed",
@@ -2491,7 +2488,7 @@ impl AutoPruner {
             .fetch_all(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to fetch pruning candidates: {}", e),
+                message: format!("Failed to fetch pruning candidates: {e}"),
             })?;
 
         info!(
@@ -2539,7 +2536,7 @@ impl AutoPruner {
                 .fetch_optional(&mut **transaction)
                 .await
                 .map_err(|e| MemoryError::DatabaseError {
-                    message: format!("Failed to recheck memory eligibility: {}", e),
+                    message: format!("Failed to recheck memory eligibility: {e}"),
                 })?;
 
             if recheck_result.is_none() {
@@ -2569,18 +2566,17 @@ impl AutoPruner {
                     .unwrap_or(0.0),
             )
             .bind((Utc::now() - cutoff_date).num_days())
-            .bind(format!("{:?}", tier).to_lowercase())
+            .bind(format!("{tier:?}").to_lowercase())
             .bind(importance_score)
             .bind(access_count)
             .bind(content.len() as i32)
             .bind(format!(
-                "Auto-pruning: threshold={}, cutoff={}",
-                threshold, cutoff_date
+                "Auto-pruning: threshold={threshold}, cutoff={cutoff_date}"
             ))
             .execute(&mut **transaction)
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to create pruning audit entry: {}", e),
+                message: format!("Failed to create pruning audit entry: {e}"),
             })?;
 
             // Mark as deleted rather than hard delete for reversibility
@@ -2589,7 +2585,7 @@ impl AutoPruner {
                 .execute(&mut **transaction)
                 .await
                 .map_err(|e| MemoryError::DatabaseError {
-                    message: format!("Failed to mark memory as deleted: {}", e),
+                    message: format!("Failed to mark memory as deleted: {e}"),
                 })?;
         }
 
@@ -2620,8 +2616,7 @@ impl AutoPruner {
         if importance_score >= 0.3 {
             return Err(MemoryError::SafetyViolation {
                 message: format!(
-                    "Memory {} has high importance score: {}",
-                    memory_id, importance_score
+                    "Memory {memory_id} has high importance score: {importance_score}"
                 ),
             });
         }
@@ -2630,8 +2625,7 @@ impl AutoPruner {
         if access_count >= 10 {
             return Err(MemoryError::SafetyViolation {
                 message: format!(
-                    "Memory {} has high access count: {}",
-                    memory_id, access_count
+                    "Memory {memory_id} has high access count: {access_count}"
                 ),
             });
         }
@@ -2639,7 +2633,7 @@ impl AutoPruner {
         // Check tier restrictions
         if matches!(tier, MemoryTier::Working | MemoryTier::Warm) {
             return Err(MemoryError::SafetyViolation {
-                message: format!("Memory {} is in protected tier: {:?}", memory_id, tier),
+                message: format!("Memory {memory_id} is in protected tier: {tier:?}"),
             });
         }
 
@@ -2649,8 +2643,7 @@ impl AutoPruner {
                 if obj.contains_key(key) {
                     return Err(MemoryError::SafetyViolation {
                         message: format!(
-                            "Memory {} has critical metadata flag: {}",
-                            memory_id, key
+                            "Memory {memory_id} has critical metadata flag: {key}"
                         ),
                     });
                 }

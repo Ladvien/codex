@@ -109,13 +109,12 @@ impl TriggerConfigLoader {
         }
 
         let content = fs::read_to_string(config_path).map_err(|e| {
-            MemoryError::Configuration(format!("Failed to read config file {}: {}", config_path, e))
+            MemoryError::Configuration(format!("Failed to read config file {config_path}: {e}"))
         })?;
 
         let json_value: Value = serde_json::from_str(&content).map_err(|e| {
             MemoryError::Configuration(format!(
-                "Invalid JSON in config file {}: {}",
-                config_path, e
+                "Invalid JSON in config file {config_path}: {e}"
             ))
         })?;
 
@@ -187,8 +186,7 @@ impl TriggerConfigLoader {
             "BusinessCritical" => Ok(TriggerEvent::BusinessCritical),
             "UserExperience" => Ok(TriggerEvent::UserExperience),
             _ => Err(MemoryError::Configuration(format!(
-                "Unknown trigger event type: {}",
-                trigger_name
+                "Unknown trigger event type: {trigger_name}"
             ))),
         }
     }
@@ -206,7 +204,7 @@ impl TriggerConfigLoader {
 
         // Validate regex
         Regex::new(&regex)
-            .map_err(|e| MemoryError::Configuration(format!("Invalid regex pattern: {}", e)))?;
+            .map_err(|e| MemoryError::Configuration(format!("Invalid regex pattern: {e}")))?;
 
         let keywords = pattern_obj
             .get("keywords")
@@ -251,13 +249,12 @@ impl TriggerConfigLoader {
     async fn save_config_to_file(config_path: &str, config: &TriggerConfig) -> Result<()> {
         let json_value = Self::config_to_json(config).await?;
         let content = serde_json::to_string_pretty(&json_value).map_err(|e| {
-            MemoryError::Configuration(format!("Failed to serialize config: {}", e))
+            MemoryError::Configuration(format!("Failed to serialize config: {e}"))
         })?;
 
         fs::write(config_path, content).map_err(|e| {
             MemoryError::Configuration(format!(
-                "Failed to write config file {}: {}",
-                config_path, e
+                "Failed to write config file {config_path}: {e}"
             ))
         })?;
 
@@ -324,8 +321,7 @@ impl TriggerConfigLoader {
     async fn validate_config_file_at_path(config_path: &str) -> Result<()> {
         if !Path::new(config_path).exists() {
             return Err(MemoryError::Configuration(format!(
-                "Config file does not exist: {}",
-                config_path
+                "Config file does not exist: {config_path}"
             )));
         }
 

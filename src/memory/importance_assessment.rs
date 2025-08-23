@@ -314,8 +314,7 @@ impl CircuitBreaker {
                     Ok(true)
                 } else {
                     Err(ImportanceAssessmentError::CircuitBreakerOpen(format!(
-                        "Circuit breaker is open until {}",
-                        recovery_time
+                        "Circuit breaker is open until {recovery_time}"
                     )))
                 }
             }
@@ -940,8 +939,7 @@ impl OptimizedPatternMatcher {
         for dangerous in &dangerous_patterns {
             if pattern.contains(dangerous) {
                 return Err(ImportanceAssessmentError::Configuration(format!(
-                    "Regex pattern contains potentially dangerous sequence '{}': {}",
-                    dangerous, pattern
+                    "Regex pattern contains potentially dangerous sequence '{dangerous}': {pattern}"
                 )));
             }
         }
@@ -1183,7 +1181,7 @@ impl ImportanceAssessmentPipeline {
                 };
 
                 self.record_final_metrics(&result);
-                return Ok(result);
+                Ok(result)
             } else {
                 self.metrics.completed_at_stage2.inc();
 
@@ -1203,7 +1201,7 @@ impl ImportanceAssessmentPipeline {
                 };
 
                 self.record_final_metrics(&result);
-                return Ok(result);
+                Ok(result)
             }
         } else {
             self.metrics.completed_at_stage1.inc();
@@ -1224,7 +1222,7 @@ impl ImportanceAssessmentPipeline {
             };
 
             self.record_final_metrics(&result);
-            return Ok(result);
+            Ok(result)
         }
     }
 
@@ -1366,8 +1364,7 @@ impl ImportanceAssessmentPipeline {
                         Ok(emb) => emb,
                         Err(e) => {
                             return Err(ImportanceAssessmentError::Stage2Failed(format!(
-                                "Embedding generation failed: {}",
-                                e
+                                "Embedding generation failed: {e}"
                             )))
                         }
                     };
@@ -1665,31 +1662,30 @@ impl ImportanceAssessmentPipeline {
             .await
             .map_err(|e| {
                 if e.is_timeout() {
-                    ImportanceAssessmentError::Timeout(format!("LLM request timed out: {}", e))
+                    ImportanceAssessmentError::Timeout(format!("LLM request timed out: {e}"))
                 } else if e.is_connect() {
                     ImportanceAssessmentError::Stage3Failed(format!(
-                        "Failed to connect to LLM service: {}",
-                        e
+                        "Failed to connect to LLM service: {e}"
                     ))
                 } else {
-                    ImportanceAssessmentError::Stage3Failed(format!("LLM request failed: {}", e))
+                    ImportanceAssessmentError::Stage3Failed(format!("LLM request failed: {e}"))
                 }
             })?;
 
         let status = response.status();
         let response_text = response.text().await.map_err(|e| {
-            ImportanceAssessmentError::Stage3Failed(format!("Failed to read response body: {}", e))
+            ImportanceAssessmentError::Stage3Failed(format!("Failed to read response body: {e}"))
         })?;
 
         if !status.is_success() {
             // Handle different HTTP error codes
             let error_msg = match status.as_u16() {
-                400 => format!("Bad request to LLM service: {}", response_text),
+                400 => format!("Bad request to LLM service: {response_text}"),
                 401 => "Unauthorized: Invalid API key or credentials".to_string(),
                 403 => "Forbidden: Insufficient permissions".to_string(),
                 429 => "Rate limit exceeded, will retry".to_string(),
-                500..=599 => format!("LLM service error ({}): {}", status, response_text),
-                _ => format!("LLM service returned status {}: {}", status, response_text),
+                500..=599 => format!("LLM service error ({status}): {response_text}"),
+                _ => format!("LLM service returned status {status}: {response_text}"),
             };
 
             return Err(ImportanceAssessmentError::Stage3Failed(error_msg));
@@ -1699,8 +1695,7 @@ impl ImportanceAssessmentPipeline {
         let response_json: serde_json::Value =
             serde_json::from_str(&response_text).map_err(|e| {
                 ImportanceAssessmentError::Stage3Failed(format!(
-                    "Failed to parse LLM response as JSON: {}",
-                    e
+                    "Failed to parse LLM response as JSON: {e}"
                 ))
             })?;
 

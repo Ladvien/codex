@@ -8,8 +8,6 @@ use codex_memory::{
 use pgvector::Vector;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tokio;
-use uuid::Uuid;
 
 async fn setup_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -78,13 +76,13 @@ async fn test_semantic_deduplication_basic() {
     // Verify results
     assert_eq!(result.total_processed, 2);
     assert!(result.execution_time_ms > 0);
-    println!("Deduplication result: {:?}", result);
+    println!("Deduplication result: {result:?}");
 
     // Verify metrics
     let metrics = engine.get_metrics().await;
     assert_eq!(metrics.total_operations, 1);
     assert_eq!(metrics.total_memories_processed, 2);
-    println!("Deduplication metrics: {:?}", metrics);
+    println!("Deduplication metrics: {metrics:?}");
 }
 
 #[tokio::test]
@@ -104,7 +102,7 @@ async fn test_memory_statistics() {
 
     assert!(stats.total_memories >= 0);
     assert!(stats.total_content_bytes >= 0);
-    println!("Memory statistics: {:?}", stats);
+    println!("Memory statistics: {stats:?}");
 }
 
 #[tokio::test]

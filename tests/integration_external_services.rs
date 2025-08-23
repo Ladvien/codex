@@ -185,7 +185,7 @@ async fn test_monitoring_service_integration() -> Result<()> {
 
     if let Some(avg_importance) = stats.avg_importance {
         assert!(
-            avg_importance >= 0.0 && avg_importance <= 1.0,
+            (0.0..=1.0).contains(&avg_importance),
             "Average importance should be in valid range"
         );
     }
@@ -380,7 +380,7 @@ async fn test_service_error_recovery() -> Result<()> {
         let result = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Error recovery test memory {}", i),
+                content: format!("Error recovery test memory {i}"),
                 embedding: None, // May fail to generate
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.5),

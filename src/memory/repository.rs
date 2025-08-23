@@ -59,7 +59,7 @@ impl SafeQueryBuilder {
     pub fn add_tier_filter(&mut self, tier: &MemoryTier) -> &mut Self {
         let condition = format!("AND m.tier = ${}", self.bind_index);
         self.query_parts.push(condition);
-        self.parameters.push(QueryParameter::Tier(tier.clone()));
+        self.parameters.push(QueryParameter::Tier(*tier));
         self.bind_index += 1;
         self
     }
@@ -745,11 +745,10 @@ impl MemoryRepository {
             FROM memories m
             WHERE m.status = 'active'
                 AND m.embedding IS NOT NULL
-                AND 1 - (m.embedding <=> $1) >= {}
+                AND 1 - (m.embedding <=> $1) >= {threshold}
             ORDER BY m.combined_score DESC, similarity_score DESC
-            LIMIT {} OFFSET {}
-            "#,
-            threshold, limit, offset
+            LIMIT {limit} OFFSET {offset}
+            "#
         );
 
         let rows = sqlx::query(&query)
@@ -1400,8 +1399,7 @@ impl MemoryRepository {
         if recall_probability >= 0.2 {
             return Err(MemoryError::InvalidRequest {
                 message: format!(
-                    "Can only freeze memories with P(r) < 0.2, found {:.3}",
-                    recall_probability
+                    "Can only freeze memories with P(r) < 0.2, found {recall_probability:.3}"
                 ),
             });
         }
@@ -1483,8 +1481,7 @@ impl MemoryRepository {
         .bind(memory_id)
         .bind(memory.tier)
         .bind(format!(
-            "Frozen with {:.2}:1 compression",
-            compression_ratio
+            "Frozen with {compression_ratio:.2}:1 compression"
         ))
         .bind(processing_time_ms)
         .execute(&mut *tx)
@@ -1556,7 +1553,7 @@ impl MemoryRepository {
                 BASE64_STANDARD
                     .decode(base64_data.as_bytes())
                     .map_err(|e| MemoryError::DecompressionError {
-                        message: format!("Failed to decode base64 compressed data: {}", e),
+                        message: format!("Failed to decode base64 compressed data: {e}"),
                     })?
             }
             serde_json::Value::Array(byte_array) => {
@@ -1657,7 +1654,7 @@ impl MemoryRepository {
         )
         .bind(memory_id)
         .bind(restoration_tier)
-        .bind(format!("Unfrozen after {} second delay", delay_seconds))
+        .bind(format!("Unfrozen after {delay_seconds} second delay"))
         .bind(processing_time_ms)
         .execute(&mut *tx)
         .await?;
@@ -1924,8 +1921,7 @@ impl MemoryRepository {
         builder.add_recall_threshold_condition(constants::COLD_MIGRATION_THRESHOLD);
 
         let order_condition = format!(
-            "ORDER BY CASE WHEN recall_probability IS NULL THEN 1 WHEN recall_probability < ${} THEN 2 ELSE 3 END, last_accessed_at ASC NULLS FIRST, consolidation_strength ASC",
-            threshold_bind_index
+            "ORDER BY CASE WHEN recall_probability IS NULL THEN 1 WHEN recall_probability < ${threshold_bind_index} THEN 2 ELSE 3 END, last_accessed_at ASC NULLS FIRST, consolidation_strength ASC"
         );
         builder.add_condition(&order_condition);
 

@@ -275,8 +275,7 @@ impl PerformanceDashboard {
                 current_value: latency_ms,
                 severity,
                 message: format!(
-                    "P95 latency {:.1}ms exceeds threshold. Story 10 requirement: <2000ms",
-                    latency_ms
+                    "P95 latency {latency_ms:.1}ms exceeds threshold. Story 10 requirement: <2000ms"
                 ),
                 timestamp: Utc::now(),
                 resolved: false,
@@ -310,8 +309,7 @@ impl PerformanceDashboard {
                 current_value: headroom_percent,
                 severity,
                 message: format!(
-                    "Memory headroom {:.1}% below threshold. Story 10 requirement: ≥20%",
-                    headroom_percent
+                    "Memory headroom {headroom_percent:.1}% below threshold. Story 10 requirement: ≥20%"
                 ),
                 timestamp: Utc::now(),
                 resolved: false,
@@ -347,8 +345,7 @@ impl PerformanceDashboard {
                 current_value: reduction_percent,
                 severity,
                 message: format!(
-                    "Token reduction {:.1}% below target. Story 10 requirement: ≥90%",
-                    reduction_percent
+                    "Token reduction {reduction_percent:.1}% below target. Story 10 requirement: ≥90%"
                 ),
                 timestamp: Utc::now(),
                 resolved: false,

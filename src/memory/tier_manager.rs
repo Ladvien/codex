@@ -730,12 +730,23 @@ impl Clone for TierManager {
 mod tests {
     use super::*;
     use crate::memory::connection::create_pool;
+    use anyhow::Context;
+    use dotenv::dotenv;
+    use sqlx::PgPool;
+
+    async fn create_test_pool() -> anyhow::Result<PgPool> {
+        // Load environment variables from .env file
+        let _ = dotenv();
+
+        let database_url = std::env::var("DATABASE_URL")
+            .context("DATABASE_URL environment variable not set. Ensure .env file is present.")?;
+
+        create_pool(&database_url, 5).await
+    }
 
     #[tokio::test]
     async fn test_tier_manager_creation() {
-        let pool = create_pool("postgresql://test:test@localhost:5432/test", 5)
-            .await
-            .unwrap();
+        let pool = create_test_pool().await.unwrap();
         let repository = Arc::new(MemoryRepository::new(pool));
         let config = TierManagerConfig::default();
 

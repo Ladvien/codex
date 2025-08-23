@@ -85,7 +85,7 @@ impl TriggerPattern {
     pub fn new(regex: String, keywords: Vec<String>) -> Result<Self> {
         let compiled_regex =
             Some(Regex::new(&regex).map_err(|e| {
-                MemoryError::Configuration(format!("Invalid regex pattern: {}", e))
+                MemoryError::Configuration(format!("Invalid regex pattern: {e}"))
             })?);
 
         Ok(TriggerPattern {

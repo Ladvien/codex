@@ -700,8 +700,7 @@ mod tests {
             let result = setup.classify_embedding_model(model_name);
             assert!(
                 result.is_some(),
-                "Should classify {} as embedding model",
-                model_name
+                "Should classify {model_name} as embedding model"
             );
 
             let info = result.unwrap();

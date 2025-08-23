@@ -31,6 +31,12 @@ pub struct ServerManager {
     paths: ManagerPaths,
 }
 
+impl Default for ServerManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerManager {
     pub fn new() -> Self {
         let paths = ManagerPaths::default();
@@ -181,7 +187,7 @@ impl ServerManager {
         match self.get_running_pid()? {
             Some(pid) => {
                 println!("● Server is running");
-                println!("  PID: {}", pid);
+                println!("  PID: {pid}");
 
                 if detailed {
                     println!("  PID file: {}", self.paths.pid_file.display());
@@ -233,7 +239,7 @@ impl ServerManager {
             };
 
             for line in &all_lines[start..] {
-                println!("{}", line);
+                println!("{line}");
             }
         }
 
@@ -362,7 +368,7 @@ WantedBy=multi-user.target
 
             // Load the service
             Command::new("launchctl")
-                .args(&["load", plist_path.to_str().unwrap()])
+                .args(["load", plist_path.to_str().unwrap()])
                 .status()
                 .context("Failed to load launchd service")?;
 
@@ -428,7 +434,7 @@ WantedBy=multi-user.target
                 .join("Library/LaunchAgents/com.codex.memory.plist");
 
             Command::new("launchctl")
-                .args(&["unload", plist_path.to_str().unwrap()])
+                .args(["unload", plist_path.to_str().unwrap()])
                 .status()?;
 
             fs::remove_file(plist_path)?;

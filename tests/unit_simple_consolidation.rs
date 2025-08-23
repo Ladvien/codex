@@ -60,8 +60,7 @@ mod tests {
         // Should be high since t=0
         assert!(
             result > 0.8,
-            "Fresh memory should have high recall probability: {}",
-            result
+            "Fresh memory should have high recall probability: {result}"
         );
         assert!(result <= 1.0, "Recall probability should not exceed 1.0");
     }
@@ -89,15 +88,11 @@ mod tests {
         // Recall probability should decrease over time
         assert!(
             fresh_result >= day_result,
-            "Fresh should be >= day old: {} vs {}",
-            fresh_result,
-            day_result
+            "Fresh should be >= day old: {fresh_result} vs {day_result}"
         );
         assert!(
             day_result >= week_result,
-            "Day old should be >= week old: {} vs {}",
-            day_result,
-            week_result
+            "Day old should be >= week old: {day_result} vs {week_result}"
         );
     }
 
@@ -120,9 +115,7 @@ mod tests {
         // Higher access count should result in higher recall probability
         assert!(
             high_result >= low_result,
-            "Higher access count should improve recall: {} vs {}",
-            high_result,
-            low_result
+            "Higher access count should improve recall: {high_result} vs {low_result}"
         );
     }
 
@@ -149,21 +142,18 @@ mod tests {
         // With similarity weight of 0.1, the effect should be minimal
         // But we can verify that different similarities produce different results
         println!(
-            "No sim: {:.6}, High sim: {:.6}, Low sim: {:.6}",
-            result_no_sim, result_high_sim, result_low_sim
+            "No sim: {result_no_sim:.6}, High sim: {result_high_sim:.6}, Low sim: {result_low_sim:.6}"
         );
 
         // All should be valid probabilities
-        assert!(result_no_sim >= 0.0 && result_no_sim <= 1.0);
-        assert!(result_high_sim >= 0.0 && result_high_sim <= 1.0);
-        assert!(result_low_sim >= 0.0 && result_low_sim <= 1.0);
+        assert!((0.0..=1.0).contains(&result_no_sim));
+        assert!((0.0..=1.0).contains(&result_high_sim));
+        assert!((0.0..=1.0).contains(&result_low_sim));
 
         // Low similarity should be lower than high similarity
         assert!(
             result_low_sim <= result_high_sim,
-            "Low similarity should not exceed high similarity: {} vs {}",
-            result_low_sim,
-            result_high_sim
+            "Low similarity should not exceed high similarity: {result_low_sim} vs {result_high_sim}"
         );
     }
 
@@ -182,9 +172,7 @@ mod tests {
         // Consolidation should increase: gn = gn-1 + (1 - e^-t)/(1 + e^-t)
         assert!(
             new_strength > initial_strength,
-            "Consolidation strength should increase from {} to {}",
-            initial_strength,
-            new_strength
+            "Consolidation strength should increase from {initial_strength} to {new_strength}"
         );
 
         // Should be bounded
@@ -274,8 +262,7 @@ mod tests {
         // Should process quickly (target: 1000 in 1 second)
         assert!(
             duration.as_millis() < 100,
-            "Batch processing took {:?}",
-            duration
+            "Batch processing took {duration:?}"
         );
         assert!(results.len() <= 100); // Some may fail, that's OK
 
@@ -321,7 +308,7 @@ mod tests {
         // Should fall back to created_at
         let result = engine.calculate_recall_probability(&memory, None).unwrap();
         assert!(
-            result >= 0.0 && result <= 1.0,
+            (0.0..=1.0).contains(&result),
             "Should handle missing last_accessed_at"
         );
 
@@ -339,7 +326,7 @@ mod tests {
 
         // Should handle zero access count (n=0 means denominator = 1+0 = 1)
         assert!(
-            result >= 0.0 && result <= 1.0,
+            (0.0..=1.0).contains(&result),
             "Should handle zero access count"
         );
     }
@@ -364,9 +351,7 @@ mod tests {
         // Should be close to manual calculation (allowing for floating point differences)
         assert!(
             (result - expected).abs() < 0.001,
-            "Formula calculation mismatch: expected {:.6}, got {:.6}",
-            expected,
-            result
+            "Formula calculation mismatch: expected {expected:.6}, got {result:.6}"
         );
     }
 
@@ -419,9 +404,7 @@ mod tests {
         // Faster time scale should result in lower recall probability for same time
         assert!(
             result1 >= result2,
-            "Slower time scale should have higher recall: {} vs {}",
-            result1,
-            result2
+            "Slower time scale should have higher recall: {result1} vs {result2}"
         );
     }
 }

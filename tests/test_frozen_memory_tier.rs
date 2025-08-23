@@ -4,7 +4,6 @@ use codex_memory::memory::{
 };
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
-use tokio;
 use uuid::Uuid;
 
 async fn setup_test_pool() -> PgPool {
@@ -27,8 +26,7 @@ async fn create_test_memories_with_low_recall(
         let memory = repository
             .create_memory(CreateMemoryRequest {
                 content: format!(
-                    "Low recall test memory {} that should be frozen due to low probability",
-                    i
+                    "Low recall test memory {i} that should be frozen due to low probability"
                 ),
                 embedding: Some(vec![0.1, 0.2, 0.3, 0.4, 0.5]),
                 tier: Some(MemoryTier::Cold),
@@ -347,7 +345,7 @@ async fn test_recall_probability_migration_rule() {
     for (recall_prob, should_freeze) in test_cases {
         let memory = repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Test memory with recall probability {}", recall_prob),
+                content: format!("Test memory with recall probability {recall_prob}"),
                 embedding: Some(vec![0.1, 0.2, 0.3]),
                 tier: Some(MemoryTier::Cold),
                 importance_score: Some(0.3),
@@ -450,7 +448,7 @@ async fn test_data_integrity_after_freeze_unfreeze() {
 async fn test_frozen_tier_enum_exists() {
     // Test that Frozen tier is properly defined
     let frozen_tier = MemoryTier::Frozen;
-    let tier_string = format!("{:?}", frozen_tier);
+    let tier_string = format!("{frozen_tier:?}");
     assert_eq!(tier_string, "Frozen");
 
     // Test tier parsing

@@ -4,15 +4,13 @@ use codex_memory::{
     config::TierManagerConfig,
     memory::{
         connection::create_pool,
-        models::{CreateMemoryRequest, Memory, MemoryStatus, MemoryTier},
+        models::{CreateMemoryRequest, Memory, MemoryTier},
         repository::MemoryRepository,
-        tier_manager::{TierManager, TierMigrationCandidate},
+        tier_manager::TierManager,
     },
-    Config,
 };
 use std::sync::Arc;
 use tokio::time::{sleep, Duration as TokioDuration};
-use uuid::Uuid;
 
 // Test helper function to create a test database pool
 async fn create_test_pool() -> Result<sqlx::PgPool> {
@@ -150,7 +148,7 @@ async fn test_working_to_warm_migration() -> Result<()> {
     let result = tier_manager.force_scan().await?;
 
     // Verify migration occurred
-    assert!(result.successful_migrations.len() > 0);
+    assert!(!result.successful_migrations.is_empty());
     assert!(result.successful_migrations.contains(&memory.id));
 
     // Verify memory is now in warm tier
@@ -190,7 +188,7 @@ async fn test_warm_to_cold_migration() -> Result<()> {
     let result = tier_manager.force_scan().await?;
 
     // Verify migration occurred
-    assert!(result.successful_migrations.len() > 0);
+    assert!(!result.successful_migrations.is_empty());
     assert!(result.successful_migrations.contains(&memory.id));
 
     // Verify memory is now in cold tier
@@ -230,7 +228,7 @@ async fn test_cold_to_frozen_migration() -> Result<()> {
     let result = tier_manager.force_scan().await?;
 
     // Verify migration occurred
-    assert!(result.successful_migrations.len() > 0);
+    assert!(!result.successful_migrations.is_empty());
     assert!(result.successful_migrations.contains(&memory.id));
 
     // Verify memory is now in frozen tier
@@ -328,7 +326,7 @@ async fn test_batch_migration_performance() -> Result<()> {
     for i in 0..50 {
         let memory = create_test_memory(
             &repository,
-            &format!("Test memory for batch migration {}", i),
+            &format!("Test memory for batch migration {i}"),
             MemoryTier::Working,
             0.3, // Low importance
             1.0, // Low consolidation strength
@@ -361,8 +359,7 @@ async fn test_batch_migration_performance() -> Result<()> {
     // Verify performance meets target (should be much faster than 1000/sec limit)
     let migrations_per_second = result.successful_migrations.len() as f64 / duration.as_secs_f64();
     println!(
-        "Migration performance: {:.2} migrations/second",
-        migrations_per_second
+        "Migration performance: {migrations_per_second:.2} migrations/second"
     );
 
     // Performance should be reasonable (we're not testing the exact 1000/sec here due to test environment)
@@ -575,7 +572,7 @@ async fn test_concurrent_migration_limit() -> Result<()> {
     for i in 0..100 {
         create_test_memory(
             &repository,
-            &format!("Concurrent test memory {}", i),
+            &format!("Concurrent test memory {i}"),
             MemoryTier::Working,
             0.3,
             1.0,
@@ -600,7 +597,7 @@ async fn test_concurrent_migration_limit() -> Result<()> {
     let result = tier_manager.force_scan().await?;
 
     // Verify that migrations occurred (exact count may vary due to batching)
-    assert!(result.successful_migrations.len() > 0);
+    assert!(!result.successful_migrations.is_empty());
     assert!(result.duration_ms > 0);
 
     Ok(())

@@ -198,7 +198,7 @@ impl McpCommandHandler {
     pub async fn diagnose(&self) -> Result<()> {
         info!("🔍 Generating MCP diagnostic report...");
         let report = self.container.config.create_diagnostic_report();
-        println!("{}", report);
+        println!("{report}");
         Ok(())
     }
 
@@ -260,7 +260,7 @@ impl McpCommandHandler {
                 info!("✅ Template written to: {}", path);
             }
             None => {
-                println!("{}", template_content);
+                println!("{template_content}");
             }
         }
         Ok(())

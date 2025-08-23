@@ -8,11 +8,11 @@ mod test_helpers;
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
-use codex_memory::mcp::server::MCPServer;
 use codex_memory::memory::models::{
     CreateMemoryRequest, MemoryTier, SearchRequest, UpdateMemoryRequest,
 };
 use codex_memory::SimpleEmbedder;
+use codex_memory::{MCPServer, MCPServerConfig};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -547,7 +547,7 @@ async fn test_mcp_server_workflow_integration() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let _mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let _mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Test workflow through repository (simulating MCP operations)
 

@@ -241,11 +241,9 @@ impl MCPAuth {
 
         // Determine authentication method and validate
         let auth_result = if let Some(auth_header) = headers.get("authorization") {
-            if auth_header.starts_with("Bearer ") {
-                let token = &auth_header[7..];
+            if let Some(token) = auth_header.strip_prefix("Bearer ") {
                 self.validate_jwt_token(token, &request_id).await
-            } else if auth_header.starts_with("ApiKey ") {
-                let api_key = &auth_header[7..];
+            } else if let Some(api_key) = auth_header.strip_prefix("ApiKey ") {
                 self.validate_api_key(api_key, &request_id).await
             } else {
                 Err(anyhow!("Invalid authorization header format"))
@@ -388,8 +386,8 @@ impl MCPAuth {
         // For certificate-based auth, we grant full access
         // In production, you'd extract more info from the certificate
         Ok(AuthContext {
-            client_id: format!("cert-{}", thumbprint),
-            user_id: format!("cert-{}", thumbprint),
+            client_id: format!("cert-{thumbprint}"),
+            user_id: format!("cert-{thumbprint}"),
             method: AuthMethod::Certificate,
             scopes: vec!["mcp:read".to_string(), "mcp:write".to_string()],
             expires_at: None, // Certificates don't expire in this context
@@ -456,7 +454,7 @@ impl MCPAuth {
 
         if !context.scopes.contains(&required_scope.to_string()) {
             return Err(SecurityError::AuthorizationFailed {
-                message: format!("Tool '{}' requires '{}' scope", tool_name, required_scope),
+                message: format!("Tool '{tool_name}' requires '{required_scope}' scope"),
             }
             .into());
         }
@@ -564,7 +562,7 @@ mod tests {
             .unwrap();
 
         let mut headers = HashMap::new();
-        headers.insert("authorization".to_string(), format!("Bearer {}", token));
+        headers.insert("authorization".to_string(), format!("Bearer {token}"));
 
         let result = auth
             .authenticate_request("tools/call", None, &headers)
@@ -650,7 +648,7 @@ mod tests {
 
         // Token should work initially
         let mut headers = HashMap::new();
-        headers.insert("authorization".to_string(), format!("Bearer {}", token));
+        headers.insert("authorization".to_string(), format!("Bearer {token}"));
 
         let result = auth
             .authenticate_request("tools/call", None, &headers)

@@ -335,14 +335,12 @@ impl ConsolidationProcessor {
 
         let (query, has_tier) = if let Some(_tier) = tier {
             let query_with_tier = format!(
-                "{} AND tier = $2 ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1",
-                base_query
+                "{base_query} AND tier = $2 ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1"
             );
             (query_with_tier, true)
         } else {
             let query_no_tier = format!(
-                "{} ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1",
-                base_query
+                "{base_query} ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1"
             );
             (query_no_tier, false)
         };
@@ -392,7 +390,7 @@ mod tests {
             .calculate_recall_probability(&memory, Some(0.8))
             .unwrap();
 
-        assert!(recall_prob >= 0.0 && recall_prob <= 1.0);
+        assert!((0.0..=1.0).contains(&recall_prob));
         assert!(recall_prob > 0.0); // Should have some recall probability
     }
 

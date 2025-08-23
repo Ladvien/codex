@@ -497,8 +497,7 @@ impl CognitiveConsolidationEngine {
             PgInterval {
                 months: 0,
                 days: duration.num_days() as i32,
-                microseconds: (duration.num_microseconds().unwrap_or(0) % (24 * 60 * 60 * 1000000))
-                    as i64,
+                microseconds: (duration.num_microseconds().unwrap_or(0) % (24 * 60 * 60 * 1000000)),
             }
         } else {
             PgInterval {

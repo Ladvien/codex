@@ -406,8 +406,7 @@ impl AuditManager {
             outcome: AuditOutcome::Failure,
             details,
             error_message: Some(format!(
-                "Rate limit exceeded for {} on tool {}",
-                limit_type, tool_name
+                "Rate limit exceeded for {limit_type} on tool {tool_name}"
             )),
             request_id: None,
         };

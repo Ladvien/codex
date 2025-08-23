@@ -159,7 +159,7 @@ impl ThreeComponentConfig {
         let total_weight = self.recency_weight + self.importance_weight + self.relevance_weight;
         if (total_weight - 1.0).abs() > 0.001 {
             return Err(MemoryError::InvalidRequest {
-                message: format!("Weights must sum to 1.0, got {:.3}", total_weight),
+                message: format!("Weights must sum to 1.0, got {total_weight:.3}"),
             });
         }
 

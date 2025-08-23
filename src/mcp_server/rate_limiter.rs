@@ -201,7 +201,7 @@ impl MCPRateLimiter {
 
                 tool_limiters.insert(
                     tool_name.clone(),
-                    ScopedRateLimiter::new(rate, burst, format!("tool:{}", tool_name)),
+                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}")),
                 );
             }
         }
@@ -268,7 +268,7 @@ impl MCPRateLimiter {
 
         // Check global rate limit
         if let Some(ref global_limiter) = self.global_limiter {
-            if let Err(_) = global_limiter.check_rate_limit() {
+            if global_limiter.check_rate_limit().is_err() {
                 self.handle_rate_limit_violation("global", client_id, tool_name)
                     .await;
                 return Err(SecurityError::RateLimitExceeded.into());
@@ -279,7 +279,7 @@ impl MCPRateLimiter {
         let client_limiter = self
             .get_or_create_client_limiter(client_id, rate_multiplier)
             .await;
-        if let Err(_) = client_limiter.check_rate_limit() {
+        if client_limiter.check_rate_limit().is_err() {
             self.handle_rate_limit_violation("client", client_id, tool_name)
                 .await;
             return Err(SecurityError::RateLimitExceeded.into());
@@ -287,7 +287,7 @@ impl MCPRateLimiter {
 
         // Check per-tool rate limit
         if let Some(tool_limiter) = self.tool_limiters.get(tool_name) {
-            if let Err(_) = tool_limiter.check_rate_limit() {
+            if tool_limiter.check_rate_limit().is_err() {
                 self.handle_rate_limit_violation("tool", client_id, tool_name)
                     .await;
                 return Err(SecurityError::RateLimitExceeded.into());
@@ -346,7 +346,7 @@ impl MCPRateLimiter {
         let limiter = ScopedRateLimiter::new(
             adjusted_rate.max(1),
             adjusted_burst.max(1),
-            format!("client:{}", client_id),
+            format!("client:{client_id}"),
         );
 
         // Store the limiter for future use
@@ -404,6 +404,15 @@ impl MCPRateLimiter {
     pub async fn reset_client_limits(&self, client_id: &str) -> Result<()> {
         let mut limiters = self.client_limiters.write().await;
         limiters.remove(client_id);
+
+        // Create a fresh limiter with default rates to ensure the Governor state is reset
+        let fresh_limiter = ScopedRateLimiter::new(
+            self.config.per_client_requests_per_minute,
+            self.config.per_client_burst_size,
+            format!("client:{client_id}"),
+        );
+
+        limiters.insert(client_id.to_string(), fresh_limiter);
         debug!("Reset rate limits for client: {}", client_id);
         Ok(())
     }
@@ -440,7 +449,7 @@ impl MCPRateLimiter {
 
                 self.tool_limiters.insert(
                     tool_name.clone(),
-                    ScopedRateLimiter::new(rate, burst, format!("tool:{}", tool_name)),
+                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}")),
                 );
             }
         }
@@ -687,20 +696,35 @@ mod tests {
         let limiter = create_test_rate_limiter().await;
         let auth_context = create_test_auth_context("test-client");
 
-        // Exhaust limits
-        for _ in 0..5 {
-            let _ = limiter
+        // Exhaust only the client limits (3 requests = client burst size)
+        // Use a tool that has higher limits than client limits to avoid tool limit conflicts
+        for _ in 0..3 {
+            let result = limiter
                 .check_rate_limit(Some(&auth_context), "search_memory", false)
                 .await;
+            // First 3 should succeed due to burst
+            assert!(result.is_ok());
         }
+
+        // 4th request should fail due to client rate limit
+        let result = limiter
+            .check_rate_limit(Some(&auth_context), "search_memory", false)
+            .await;
+        assert!(
+            result.is_err(),
+            "4th request should be rate limited by client limits"
+        );
 
         // Reset limits for this client
         limiter.reset_client_limits("test-client").await.unwrap();
 
-        // Should be able to make requests again
+        // Should be able to make requests again after reset
         let result = limiter
             .check_rate_limit(Some(&auth_context), "search_memory", false)
             .await;
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "Request should succeed after client limit reset"
+        );
     }
 }

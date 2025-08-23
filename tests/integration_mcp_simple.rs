@@ -6,9 +6,9 @@
 mod test_helpers;
 
 use anyhow::Result;
-use codex_memory::mcp::server::MCPServer;
 use codex_memory::memory::models::{CreateMemoryRequest, MemoryTier, UpdateMemoryRequest};
 use codex_memory::SimpleEmbedder;
+use codex_memory::{MCPServer, MCPServerConfig};
 use jsonrpc_core::{IoHandler, Value};
 use serde_json::{json, Value as JsonValue};
 use std::sync::Arc;
@@ -29,7 +29,7 @@ async fn test_mcp_server_creation() -> Result<()> {
     ));
 
     // Initialize MCP server - this tests the constructor
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
     // Just creating the server successfully is a good test
 
     env.cleanup_test_data().await?;
@@ -47,7 +47,7 @@ async fn test_mcp_memory_create() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Create handler to test JSON-RPC methods directly
     let handler = IoHandler::new();
@@ -71,7 +71,7 @@ async fn test_mcp_server_repository_integration() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Test that the server has access to repository operations
     // We can test this by directly using the repository through the server's components
@@ -109,7 +109,11 @@ async fn test_mcp_server_error_handling() -> Result<()> {
 
     // Since SimpleEmbedder constructor doesn't return Result, test server creation
     let embedder_arc = Arc::new(invalid_embedder);
-    let mcp_server_result = MCPServer::new(env.repository.clone(), embedder_arc);
+    let mcp_server_result = MCPServer::new(
+        env.repository.clone(),
+        embedder_arc,
+        MCPServerConfig::default(),
+    );
 
     // Server creation should succeed even with invalid embedder (lazy evaluation)
     if mcp_server_result.is_err() {
@@ -118,7 +122,11 @@ async fn test_mcp_server_error_handling() -> Result<()> {
             "http://localhost:11434".to_string(),
             "llama2".to_string(),
         ));
-        let _mcp_server = MCPServer::new(env.repository.clone(), valid_embedder)?;
+        let _mcp_server = MCPServer::new(
+            env.repository.clone(),
+            valid_embedder,
+            MCPServerConfig::default(),
+        )?;
         // Just test that server creation works with valid embedder
     }
 
@@ -136,7 +144,7 @@ async fn test_mcp_server_components() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Test that all server components are properly initialized
     // This is mainly a constructor and dependency injection test
@@ -213,7 +221,7 @@ async fn test_mcp_server_concurrent_operations() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Test concurrent memory operations through the repository
     // This tests that the MCP server's underlying components handle concurrency
@@ -275,7 +283,7 @@ async fn test_mcp_server_statistics() -> Result<()> {
         "http://localhost:11434".to_string(),
         "llama2".to_string(),
     ));
-    let mcp_server = MCPServer::new(env.repository.clone(), embedder)?;
+    let mcp_server = MCPServer::new(env.repository.clone(), embedder, MCPServerConfig::default())?;
 
     // Test that statistics work through the repository
     let initial_stats = env.repository.get_statistics().await?;

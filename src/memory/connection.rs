@@ -153,7 +153,7 @@ impl PoolStats {
         match utilization {
             _ if utilization >= 90.0 => "CRITICAL: Pool >90% utilized".to_string(),
             _ if utilization >= 70.0 => "WARNING: Pool >70% utilized".to_string(),
-            _ => format!("HEALTHY: Pool {:.1}% utilized", utilization),
+            _ => format!("HEALTHY: Pool {utilization:.1}% utilized"),
         }
     }
 }

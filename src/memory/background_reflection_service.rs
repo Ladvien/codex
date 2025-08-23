@@ -711,7 +711,7 @@ impl BackgroundReflectionService {
             .execute(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to store insight in database: {}", e),
+                message: format!("Failed to store insight in database: {e}"),
             })?;
 
         debug!("Successfully stored insight {} in database", insight.id);
@@ -806,7 +806,7 @@ impl BackgroundReflectionService {
             .execute(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to store reflection session: {}", e),
+                message: format!("Failed to store reflection session: {e}"),
             })?;
 
         debug!(
@@ -826,7 +826,7 @@ impl BackgroundReflectionService {
             .execute(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to link insight to memory: {}", e),
+                message: format!("Failed to link insight to memory: {e}"),
             })?;
 
         debug!(
@@ -859,7 +859,7 @@ impl BackgroundReflectionService {
             .fetch_one(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to calculate accumulated importance: {}", e),
+                message: format!("Failed to calculate accumulated importance: {e}"),
             })?;
 
         debug!("Calculated accumulated importance: {:.2}", total_importance);
@@ -887,7 +887,7 @@ impl BackgroundReflectionService {
             .fetch_one(self.repository.pool())
             .await
             .map_err(|e| MemoryError::DatabaseError {
-                message: format!("Failed to get recent memory count: {}", e),
+                message: format!("Failed to get recent memory count: {e}"),
             })?;
 
         debug!("Recent memory count: {}", memory_count);

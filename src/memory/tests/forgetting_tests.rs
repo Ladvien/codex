@@ -19,7 +19,9 @@ fn create_test_memory(
     hours_since_access: i64,
     decay_rate: f64,
 ) -> Memory {
-    let memory = Memory {
+    
+
+    Memory {
         id: Uuid::new_v4(),
         content: "Test memory content".to_string(),
         content_hash: "test_hash".to_string(),
@@ -40,9 +42,7 @@ fn create_test_memory(
         last_recall_interval: None,
         recency_score: 0.5,
         relevance_score: 0.5,
-    };
-
-    memory
+    }
 }
 
 /// Test Ebbinghaus forgetting curve mathematical correctness
@@ -142,7 +142,7 @@ mod ebbinghaus_curve_tests {
                 create_test_memory(MemoryTier::Working, 5, 0.5, hours_since_access, decay_rate);
             let params = MemoryParameters {
                 consolidation_strength: memory.consolidation_strength,
-                decay_rate: decay_rate,
+                decay_rate,
                 last_accessed_at: memory.last_accessed_at,
                 created_at: memory.created_at,
                 access_count: memory.access_count,

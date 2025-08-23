@@ -18,7 +18,7 @@ async fn test_database_connectivity() -> Result<()> {
         .unwrap_or_else(|_| "postgresql://postgres:password@localhost:5432/postgres".to_string());
 
     println!("🔍 Testing database connectivity...");
-    println!("Database URL: {}", database_url);
+    println!("Database URL: {database_url}");
 
     // Test 1: Basic connection
     println!("\n1. Testing basic connection...");
@@ -28,7 +28,7 @@ async fn test_database_connectivity() -> Result<()> {
             pool
         }
         Err(e) => {
-            println!("❌ Basic connection failed: {}", e);
+            println!("❌ Basic connection failed: {e}");
             println!("\n📋 Troubleshooting suggestions:");
             println!("   - Ensure PostgreSQL is running");
             println!(
@@ -48,10 +48,10 @@ async fn test_database_connectivity() -> Result<()> {
         Ok(row) => {
             let version: String = row.get(0);
             println!("✅ Query execution successful");
-            println!("   PostgreSQL version: {}", version);
+            println!("   PostgreSQL version: {version}");
         }
         Err(e) => {
-            println!("❌ Query execution failed: {}", e);
+            println!("❌ Query execution failed: {e}");
             return Err(e.into());
         }
     }
@@ -92,7 +92,7 @@ async fn test_database_connectivity() -> Result<()> {
                 .await;
         }
         Err(e) => {
-            println!("❌ Extension creation failed: {}", e);
+            println!("❌ Extension creation failed: {e}");
             println!("\n📋 Permission troubleshooting:");
             println!("   - Connect as a superuser (postgres user)");
             println!("   - Grant CREATE privileges on database");
@@ -110,7 +110,7 @@ async fn test_database_connectivity() -> Result<()> {
             println!("   Embedding model: {}", config.embedding.model);
         }
         Err(e) => {
-            println!("⚠️  Configuration loading failed: {}", e);
+            println!("⚠️  Configuration loading failed: {e}");
             println!("   Using default configuration for tests");
         }
     }
@@ -135,13 +135,13 @@ async fn test_ollama_connectivity() -> Result<()> {
         env::var("EMBEDDING_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
 
     println!("🔍 Testing Ollama connectivity...");
-    println!("Ollama URL: {}", ollama_url);
+    println!("Ollama URL: {ollama_url}");
 
     let client = reqwest::Client::new();
 
     // Test 1: Basic connectivity
     println!("\n1. Testing Ollama connection...");
-    let response = client.get(&format!("{}/api/tags", ollama_url)).send().await;
+    let response = client.get(&format!("{ollama_url}/api/tags")).send().await;
 
     match response {
         Ok(resp) if resp.status().is_success() => {
@@ -164,7 +164,7 @@ async fn test_ollama_connectivity() -> Result<()> {
             println!("❌ Ollama responded with error: {}", resp.status());
         }
         Err(e) => {
-            println!("❌ Cannot connect to Ollama: {}", e);
+            println!("❌ Cannot connect to Ollama: {e}");
             println!("\n📋 Troubleshooting suggestions:");
             println!("   - Install Ollama: https://ollama.ai/download");
             println!("   - Start Ollama service: ollama serve");

@@ -137,7 +137,7 @@ pub async fn update_harvester_config(
     }
 
     if let Some(threshold) = update.confidence_threshold {
-        if threshold >= 0.5 && threshold <= 0.9 {
+        if (0.5..=0.9).contains(&threshold) {
             config.confidence_threshold = threshold;
         } else {
             return Err(StatusCode::BAD_REQUEST);
@@ -145,7 +145,7 @@ pub async fn update_harvester_config(
     }
 
     if let Some(threshold) = update.deduplication_threshold {
-        if threshold >= 0.5 && threshold <= 1.0 {
+        if (0.5..=1.0).contains(&threshold) {
             config.deduplication_threshold = threshold;
         } else {
             return Err(StatusCode::BAD_REQUEST);

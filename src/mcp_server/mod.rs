@@ -114,7 +114,7 @@ impl MCPServer {
         let importance_pipeline = Arc::new(ImportanceAssessmentPipeline::new(
             importance_config,
             embedder.clone(),
-            &prometheus::default_registry(),
+            prometheus::default_registry(),
         )?);
 
         let harvester_service = Arc::new(SilentHarvesterService::new(
@@ -122,7 +122,7 @@ impl MCPServer {
             importance_pipeline,
             embedder.clone(),
             None, // Use default config
-            &prometheus::default_registry(),
+            prometheus::default_registry(),
         )?);
 
         // Initialize circuit breaker if enabled

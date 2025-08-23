@@ -249,7 +249,7 @@ impl Config {
                 .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid WORKING_TIER_LIMIT: {}", e))?;
             // Enforce Miller's 7±2 principle (5-9 items)
-            if parsed_limit < 5 || parsed_limit > 9 {
+            if !(5..=9).contains(&parsed_limit) {
                 return Err(anyhow::anyhow!(
                     "WORKING_TIER_LIMIT must be between 5-9 (Miller's 7±2 principle), got: {}",
                     parsed_limit

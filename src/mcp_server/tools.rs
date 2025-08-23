@@ -265,10 +265,9 @@ impl MCPTools {
     pub fn validate_tool_args(tool_name: &str, args: &Value) -> Result<(), String> {
         match tool_name {
             "store_memory" => {
-                if !args
+                if args
                     .get("content")
-                    .and_then(|c| c.as_str())
-                    .map_or(false, |s| !s.is_empty())
+                    .and_then(|c| c.as_str()).is_none_or(|s| s.is_empty())
                 {
                     return Err("Content is required and cannot be empty".to_string());
                 }
@@ -290,10 +289,9 @@ impl MCPTools {
                 }
             }
             "search_memory" => {
-                if !args
+                if args
                     .get("query")
-                    .and_then(|q| q.as_str())
-                    .map_or(false, |s| !s.is_empty())
+                    .and_then(|q| q.as_str()).is_none_or(|s| s.is_empty())
                 {
                     return Err("Query is required and cannot be empty".to_string());
                 }
@@ -313,10 +311,9 @@ impl MCPTools {
                 }
             }
             "migrate_memory" => {
-                if !args
+                if args
                     .get("memory_id")
-                    .and_then(|id| id.as_str())
-                    .map_or(false, |s| !s.is_empty())
+                    .and_then(|id| id.as_str()).is_none_or(|s| s.is_empty())
                 {
                     return Err("Memory ID is required".to_string());
                 }
@@ -330,10 +327,9 @@ impl MCPTools {
                 }
             }
             "delete_memory" => {
-                if !args
+                if args
                     .get("memory_id")
-                    .and_then(|id| id.as_str())
-                    .map_or(false, |s| !s.is_empty())
+                    .and_then(|id| id.as_str()).is_none_or(|s| s.is_empty())
                 {
                     return Err("Memory ID is required".to_string());
                 }
@@ -367,7 +363,7 @@ impl MCPTools {
             "get_statistics" | "get_harvester_metrics" => {
                 // These tools don't require validation
             }
-            _ => return Err(format!("Unknown tool: {}", tool_name)),
+            _ => return Err(format!("Unknown tool: {tool_name}")),
         }
 
         Ok(())

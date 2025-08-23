@@ -463,13 +463,13 @@ impl PatternMatcher {
 
         // Find start of sentence (look for . ! ? or start of text)
         let sentence_start = before
-            .rfind(|c| c == '.' || c == '!' || c == '?')
+            .rfind(['.', '!', '?'])
             .map(|pos| pos + 1)
             .unwrap_or(0);
 
         // Find end of sentence (look for . ! ? or end of text)
         let sentence_end = after
-            .find(|c| c == '.' || c == '!' || c == '?')
+            .find(['.', '!', '?'])
             .map(|pos| end + pos + 1)
             .unwrap_or(text.len());
 
@@ -526,7 +526,7 @@ impl PatternMatcher {
         }
 
         // 3. Personal agency indicators (research shows first-person statements more reliable)
-        let personal_indicators = content.matches(|c: char| c == 'I').count() as f64;
+        let personal_indicators = content.matches('I').count() as f64;
         let my_indicators = content.to_lowercase().matches("my ").count() as f64;
         let me_indicators = content.to_lowercase().matches("me ").count() as f64;
 
@@ -554,7 +554,7 @@ impl PatternMatcher {
         // 6. Sentence structure quality (basic grammar indicators)
         let word_count = content.split_whitespace().count() as f64;
         let sentence_count = content
-            .matches(|c: char| c == '.' || c == '!' || c == '?')
+            .matches(['.', '!', '?'])
             .count() as f64;
 
         if word_count > 0.0 {

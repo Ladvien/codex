@@ -48,14 +48,14 @@ impl ZstdCompressionEngine {
 
         let serialized =
             serde_json::to_vec(&memory_data).map_err(|e| MemoryError::SerializationError {
-                message: format!("Failed to serialize memory data: {}", e),
+                message: format!("Failed to serialize memory data: {e}"),
             })?;
 
         // Compress using zstd
         let compressed =
             zstd::encode_all(std::io::Cursor::new(&serialized), self.compression_level).map_err(
                 |e| MemoryError::CompressionError {
-                    message: format!("zstd compression failed: {}", e),
+                    message: format!("zstd compression failed: {e}"),
                 },
             )?;
 
@@ -97,14 +97,14 @@ impl ZstdCompressionEngine {
         let decompressed =
             zstd::decode_all(std::io::Cursor::new(compressed_data)).map_err(|e| {
                 MemoryError::DecompressionError {
-                    message: format!("zstd decompression failed: {}", e),
+                    message: format!("zstd decompression failed: {e}"),
                 }
             })?;
 
         // Deserialize the memory data
         let memory_data: MemoryData =
             serde_json::from_slice(&decompressed).map_err(|e| MemoryError::SerializationError {
-                message: format!("Failed to deserialize memory data: {}", e),
+                message: format!("Failed to deserialize memory data: {e}"),
             })?;
 
         // Validate integrity
@@ -282,8 +282,7 @@ impl FrozenMemoryCompression {
         if content_length < MIN_CONTENT_LENGTH {
             return Err(MemoryError::CompressionError {
                 message: format!(
-                    "Content too short for compression: {} bytes (minimum: {})",
-                    content_length, MIN_CONTENT_LENGTH
+                    "Content too short for compression: {content_length} bytes (minimum: {MIN_CONTENT_LENGTH})"
                 ),
             });
         }
@@ -291,8 +290,7 @@ impl FrozenMemoryCompression {
         if ratio < MIN_COMPRESSION_RATIO {
             return Err(MemoryError::CompressionError {
                 message: format!(
-                    "Compression ratio {:.2}:1 is below minimum {:.1}:1",
-                    ratio, MIN_COMPRESSION_RATIO
+                    "Compression ratio {ratio:.2}:1 is below minimum {MIN_COMPRESSION_RATIO:.1}:1"
                 ),
             });
         }

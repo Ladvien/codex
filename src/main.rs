@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use codex_memory::application::*;

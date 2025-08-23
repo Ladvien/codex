@@ -1946,27 +1946,35 @@ impl MemoryRepository {
         }
 
         let mut tx = self.pool.begin().await?;
-        let mut updated_count = 0;
+        
+        // Extract vectors for UNNEST operation
+        let ids: Vec<Uuid> = updates.iter().map(|(id, _, _)| *id).collect();
+        let strengths: Vec<f64> = updates.iter().map(|(_, strength, _)| *strength).collect();
+        let recall_probs: Vec<f64> = updates.iter().map(|(_, _, prob)| *prob).collect();
 
-        for (memory_id, new_strength, recall_prob) in updates {
-            let result = sqlx::query(
-                r#"
-                UPDATE memories 
-                SET consolidation_strength = $1, 
-                    recall_probability = $2,
-                    updated_at = NOW()
-                WHERE id = $3 AND status = 'active'
-                "#,
-            )
-            .bind(new_strength)
-            .bind(recall_prob)
-            .bind(memory_id)
-            .execute(&mut *tx)
-            .await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE memories 
+            SET consolidation_strength = data.new_strength,
+                recall_probability = data.new_recall_prob,
+                updated_at = NOW()
+            FROM (
+                SELECT 
+                    UNNEST($1::uuid[]) as memory_id,
+                    UNNEST($2::float8[]) as new_strength,
+                    UNNEST($3::float8[]) as new_recall_prob
+            ) as data
+            WHERE memories.id = data.memory_id 
+            AND memories.status = 'active'
+            "#,
+        )
+        .bind(&ids)
+        .bind(&strengths)
+        .bind(&recall_probs)
+        .execute(&mut *tx)
+        .await?;
 
-            updated_count += result.rows_affected() as usize;
-        }
-
+        let updated_count = result.rows_affected() as usize;
         tx.commit().await?;
         Ok(updated_count)
     }

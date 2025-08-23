@@ -802,7 +802,6 @@ pub struct PreventionStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn create_test_insight() -> Insight {
         Insight {

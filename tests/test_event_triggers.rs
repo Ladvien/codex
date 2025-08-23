@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::NamedTempFile;
-use tokio;
 
 async fn setup_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -102,7 +101,7 @@ async fn test_event_triggered_scoring_engine_security() {
         let result = engine.analyze_content(content, 0.5, None).await.unwrap();
 
         // Debug output
-        println!("Content: {}", content);
+        println!("Content: {content}");
         println!(
             "Triggered: {}, Confidence: {}, Type: {:?}",
             result.triggered, result.confidence, result.trigger_type
@@ -137,7 +136,7 @@ async fn test_event_triggered_scoring_engine_error() {
     for (content, expected_trigger) in test_cases {
         let result = engine.analyze_content(content, 0.6, None).await.unwrap();
 
-        assert!(result.triggered, "Failed to trigger for: {}", content);
+        assert!(result.triggered, "Failed to trigger for: {content}");
         assert!(matches!(result.trigger_type, Some(ref t) if *t == expected_trigger));
         assert_eq!(result.boosted_importance, 1.2); // 0.6 * 2.0
         assert!(result.processing_time.as_millis() < 50);
@@ -170,7 +169,7 @@ async fn test_event_triggered_scoring_engine_performance() {
     for (content, expected_trigger) in test_cases {
         let result = engine.analyze_content(content, 0.4, None).await.unwrap();
 
-        assert!(result.triggered, "Failed to trigger for: {}", content);
+        assert!(result.triggered, "Failed to trigger for: {content}");
         assert!(matches!(result.trigger_type, Some(ref t) if *t == expected_trigger));
         assert_eq!(result.boosted_importance, 0.8); // 0.4 * 2.0
         assert!(result.processing_time.as_millis() < 50);
@@ -203,7 +202,7 @@ async fn test_event_triggered_scoring_engine_business_critical() {
     for (content, expected_trigger) in test_cases {
         let result = engine.analyze_content(content, 0.3, None).await.unwrap();
 
-        assert!(result.triggered, "Failed to trigger for: {}", content);
+        assert!(result.triggered, "Failed to trigger for: {content}");
         assert!(matches!(result.trigger_type, Some(ref t) if *t == expected_trigger));
         assert_eq!(result.boosted_importance, 0.6); // 0.3 * 2.0
         assert!(result.processing_time.as_millis() < 50);
@@ -236,7 +235,7 @@ async fn test_event_triggered_scoring_engine_user_experience() {
     for (content, expected_trigger) in test_cases {
         let result = engine.analyze_content(content, 0.7, None).await.unwrap();
 
-        assert!(result.triggered, "Failed to trigger for: {}", content);
+        assert!(result.triggered, "Failed to trigger for: {content}");
         assert!(matches!(result.trigger_type, Some(ref t) if *t == expected_trigger));
         assert_eq!(result.boosted_importance, 1.4); // 0.7 * 2.0
         assert!(result.processing_time.as_millis() < 50);
@@ -258,7 +257,7 @@ async fn test_non_triggered_content() {
     for content in non_trigger_content {
         let result = engine.analyze_content(content, 0.5, None).await.unwrap();
 
-        assert!(!result.triggered, "Incorrectly triggered for: {}", content);
+        assert!(!result.triggered, "Incorrectly triggered for: {content}");
         assert!(result.trigger_type.is_none());
         assert_eq!(result.boosted_importance, 0.5); // No boost
         assert_eq!(result.confidence, 0.0);
@@ -526,13 +525,11 @@ async fn test_accuracy_requirements() {
             {
                 correct_predictions += 1;
             }
-        } else {
-            if !result.triggered {
-                correct_predictions += 1;
-            }
+        } else if !result.triggered {
+            correct_predictions += 1;
         }
     }
 
     let accuracy = correct_predictions as f64 / total_cases as f64;
-    assert!(accuracy >= 0.9, "Accuracy {} < 90% requirement", accuracy);
+    assert!(accuracy >= 0.9, "Accuracy {accuracy} < 90% requirement");
 }

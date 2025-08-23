@@ -9,7 +9,6 @@ use std::time::Duration;
 #[cfg(test)]
 mod performance_indexes_tests {
     use super::*;
-    
 
     async fn create_test_pool() -> Result<PgPool> {
         // Load environment variables from .env file
@@ -51,9 +50,7 @@ mod performance_indexes_tests {
                     .bind(index_name)
                     .fetch_one(&pool)
                     .await
-                    .context(format!(
-                        "Failed to check existence of index: {index_name}"
-                    ))?;
+                    .context(format!("Failed to check existence of index: {index_name}"))?;
 
             assert_eq!(count.0, 1, "Index {index_name} should exist");
         }

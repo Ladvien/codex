@@ -339,9 +339,8 @@ impl ConsolidationProcessor {
             );
             (query_with_tier, true)
         } else {
-            let query_no_tier = format!(
-                "{base_query} ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1"
-            );
+            let query_no_tier =
+                format!("{base_query} ORDER BY last_accessed_at ASC NULLS FIRST LIMIT $1");
             (query_no_tier, false)
         };
 

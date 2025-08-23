@@ -175,8 +175,7 @@ pub struct CognitiveMemoryResult {
 }
 
 /// Flags indicating cognitive processing status
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CognitiveFlags {
     pub consolidation_applied: bool,
     pub reflection_triggered: bool,
@@ -184,7 +183,6 @@ pub struct CognitiveFlags {
     pub loop_prevention_checked: bool,
     pub three_component_scored: bool,
 }
-
 
 /// Main cognitive memory system orchestrator
 pub struct CognitiveMemorySystem {
@@ -718,7 +716,6 @@ impl CognitiveMemorySystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     async fn create_test_repository() -> Arc<MemoryRepository> {
         // This would create a test repository in real implementation

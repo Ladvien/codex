@@ -53,8 +53,7 @@ impl BenchmarkSuite {
         Fut: std::future::Future<Output = Result<T>>,
     {
         println!(
-            "Benchmarking: {} ({} iterations)",
-            operation_name, operation_count
+            "Benchmarking: {operation_name} ({operation_count} iterations)"
         );
 
         let start_time = Instant::now();
@@ -234,7 +233,7 @@ impl TestDataGenerator {
                     "properties": {
                         "importance": count as f64 / 100.0,
                         "created_at": Utc::now().to_rfc3339(),
-                        "tags": (0..10).map(|i| format!("tag_{}", i)).collect::<Vec<_>>()
+                        "tags": (0..10).map(|i| format!("tag_{i}")).collect::<Vec<_>>()
                     }
                 },
                 "metrics": {
@@ -343,7 +342,7 @@ async fn test_comprehensive_benchmarking_suite() -> Result<()> {
     }
 
     // Benchmark 3: Search Performance
-    let search_terms = vec!["Generated", "test", "content", "seed"];
+    let search_terms = ["Generated", "test", "content", "seed"];
 
     benchmark_suite
         .benchmark_operation("memory_search", 30, || {
@@ -428,14 +427,14 @@ async fn test_comprehensive_benchmarking_suite() -> Result<()> {
 
     // Generate and print report
     let report = benchmark_suite.generate_report();
-    println!("\n{}", report);
+    println!("\n{report}");
 
     // Check for performance regressions
     let regressions = benchmark_suite.analyze_performance_regression(20.0); // 20% tolerance
     if !regressions.is_empty() {
         println!("Performance Regressions Detected:");
         for regression in &regressions {
-            println!("  ⚠ {}", regression);
+            println!("  ⚠ {regression}");
         }
     } else {
         println!("✓ No significant performance regressions detected");
@@ -473,7 +472,7 @@ async fn test_advanced_data_generation_patterns() -> Result<()> {
     let mut pattern_results = HashMap::new();
 
     for (pattern_name, size_category, metadata_complexity, count) in patterns {
-        println!("Testing pattern: {} ({} items)", pattern_name, count);
+        println!("Testing pattern: {pattern_name} ({count} items)");
 
         let start_time = Instant::now();
         let mut created_memories = Vec::new();
@@ -605,8 +604,7 @@ async fn test_advanced_data_generation_patterns() -> Result<()> {
     println!("\nData Generation Pattern Analysis:");
     for (pattern_name, (throughput, search_results, created_count)) in pattern_results {
         println!(
-            "  {}: {:.2} items/sec creation, {} search results from {} items",
-            pattern_name, throughput, search_results, created_count
+            "  {pattern_name}: {throughput:.2} items/sec creation, {search_results} search results from {created_count} items"
         );
     }
 
@@ -657,7 +655,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Load test memory {} - monitoring data", i),
+                content: format!("Load test memory {i} - monitoring data"),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(((i as f32) / load_operations as f32) as f64),
@@ -672,7 +670,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
             .await?;
 
         let op_duration = op_start.elapsed();
-        operation_metrics.push((format!("load_create_{}", i), op_duration));
+        operation_metrics.push((format!("load_create_{i}"), op_duration));
 
         load_memories.push(memory);
 
@@ -681,7 +679,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
             let read_start = Instant::now();
             let _ = env.repository.get_memory(baseline_memory.id).await?;
             let read_duration = read_start.elapsed();
-            operation_metrics.push((format!("load_read_{}", i), read_duration));
+            operation_metrics.push((format!("load_read_{i}"), read_duration));
         }
     }
 
@@ -693,7 +691,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
     let search_start = Instant::now();
     let mut search_metrics = Vec::new();
 
-    let search_terms = vec!["monitoring", "load test", "baseline", "memory"];
+    let search_terms = ["monitoring", "load test", "baseline", "memory"];
 
     for i in 0..search_operations {
         let term = &search_terms[i % search_terms.len()];
@@ -723,7 +721,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
         let search_op_duration = search_op_start.elapsed();
 
         search_metrics.push((search_results.results.len(), search_op_duration));
-        operation_metrics.push((format!("search_{}", i), search_op_duration));
+        operation_metrics.push((format!("search_{i}"), search_op_duration));
     }
 
     let search_duration = search_start.elapsed();
@@ -762,8 +760,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
         let max_latency = *create_latencies.iter().max().unwrap();
 
         println!(
-            "  Create Latency - Avg: {:.2}ms, Min: {}ms, Max: {}ms",
-            avg_latency, min_latency, max_latency
+            "  Create Latency - Avg: {avg_latency:.2}ms, Min: {min_latency}ms, Max: {max_latency}ms"
         );
     }
 
@@ -779,8 +776,7 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
         let max_search_latency = *search_latencies.iter().max().unwrap();
 
         println!(
-            "  Search Latency - Avg: {:.2}ms, Min: {}ms, Max: {}ms",
-            avg_search_latency, min_search_latency, max_search_latency
+            "  Search Latency - Avg: {avg_search_latency:.2}ms, Min: {min_search_latency}ms, Max: {max_search_latency}ms"
         );
     }
 
@@ -792,10 +788,10 @@ async fn test_infrastructure_monitoring_observability() -> Result<()> {
     println!("  Statistics query: {:.2}ms", stats_duration.as_millis());
 
     if let Some(total_active) = statistics.total_active {
-        println!("  Total active memories: {}", total_active);
+        println!("  Total active memories: {total_active}");
     }
     if let Some(avg_importance) = statistics.avg_importance {
-        println!("  Average importance: {:.3}", avg_importance);
+        println!("  Average importance: {avg_importance:.3}");
     }
 
     // Performance target validation (from CLAUDE.md)
@@ -877,8 +873,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
 
     for (scenario_name, operation_count, expect_all_success) in test_scenarios {
         println!(
-            "Running test scenario: {} ({} operations)",
-            scenario_name, operation_count
+            "Running test scenario: {scenario_name} ({operation_count} operations)"
         );
 
         let scenario_start = Instant::now();
@@ -894,7 +889,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                 "basic_operations" => env
                     .repository
                     .create_memory(CreateMemoryRequest {
-                        content: format!("Basic operation {}", i),
+                        content: format!("Basic operation {i}"),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
                         importance_score: Some(0.5),
@@ -909,7 +904,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                     let large_content = "x".repeat(5000);
                     env.repository
                         .create_memory(CreateMemoryRequest {
-                            content: format!("Stress test {} - {}", i, large_content),
+                            content: format!("Stress test {i} - {large_content}"),
                             embedding: None,
                             tier: Some(MemoryTier::Working),
                             importance_score: Some(0.7),
@@ -950,7 +945,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                     // Quick concurrent-safe operations
                     env.repository
                         .create_memory(CreateMemoryRequest {
-                            content: format!("Concurrent test {}", i),
+                            content: format!("Concurrent test {i}"),
                             embedding: None,
                             tier: Some(MemoryTier::Working),
                             importance_score: Some(0.6),
@@ -981,7 +976,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                         // Valid operation
                         env.repository
                             .create_memory(CreateMemoryRequest {
-                                content: format!("Recovery test {}", i),
+                                content: format!("Recovery test {i}"),
                                 embedding: None,
                                 tier: Some(MemoryTier::Working),
                                 importance_score: Some(0.5),
@@ -999,7 +994,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
                     // Default operation
                     env.repository
                         .create_memory(CreateMemoryRequest {
-                            content: format!("Default operation {}", i),
+                            content: format!("Default operation {i}"),
                             embedding: None,
                             tier: Some(MemoryTier::Working),
                             importance_score: Some(0.5),
@@ -1081,7 +1076,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
 
         let status_icon = if meets_expectations { "✓" } else { "⚠" };
 
-        println!("Scenario: {}", scenario_name);
+        println!("Scenario: {scenario_name}");
         println!(
             "  {} Success Rate: {:.1}% ({}/{} operations)",
             status_icon,
@@ -1102,7 +1097,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
     let scenario_success_rate = scenarios_meeting_expectations as f64 / test_report.len() as f64;
 
     println!("OVERALL SUMMARY");
-    println!("  Total Operations: {}", total_operations);
+    println!("  Total Operations: {total_operations}");
     println!(
         "  Overall Success Rate: {:.1}%",
         overall_success_rate * 100.0
@@ -1139,8 +1134,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
             };
 
             println!(
-                "  {}: {:.2}ms avg ({})",
-                scenario, avg_time, performance_grade
+                "  {scenario}: {avg_time:.2}ms avg ({performance_grade})"
             );
         }
     }
@@ -1162,8 +1156,7 @@ async fn test_automated_reporting_analysis() -> Result<()> {
 
     if avg_perf_time > 100.0 {
         println!(
-            "  • Consider performance optimizations (avg operation time: {:.1}ms)",
-            avg_perf_time
+            "  • Consider performance optimizations (avg operation time: {avg_perf_time:.1}ms)"
         );
     }
 

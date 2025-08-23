@@ -177,7 +177,7 @@ async fn test_working_memory_access_performance() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Working memory performance test content {}", i),
+                content: format!("Working memory performance test content {i}"),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.8),
@@ -223,8 +223,7 @@ async fn test_warm_storage_query_performance() -> Result<()> {
     let env = TestEnvironment::new().await?;
 
     // Create test memories in warm tier with varied content for realistic search
-    let test_contents = vec![
-        "Database optimization techniques for high-performance applications",
+    let test_contents = ["Database optimization techniques for high-performance applications",
         "Rust programming patterns and best practices for systems development",
         "Machine learning algorithms implementation in distributed systems",
         "Web security protocols and authentication mechanisms",
@@ -233,8 +232,7 @@ async fn test_warm_storage_query_performance() -> Result<()> {
         "Data structures and algorithms for efficient memory management",
         "Concurrent programming models and synchronization primitives",
         "Network protocols and communication patterns in distributed systems",
-        "Testing strategies for large-scale software systems",
-    ];
+        "Testing strategies for large-scale software systems"];
 
     let mut memory_ids = Vec::new();
     for (i, content) in test_contents.iter().enumerate() {
@@ -243,7 +241,7 @@ async fn test_warm_storage_query_performance() -> Result<()> {
             let memory = env
                 .repository
                 .create_memory(CreateMemoryRequest {
-                    content: format!("{} - variation {}", content, j),
+                    content: format!("{content} - variation {j}"),
                     embedding: None,
                     tier: Some(MemoryTier::Warm),
                     importance_score: Some(0.6 + (i as f64 * 0.02)), // Varied importance
@@ -406,8 +404,7 @@ async fn test_concurrent_access_performance() -> Result<()> {
             .repository
             .create_memory(CreateMemoryRequest {
                 content: format!(
-                    "Concurrent test memory {} with detailed content for realistic testing",
-                    i
+                    "Concurrent test memory {i} with detailed content for realistic testing"
                 ),
                 embedding: None,
                 tier: Some(tier),
@@ -467,9 +464,9 @@ async fn test_concurrent_access_performance() -> Result<()> {
     let throughput = total_operations as f64 / total_time.as_secs_f64();
 
     println!("Concurrent Access Performance:");
-    println!("  Total operations: {}", total_operations);
+    println!("  Total operations: {total_operations}");
     println!("  Total time: {:.2}s", total_time.as_secs_f64());
-    println!("  Throughput: {:.2} operations/second", throughput);
+    println!("  Throughput: {throughput:.2} operations/second");
 
     // Calculate performance metrics
     if !all_measurements.is_empty() {
@@ -487,8 +484,7 @@ async fn test_concurrent_access_performance() -> Result<()> {
         // Verify minimum throughput
         assert!(
             throughput >= 50.0,
-            "Throughput {:.2} ops/s below target 50 ops/s",
-            throughput
+            "Throughput {throughput:.2} ops/s below target 50 ops/s"
         );
     }
 
@@ -509,7 +505,7 @@ async fn test_concurrent_access_performance() -> Result<()> {
                 let start = Instant::now();
                 let result = repository
                     .create_memory(CreateMemoryRequest {
-                        content: format!("Concurrent write test {} from writer {}", i, writer_id),
+                        content: format!("Concurrent write test {i} from writer {writer_id}"),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
                         importance_score: Some(0.7),
@@ -558,7 +554,7 @@ async fn test_concurrent_access_performance() -> Result<()> {
         successful_writes,
         concurrent_writers * writes_per_writer
     );
-    println!("  Write throughput: {:.2} writes/second", write_throughput);
+    println!("  Write throughput: {write_throughput:.2} writes/second");
 
     if !write_measurements.is_empty() {
         let write_perf_result = PerformanceResult {
@@ -593,17 +589,14 @@ async fn test_large_dataset_search_performance() -> Result<()> {
     let dataset_size = 500; // Moderate size for CI/test environments
 
     // Content templates for variety
-    let content_templates = vec![
-        "Software engineering best practices for {}: {}",
+    let content_templates = ["Software engineering best practices for {}: {}",
         "Database design patterns in {}: {}",
         "Performance optimization techniques for {}: {}",
         "Security considerations in {}: {}",
         "Testing strategies for {}: {}",
-        "Documentation and maintenance of {}: {}",
-    ];
+        "Documentation and maintenance of {}: {}"];
 
-    let technologies = vec![
-        "Rust",
+    let technologies = ["Rust",
         "PostgreSQL",
         "Docker",
         "Kubernetes",
@@ -614,17 +607,14 @@ async fn test_large_dataset_search_performance() -> Result<()> {
         "Go",
         "JavaScript",
         "C++",
-        "Swift",
-    ];
+        "Swift"];
 
-    let details = vec![
-        "implementation details and architecture decisions",
+    let details = ["implementation details and architecture decisions",
         "deployment strategies and operational considerations",
         "monitoring and observability requirements",
         "scaling and performance optimization",
         "security and compliance requirements",
-        "maintenance and technical debt management",
-    ];
+        "maintenance and technical debt management"];
 
     for i in 0..dataset_size {
         let template = &content_templates[i % content_templates.len()];
@@ -662,7 +652,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
 
         // Progress indicator
         if i % 100 == 0 {
-            println!("Created {} memories...", i);
+            println!("Created {i} memories...");
         }
     }
 
@@ -695,8 +685,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
 
     for (query, limit, tier) in search_test_cases {
         println!(
-            "Testing search: '{}' (tier: {:?}, limit: {:?})",
-            query, tier, limit
+            "Testing search: '{query}' (tier: {tier:?}, limit: {limit:?})"
         );
 
         let search_request = create_search_request(query, limit, tier, None);
@@ -715,8 +704,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
         // Verify results are reasonable
         assert!(
             results.results.len() <= limit.unwrap_or(50) as usize,
-            "Results exceed limit for query '{}'",
-            query
+            "Results exceed limit for query '{query}'"
         );
     }
 
@@ -813,7 +801,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
     }
 
     println!("Large dataset performance tests completed successfully.");
-    println!("Dataset size: {} memories", dataset_size);
+    println!("Dataset size: {dataset_size} memories");
 
     // Cleanup - batch delete for efficiency
     println!("Cleaning up test dataset...");
@@ -821,7 +809,7 @@ async fn test_large_dataset_search_performance() -> Result<()> {
         let _ = env.repository.delete_memory(*memory_id).await;
 
         if i % 100 == 0 {
-            println!("Deleted {} memories...", i);
+            println!("Deleted {i} memories...");
         }
     }
 
@@ -841,7 +829,7 @@ async fn test_tier_migration_performance_impact() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Migration performance test memory {}", i),
+                content: format!("Migration performance test memory {i}"),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.7),
@@ -934,13 +922,12 @@ async fn test_tier_migration_performance_impact() -> Result<()> {
         0.0
     };
 
-    println!("Performance impact: {:.2}%", performance_impact);
+    println!("Performance impact: {performance_impact:.2}%");
 
     // Assert performance impact is within target
     assert!(
         performance_impact < 5.0,
-        "Migration performance impact {:.2}% exceeds 5% target",
-        performance_impact
+        "Migration performance impact {performance_impact:.2}% exceeds 5% target"
     );
 
     // Test batch migration performance
@@ -1016,7 +1003,7 @@ async fn test_connection_pool_utilization() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Connection pool test memory {}", i),
+                content: format!("Connection pool test memory {i}"),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.6),
@@ -1144,7 +1131,7 @@ async fn test_connection_pool_utilization() -> Result<()> {
         let handle = tokio::spawn(async move {
             repository
                 .create_memory(CreateMemoryRequest {
-                    content: format!("Mixed load test memory {}", i),
+                    content: format!("Mixed load test memory {i}"),
                     embedding: None,
                     tier: Some(MemoryTier::Working),
                     importance_score: Some(0.5),

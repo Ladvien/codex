@@ -2149,9 +2149,7 @@ impl AuditTrail {
         // Validate operation is reversible
         if status != "completed" {
             return Err(MemoryError::InvalidRequest {
-                message: format!(
-                    "Operation {operation_id} is not in completed state: {status}"
-                ),
+                message: format!("Operation {operation_id} is not in completed state: {status}"),
             });
         }
 
@@ -2179,9 +2177,7 @@ impl AuditTrail {
             }
             _ => {
                 return Err(MemoryError::InvalidRequest {
-                    message: format!(
-                        "Unsupported operation type for reversal: {operation_type}"
-                    ),
+                    message: format!("Unsupported operation type for reversal: {operation_type}"),
                 });
             }
         };
@@ -2624,9 +2620,7 @@ impl AutoPruner {
         // Check access count threshold
         if access_count >= 10 {
             return Err(MemoryError::SafetyViolation {
-                message: format!(
-                    "Memory {memory_id} has high access count: {access_count}"
-                ),
+                message: format!("Memory {memory_id} has high access count: {access_count}"),
             });
         }
 
@@ -2642,9 +2636,7 @@ impl AutoPruner {
             for key in ["critical", "important", "permanent", "do_not_prune"] {
                 if obj.contains_key(key) {
                     return Err(MemoryError::SafetyViolation {
-                        message: format!(
-                            "Memory {memory_id} has critical metadata flag: {key}"
-                        ),
+                        message: format!("Memory {memory_id} has critical metadata flag: {key}"),
                     });
                 }
             }

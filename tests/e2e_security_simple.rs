@@ -83,21 +83,18 @@ async fn test_authentication_workflow_e2e() -> Result<()> {
 
         assert!(
             !token.is_empty(),
-            "Token should be generated for user {}",
-            user_id
+            "Token should be generated for user {user_id}"
         );
 
         let claims = auth_manager.validate_jwt_token(&token).await?;
         assert_eq!(
             claims.sub, *user_id,
-            "Token should be valid for user {}",
-            user_id
+            "Token should be valid for user {user_id}"
         );
         assert_eq!(claims.permissions, *permissions, "Permissions should match");
 
         println!(
-            "✓ Authentication successful for user: {} (role: {})",
-            username, role
+            "✓ Authentication successful for user: {username} (role: {role})"
         );
     }
 
@@ -164,19 +161,16 @@ async fn test_pii_protection_workflow_e2e() -> Result<()> {
         if *should_detect_pii {
             assert!(
                 !detection_result.found_patterns.is_empty(),
-                "Should detect PII in content: {}",
-                category
+                "Should detect PII in content: {category}"
             );
             assert!(
                 detection_result.requires_action,
-                "Should require action for PII content: {}",
-                category
+                "Should require action for PII content: {category}"
             );
         } else {
             assert!(
                 detection_result.found_patterns.is_empty(),
-                "Should not detect PII in safe content: {}",
-                category
+                "Should not detect PII in safe content: {category}"
             );
         }
 
@@ -335,7 +329,7 @@ async fn test_input_validation_workflow_e2e() -> Result<()> {
     let mut created_memories = Vec::new();
 
     for (input, test_id, should_be_modified) in &validation_test_cases {
-        println!("Testing validation for: {}", test_id);
+        println!("Testing validation for: {test_id}");
 
         let validation_result = validator.validate_input(input)?;
         let was_modified = validation_result != *input;
@@ -343,14 +337,13 @@ async fn test_input_validation_workflow_e2e() -> Result<()> {
         if *should_be_modified {
             assert!(
                 was_modified,
-                "Malicious input should be modified for test: {}",
-                test_id
+                "Malicious input should be modified for test: {test_id}"
             );
         }
 
-        println!("  Input: '{}'", input);
-        println!("  Output: '{}'", validation_result);
-        println!("  Modified: {}", was_modified);
+        println!("  Input: '{input}'");
+        println!("  Output: '{validation_result}'");
+        println!("  Modified: {was_modified}");
 
         // Create memory with validated input
         let memory = env
@@ -380,8 +373,7 @@ async fn test_input_validation_workflow_e2e() -> Result<()> {
     ] {
         let validated_query = validator.validate_input(malicious_query)?;
         println!(
-            "Search query '{}' validated to: '{}'",
-            malicious_query, validated_query
+            "Search query '{malicious_query}' validated to: '{validated_query}'"
         );
 
         let search_request = create_search_request(&validated_query, Some(5), None);
@@ -475,7 +467,7 @@ async fn test_integrated_security_workflow_simple() -> Result<()> {
     let test_content = "User wants to store: This is safe technical documentation";
 
     // Input validation
-    let validated_content = validator.validate_input(&test_content)?;
+    let validated_content = validator.validate_input(test_content)?;
     println!("✓ Input validation passed");
 
     // PII detection
@@ -522,7 +514,7 @@ async fn test_integrated_security_workflow_simple() -> Result<()> {
 
     // Step 7: Search operation with security checks
     let search_query = "technical documentation";
-    let validated_search = validator.validate_input(&search_query)?;
+    let validated_search = validator.validate_input(search_query)?;
 
     let search_request = create_search_request(&validated_search, Some(5), None);
     let search_results = env.repository.search_memories(search_request).await?;

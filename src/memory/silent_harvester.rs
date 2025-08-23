@@ -553,9 +553,7 @@ impl PatternMatcher {
 
         // 6. Sentence structure quality (basic grammar indicators)
         let word_count = content.split_whitespace().count() as f64;
-        let sentence_count = content
-            .matches(['.', '!', '?'])
-            .count() as f64;
+        let sentence_count = content.matches(['.', '!', '?']).count() as f64;
 
         if word_count > 0.0 {
             let avg_sentence_length = word_count / sentence_count.max(1.0);

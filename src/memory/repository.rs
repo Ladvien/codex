@@ -1482,9 +1482,7 @@ impl MemoryRepository {
         )
         .bind(memory_id)
         .bind(memory.tier)
-        .bind(format!(
-            "Frozen with {compression_ratio:.2}:1 compression"
-        ))
+        .bind(format!("Frozen with {compression_ratio:.2}:1 compression"))
         .bind(processing_time_ms)
         .execute(&mut *tx)
         .await?;

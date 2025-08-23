@@ -128,8 +128,7 @@ fn test_memory_status_values() {
             if i != j {
                 assert_ne!(
                     status1, status2,
-                    "Status {} should not equal status {}",
-                    i, j
+                    "Status {i} should not equal status {j}"
                 );
             }
         }
@@ -234,7 +233,7 @@ async fn test_memory_repository_integration() -> Result<()> {
     }
     if let Some(avg_importance) = stats.avg_importance {
         assert!(
-            avg_importance >= 0.0 && avg_importance <= 1.0,
+            (0.0..=1.0).contains(&avg_importance),
             "Average importance should be between 0 and 1"
         );
     }
@@ -289,7 +288,7 @@ fn test_uuid_uniqueness() {
     // Generate 1000 UUIDs and verify they're all unique
     for _ in 0..1000 {
         let uuid = Uuid::new_v4();
-        assert!(uuids.insert(uuid), "UUID should be unique: {}", uuid);
+        assert!(uuids.insert(uuid), "UUID should be unique: {uuid}");
         assert_ne!(uuid, Uuid::nil(), "UUID should not be nil");
     }
 }
@@ -343,18 +342,16 @@ fn test_basic_validation() {
     let valid_scores = [0.0, 0.5, 1.0];
     for score in valid_scores {
         assert!(
-            score >= 0.0 && score <= 1.0,
-            "Score {} should be valid",
-            score
+            (0.0..=1.0).contains(&score),
+            "Score {score} should be valid"
         );
     }
 
     let invalid_scores = [-0.1, 1.1, f64::NAN, f64::INFINITY];
     for score in invalid_scores {
         assert!(
-            score < 0.0 || score > 1.0 || !score.is_finite(),
-            "Score {} should be invalid",
-            score
+            !(0.0..=1.0).contains(&score) || !score.is_finite(),
+            "Score {score} should be invalid"
         );
     }
 

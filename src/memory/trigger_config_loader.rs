@@ -113,9 +113,7 @@ impl TriggerConfigLoader {
         })?;
 
         let json_value: Value = serde_json::from_str(&content).map_err(|e| {
-            MemoryError::Configuration(format!(
-                "Invalid JSON in config file {config_path}: {e}"
-            ))
+            MemoryError::Configuration(format!("Invalid JSON in config file {config_path}: {e}"))
         })?;
 
         Self::parse_config_from_json(json_value).await
@@ -248,14 +246,11 @@ impl TriggerConfigLoader {
 
     async fn save_config_to_file(config_path: &str, config: &TriggerConfig) -> Result<()> {
         let json_value = Self::config_to_json(config).await?;
-        let content = serde_json::to_string_pretty(&json_value).map_err(|e| {
-            MemoryError::Configuration(format!("Failed to serialize config: {e}"))
-        })?;
+        let content = serde_json::to_string_pretty(&json_value)
+            .map_err(|e| MemoryError::Configuration(format!("Failed to serialize config: {e}")))?;
 
         fs::write(config_path, content).map_err(|e| {
-            MemoryError::Configuration(format!(
-                "Failed to write config file {config_path}: {e}"
-            ))
+            MemoryError::Configuration(format!("Failed to write config file {config_path}: {e}"))
         })?;
 
         info!("Configuration saved to: {}", config_path);

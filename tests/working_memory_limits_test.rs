@@ -1,16 +1,14 @@
 use anyhow::Result;
 use codex_memory::{
-    config::{Config, TierConfig},
+    config::Config,
     memory::{
         connection::create_pool,
-        error::MemoryError,
         models::{CreateMemoryRequest, MemoryTier},
         MemoryRepository,
     },
     SimpleEmbedder,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 /// Test helper to create a repository with custom working memory limit
 async fn create_test_repository_with_limit(limit: usize) -> Result<Arc<MemoryRepository>> {
@@ -46,8 +44,7 @@ async fn test_millers_law_validation() {
         config.tier_config.working_tier_limit = limit;
         assert!(
             config.validate().is_ok(),
-            "Limit {} should be valid (within Miller's 7±2)",
-            limit
+            "Limit {limit} should be valid (within Miller's 7±2)"
         );
     }
 
@@ -74,10 +71,10 @@ async fn test_working_memory_capacity_enforcement() -> Result<()> {
     // Fill working memory to capacity (5 items)
     for i in 0..5 {
         let request = CreateMemoryRequest {
-            content: format!("Memory item {}", i),
+            content: format!("Memory item {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Memory {}", i))
+                    .generate_embedding(&format!("Memory {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -138,10 +135,10 @@ async fn test_lru_eviction_order() -> Result<()> {
     let mut memory_ids = Vec::new();
     for i in 0..5 {
         let request = CreateMemoryRequest {
-            content: format!("Memory {}", i),
+            content: format!("Memory {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Memory {}", i))
+                    .generate_embedding(&format!("Memory {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -210,10 +207,10 @@ async fn test_memory_pressure_metric() -> Result<()> {
     // Add 3 memories (60% capacity)
     for i in 0..3 {
         let request = CreateMemoryRequest {
-            content: format!("Memory {}", i),
+            content: format!("Memory {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Memory {}", i))
+                    .generate_embedding(&format!("Memory {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -234,10 +231,10 @@ async fn test_memory_pressure_metric() -> Result<()> {
     // Fill to capacity
     for i in 3..5 {
         let request = CreateMemoryRequest {
-            content: format!("Memory {}", i),
+            content: format!("Memory {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Memory {}", i))
+                    .generate_embedding(&format!("Memory {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -263,8 +260,8 @@ async fn test_no_eviction_for_other_tiers() -> Result<()> {
     // Add many memories to warm tier (should not be limited)
     for i in 0..20 {
         let request = CreateMemoryRequest {
-            content: format!("Warm memory {}", i),
-            embedding: Some(embedder.generate_embedding(&format!("Warm {}", i)).await?),
+            content: format!("Warm memory {i}"),
+            embedding: Some(embedder.generate_embedding(&format!("Warm {i}")).await?),
             tier: Some(MemoryTier::Warm),
             importance_score: Some(0.5),
             parent_id: None,
@@ -299,10 +296,10 @@ async fn test_automatic_tier_migration_on_pressure() -> Result<()> {
     // Fill working memory
     for i in 0..7 {
         let request = CreateMemoryRequest {
-            content: format!("Memory {}", i),
+            content: format!("Memory {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Memory {}", i))
+                    .generate_embedding(&format!("Memory {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -367,10 +364,10 @@ async fn test_concurrent_memory_creation_at_capacity() -> Result<()> {
     // Fill to capacity
     for i in 0..5 {
         let request = CreateMemoryRequest {
-            content: format!("Initial memory {}", i),
+            content: format!("Initial memory {i}"),
             embedding: Some(
                 embedder
-                    .generate_embedding(&format!("Initial {}", i))
+                    .generate_embedding(&format!("Initial {i}"))
                     .await?,
             ),
             tier: Some(MemoryTier::Working),
@@ -388,9 +385,9 @@ async fn test_concurrent_memory_creation_at_capacity() -> Result<()> {
         let repo = repository.clone();
         let emb = embedder.clone();
         let handle = tokio::spawn(async move {
-            let embedding = emb.generate_embedding(&format!("Concurrent {}", i)).await?;
+            let embedding = emb.generate_embedding(&format!("Concurrent {i}")).await?;
             let request = CreateMemoryRequest {
-                content: format!("Concurrent memory {}", i),
+                content: format!("Concurrent memory {i}"),
                 embedding: Some(embedding),
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.5),

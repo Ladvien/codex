@@ -45,7 +45,7 @@ async fn test_concurrent_memory_creation_race_free() -> Result<()> {
 
             for memory_id in 0..memories_per_thread {
                 let request = CreateMemoryRequest {
-                    content: format!("Concurrent memory thread {} item {}", thread_id, memory_id),
+                    content: format!("Concurrent memory thread {thread_id} item {memory_id}"),
                     embedding: None,
                     tier: Some(MemoryTier::Working),
                     importance_score: Some(0.5),
@@ -66,7 +66,7 @@ async fn test_concurrent_memory_creation_race_free() -> Result<()> {
             {
                 let mut global_ids = ids_clone.lock().unwrap();
                 for id in &local_ids {
-                    assert!(global_ids.insert(*id), "Duplicate ID found: {}", id);
+                    assert!(global_ids.insert(*id), "Duplicate ID found: {id}");
                 }
             }
 
@@ -157,11 +157,11 @@ async fn test_concurrent_read_write_consistency() -> Result<()> {
                         // Record this access
                         {
                             let mut counts = access_counts_clone.write().await;
-                            *counts.entry(format!("reader_{}", reader_id)).or_insert(0) += 1;
+                            *counts.entry(format!("reader_{reader_id}")).or_insert(0) += 1;
                         }
                     }
                     Err(e) => {
-                        eprintln!("Reader {} error: {}", reader_id, e);
+                        eprintln!("Reader {reader_id} error: {e}");
                     }
                 }
 
@@ -190,8 +190,7 @@ async fn test_concurrent_read_write_consistency() -> Result<()> {
 
                 let update_request = UpdateMemoryRequest {
                     content: Some(format!(
-                        "Updated by writer {} version {}",
-                        writer_id, new_version
+                        "Updated by writer {writer_id} version {new_version}"
                     )),
                     embedding: None,
                     tier: None,
@@ -214,16 +213,16 @@ async fn test_concurrent_read_write_consistency() -> Result<()> {
                         assert_eq!(updated_memory.id, memory_id);
                         assert!(updated_memory
                             .content
-                            .contains(&format!("writer {}", writer_id)));
+                            .contains(&format!("writer {writer_id}")));
 
                         // Record this write
                         {
                             let mut counts = access_counts_clone.write().await;
-                            *counts.entry(format!("writer_{}", writer_id)).or_insert(0) += 1;
+                            *counts.entry(format!("writer_{writer_id}")).or_insert(0) += 1;
                         }
                     }
                     Err(e) => {
-                        eprintln!("Writer {} error: {}", writer_id, e);
+                        eprintln!("Writer {writer_id} error: {e}");
                     }
                 }
 
@@ -248,7 +247,7 @@ async fn test_concurrent_read_write_consistency() -> Result<()> {
     // The memory should have been read many times
     let expected_min_reads = num_readers * operations_per_thread;
     assert!(
-        final_memory.access_count >= expected_min_reads as i32,
+        final_memory.access_count >= expected_min_reads,
         "Access count {} should be at least {}",
         final_memory.access_count,
         expected_min_reads
@@ -293,7 +292,7 @@ async fn test_concurrent_search_operations() -> Result<()> {
             let memory = env
                 .repository
                 .create_memory(CreateMemoryRequest {
-                    content: format!("Content about {} topic number {}", category, j),
+                    content: format!("Content about {category} topic number {j}"),
                     embedding: None,
                     tier: Some(MemoryTier::Working),
                     importance_score: Some((0.1 * i as f32 + 0.05 * j as f32) as f64),
@@ -361,13 +360,12 @@ async fn test_concurrent_search_operations() -> Result<()> {
                             );
                         }
 
-                        let key = format!("searcher_{}_category_{}", searcher_id, category);
+                        let key = format!("searcher_{searcher_id}_category_{category}");
                         local_results.insert(key, search_result.results.len());
                     }
                     Err(e) => {
                         eprintln!(
-                            "Searcher {} error for category {}: {}",
-                            searcher_id, category, e
+                            "Searcher {searcher_id} error for category {category}: {e}"
                         );
                     }
                 }
@@ -400,21 +398,19 @@ async fn test_concurrent_search_operations() -> Result<()> {
     let total_results: usize = results.values().sum();
 
     println!(
-        "✓ Concurrent search test: {} searches performed, {} total results found",
-        total_searches, total_results
+        "✓ Concurrent search test: {total_searches} searches performed, {total_results} total results found"
     );
 
     // Verify each category was searched correctly
     for category in &categories {
         let category_searches: Vec<_> = results
             .iter()
-            .filter(|(k, _)| k.contains(&format!("category_{}", category)))
+            .filter(|(k, _)| k.contains(&format!("category_{category}")))
             .collect();
 
         assert!(
             !category_searches.is_empty(),
-            "Category {} should have been searched",
-            category
+            "Category {category} should have been searched"
         );
 
         // All searches for the same category should return consistent results
@@ -424,8 +420,7 @@ async fn test_concurrent_search_operations() -> Result<()> {
                 // Allow small variation due to concurrent modifications
                 assert!(
                     ((**count as i32) - (first_count as i32)).abs() <= 2,
-                    "Search results for category {} should be consistent",
-                    category
+                    "Search results for category {category} should be consistent"
                 );
             }
         }
@@ -452,7 +447,7 @@ async fn test_deadlock_prevention() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Base memory {}", i),
+                content: format!("Base memory {i}"),
                 embedding: None,
                 tier: Some(MemoryTier::Working),
                 importance_score: Some(0.5),
@@ -487,7 +482,7 @@ async fn test_deadlock_prevention() -> Result<()> {
                         0 => {
                             // Create -> Update -> Read -> Delete sequence
                             let create_req = CreateMemoryRequest {
-                                content: format!("Thread {} op {} temp", thread_id, op_num),
+                                content: format!("Thread {thread_id} op {op_num} temp"),
                                 embedding: None,
                                 tier: Some(MemoryTier::Working),
                                 importance_score: Some(0.3),
@@ -500,7 +495,7 @@ async fn test_deadlock_prevention() -> Result<()> {
                                 env_clone.repository.create_memory(create_req).await?;
 
                             let update_req = UpdateMemoryRequest {
-                                content: Some(format!("Updated by thread {}", thread_id)),
+                                content: Some(format!("Updated by thread {thread_id}")),
                                 embedding: None,
                                 tier: Some(MemoryTier::Warm),
                                 importance_score: Some(0.4),
@@ -627,12 +622,11 @@ async fn test_deadlock_prevention() -> Result<()> {
                         local_completed += 1;
                     }
                     Ok(Err(e)) => {
-                        eprintln!("Thread {} operation {} failed: {}", thread_id, op_num, e);
+                        eprintln!("Thread {thread_id} operation {op_num} failed: {e}");
                     }
                     Err(_) => {
                         eprintln!(
-                            "Thread {} operation {} timed out - possible deadlock",
-                            thread_id, op_num
+                            "Thread {thread_id} operation {op_num} timed out - possible deadlock"
                         );
                         break; // Exit thread on timeout to prevent hanging test
                     }
@@ -660,8 +654,8 @@ async fn test_deadlock_prevention() -> Result<()> {
         for handle in handles {
             match handle.await {
                 Ok(Ok(count)) => total_completed += count,
-                Ok(Err(e)) => eprintln!("Thread error: {}", e),
-                Err(e) => eprintln!("Thread join error: {}", e),
+                Ok(Err(e)) => eprintln!("Thread error: {e}"),
+                Err(e) => eprintln!("Thread join error: {e}"),
             }
         }
         total_completed
@@ -749,7 +743,7 @@ async fn test_resource_leak_prevention() -> Result<()> {
                 let temp_memory = env_clone
                     .repository
                     .create_memory(CreateMemoryRequest {
-                        content: format!("Temp memory cycle {} op {}", cycle, op_id),
+                        content: format!("Temp memory cycle {cycle} op {op_id}"),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
                         importance_score: Some(0.3),
@@ -817,8 +811,8 @@ async fn test_resource_leak_prevention() -> Result<()> {
         for handle in handles {
             match handle.await {
                 Ok(Ok(())) => successful_ops += 1,
-                Ok(Err(e)) => eprintln!("Operation error in cycle {}: {}", cycle, e),
-                Err(e) => eprintln!("Task error in cycle {}: {}", cycle, e),
+                Ok(Err(e)) => eprintln!("Operation error in cycle {cycle}: {e}"),
+                Err(e) => eprintln!("Task error in cycle {cycle}: {e}"),
             }
         }
 

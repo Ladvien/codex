@@ -59,7 +59,7 @@ async fn test_database_basic_operations() -> Result<()> {
     .fetch_one(&pool)
     .await?;
 
-    println!("✅ Successfully inserted memory with ID: {}", inserted_id);
+    println!("✅ Successfully inserted memory with ID: {inserted_id}");
 
     // Test 2: Query operations
     println!("2. Testing query operations...");
@@ -207,7 +207,7 @@ async fn test_database_basic_operations() -> Result<()> {
     .await?
     .rows_affected();
 
-    println!("✅ Successfully cleaned up {} test records", deleted_count);
+    println!("✅ Successfully cleaned up {deleted_count} test records");
 
     // Drop test table
     sqlx::query("DROP TABLE IF EXISTS test_memories")
@@ -258,14 +258,13 @@ async fn test_ollama_embedding_integration() -> Result<()> {
     let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
     assert!(
         magnitude > 0.5,
-        "Embedding magnitude should be reasonable: {}",
-        magnitude
+        "Embedding magnitude should be reasonable: {magnitude}"
     );
 
     println!("✅ Successfully generated single embedding");
     println!("  - Dimensions: {}", embedding.len());
-    println!("  - Magnitude: {:.4}", magnitude);
-    println!("  - Generation time: {:?}", generation_time);
+    println!("  - Magnitude: {magnitude:.4}");
+    println!("  - Generation time: {generation_time:?}");
 
     // Test 3: Batch embedding generation
     println!("3. Testing batch embedding generation...");
@@ -292,9 +291,7 @@ async fn test_ollama_embedding_integration() -> Result<()> {
         let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!(
             magnitude > 0.5,
-            "Embedding {} magnitude should be reasonable: {}",
-            i,
-            magnitude
+            "Embedding {i} magnitude should be reasonable: {magnitude}"
         );
     }
 
@@ -312,10 +309,9 @@ async fn test_ollama_embedding_integration() -> Result<()> {
 
     println!("✅ Successfully generated batch embeddings");
     println!("  - Batch size: {}", batch_embeddings.len());
-    println!("  - Batch time: {:?}", batch_time);
+    println!("  - Batch time: {batch_time:?}");
     println!(
-        "  - Throughput: {:.1} embeddings/second",
-        embeddings_per_second
+        "  - Throughput: {embeddings_per_second:.1} embeddings/second"
     );
 
     // Test 4: Determinism check
@@ -329,12 +325,11 @@ async fn test_ollama_embedding_integration() -> Result<()> {
     let similarity = cosine_similarity(&embedding1, &embedding2);
     assert!(
         similarity > 0.99,
-        "Same content should produce very similar embeddings: {:.4}",
-        similarity
+        "Same content should produce very similar embeddings: {similarity:.4}"
     );
 
     println!("✅ Embedding determinism verified");
-    println!("  - Cosine similarity: {:.6}", similarity);
+    println!("  - Cosine similarity: {similarity:.6}");
 
     // Test 5: Performance characteristics
     println!("5. Testing performance characteristics...");
@@ -357,16 +352,14 @@ async fn test_ollama_embedding_integration() -> Result<()> {
         let duration = start.elapsed();
 
         performance_results.insert(name, duration);
-        println!("  - {}: {:?}", name, duration);
+        println!("  - {name}: {duration:?}");
     }
 
     // All should complete in reasonable time (less than 10 seconds for even long text)
     for (name, duration) in &performance_results {
         assert!(
             duration.as_secs() < 10,
-            "{} took too long: {:?}",
-            name,
-            duration
+            "{name} took too long: {duration:?}"
         );
     }
 
@@ -539,7 +532,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
     // Sort by similarity (highest first)
     similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    println!("Similarity rankings for query: '{}'", query_content);
+    println!("Similarity rankings for query: '{query_content}'");
     for (i, (content, similarity)) in similarities.iter().enumerate() {
         println!("  {}. {:.4}: {}", i + 1, similarity, content);
     }
@@ -616,8 +609,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
 
     for (name, where_clause) in &batch_queries {
         let query = format!(
-            "SELECT id, content FROM e2e_test_memories WHERE {}",
-            where_clause
+            "SELECT id, content FROM e2e_test_memories WHERE {where_clause}"
         );
 
         let results = sqlx::query(&query).fetch_all(&pool).await?;
@@ -632,8 +624,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
     );
 
     println!(
-        "✅ Performance characteristics acceptable ({:?})",
-        performance_time
+        "✅ Performance characteristics acceptable ({performance_time:?})"
     );
 
     // Step 8: Cleanup
@@ -652,7 +643,7 @@ async fn test_comprehensive_e2e_flow() -> Result<()> {
         .execute(&pool)
         .await?;
 
-    println!("✅ Cleaned up {} test records", deleted_count);
+    println!("✅ Cleaned up {deleted_count} test records");
 
     pool.close().await;
 

@@ -358,9 +358,7 @@ async fn test_batch_migration_performance() -> Result<()> {
 
     // Verify performance meets target (should be much faster than 1000/sec limit)
     let migrations_per_second = result.successful_migrations.len() as f64 / duration.as_secs_f64();
-    println!(
-        "Migration performance: {migrations_per_second:.2} migrations/second"
-    );
+    println!("Migration performance: {migrations_per_second:.2} migrations/second");
 
     // Performance should be reasonable (we're not testing the exact 1000/sec here due to test environment)
     assert!(migrations_per_second > 10.0);

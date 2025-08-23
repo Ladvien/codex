@@ -9,12 +9,11 @@ use anyhow::Result;
 use codex_memory::memory::models::{CreateMemoryRequest, MemoryTier, UpdateMemoryRequest};
 use codex_memory::SimpleEmbedder;
 use codex_memory::{MCPServer, MCPServerConfig};
-use jsonrpc_core::{IoHandler, Value};
-use serde_json::{json, Value as JsonValue};
+use jsonrpc_core::IoHandler;
+use serde_json::json;
 use std::sync::Arc;
 use test_helpers::TestEnvironment;
 use tracing_test::traced_test;
-use uuid::Uuid;
 
 /// Test MCP server initialization
 #[tokio::test]
@@ -232,7 +231,7 @@ async fn test_mcp_server_concurrent_operations() -> Result<()> {
         let handle = tokio::spawn(async move {
             let memory = repository
                 .create_memory(CreateMemoryRequest {
-                    content: format!("Concurrent MCP test {}", i),
+                    content: format!("Concurrent MCP test {i}"),
                     embedding: None,
                     tier: Some(MemoryTier::Working),
                     importance_score: Some(0.5 + (i as f64 * 0.1)),
@@ -261,7 +260,7 @@ async fn test_mcp_server_concurrent_operations() -> Result<()> {
 
         // Verify memory was created correctly
         let memory = env.repository.get_memory(memory_id).await?;
-        assert_eq!(memory.content, format!("Concurrent MCP test {}", index));
+        assert_eq!(memory.content, format!("Concurrent MCP test {index}"));
     }
 
     // Clean up all created memories
@@ -295,7 +294,7 @@ async fn test_mcp_server_statistics() -> Result<()> {
         let memory = env
             .repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Statistics test memory {}", i),
+                content: format!("Statistics test memory {i}"),
                 embedding: None,
                 tier: Some(match i % 3 {
                     0 => MemoryTier::Working,
@@ -323,7 +322,7 @@ async fn test_mcp_server_statistics() -> Result<()> {
 
     if let Some(avg_importance) = updated_stats.avg_importance {
         assert!(
-            avg_importance >= 0.0 && avg_importance <= 1.0,
+            (0.0..=1.0).contains(&avg_importance),
             "Average importance should be in valid range"
         );
     }

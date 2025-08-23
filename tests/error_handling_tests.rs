@@ -122,7 +122,7 @@ async fn test_invalid_input_handling() -> Result<()> {
             println!("Complex metadata accepted and handled safely");
         }
         Err(e) => {
-            println!("Complex metadata rejected: {}", e);
+            println!("Complex metadata rejected: {e}");
         }
     }
 
@@ -150,10 +150,10 @@ async fn test_invalid_input_handling() -> Result<()> {
             Ok(memory) => {
                 // Content should be stored safely without execution
                 assert_eq!(memory.content, injection);
-                println!("SQL injection attempt stored safely: {}", injection);
+                println!("SQL injection attempt stored safely: {injection}");
             }
             Err(_) => {
-                println!("SQL injection attempt rejected: {}", injection);
+                println!("SQL injection attempt rejected: {injection}");
             }
         }
     }
@@ -172,7 +172,7 @@ async fn test_large_input_handling() -> Result<()> {
     let size_tests = vec![("1MB", 1024), ("5MB", 5 * 1024), ("10MB", 10 * 1024)];
 
     for (size_name, size_kb) in size_tests {
-        println!("Testing {} content handling", size_name);
+        println!("Testing {size_name} content handling");
 
         let large_content = TestDataGenerator::large_content(size_kb);
         let large_request = CreateMemoryRequest {
@@ -210,21 +210,21 @@ async fn test_large_input_handling() -> Result<()> {
                 match retrieval_result {
                     Ok(Ok(retrieved)) => {
                         assert_eq!(retrieved.content.len(), large_content.len());
-                        println!("{} content retrieved successfully", size_name);
+                        println!("{size_name} content retrieved successfully");
                     }
                     Ok(Err(e)) => {
-                        println!("{} content retrieval failed: {}", size_name, e);
+                        println!("{size_name} content retrieval failed: {e}");
                     }
                     Err(_) => {
-                        println!("{} content retrieval timed out", size_name);
+                        println!("{size_name} content retrieval timed out");
                     }
                 }
             }
             Ok(Err(e)) => {
-                println!("{} content rejected: {}", size_name, e);
+                println!("{size_name} content rejected: {e}");
             }
             Err(_) => {
-                println!("{} content creation timed out", size_name);
+                println!("{size_name} content creation timed out");
             }
         }
     }
@@ -253,7 +253,7 @@ async fn test_large_input_handling() -> Result<()> {
             assert!(!memory.metadata.is_null());
         }
         Err(e) => {
-            println!("Large metadata rejected: {}", e);
+            println!("Large metadata rejected: {e}");
         }
     }
 
@@ -290,7 +290,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
             let test_id = test_id.clone();
             async move {
                 let update_request = UpdateMemoryRequest {
-                    content: Some(format!("Updated by worker {} at concurrent test", i)),
+                    content: Some(format!("Updated by worker {i} at concurrent test")),
                     embedding: None,
                     tier: None,
                     importance_score: Some(0.5 + (i as f64 * 0.05)),
@@ -314,8 +314,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
     let failed_updates = update_operations.iter().filter(|r| r.is_err()).count();
 
     println!(
-        "Concurrent updates: {} succeeded, {} failed",
-        successful_updates, failed_updates
+        "Concurrent updates: {successful_updates} succeeded, {failed_updates} failed"
     );
 
     // At least one update should succeed
@@ -351,8 +350,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
     let failed_deletions = deletion_operations.iter().filter(|r| r.is_err()).count();
 
     println!(
-        "Concurrent deletions: {} succeeded, {} failed",
-        successful_deletions, failed_deletions
+        "Concurrent deletions: {successful_deletions} succeeded, {failed_deletions} failed"
     );
 
     // Exactly one deletion should succeed
@@ -406,8 +404,7 @@ async fn test_concurrent_access_errors() -> Result<()> {
     // All operations should handle concurrency gracefully
     let successful_ops = mixed_operations.iter().filter(|r| r.is_ok()).count();
     println!(
-        "Reader/writer test: {} operations succeeded out of 10",
-        successful_ops
+        "Reader/writer test: {successful_ops} operations succeeded out of 10"
     );
 
     assert!(
@@ -435,8 +432,7 @@ async fn test_external_service_failures() -> Result<()> {
         Ok(env) => env,
         Err(e) => {
             println!(
-                "Environment creation failed with unreachable embedding service (expected): {}",
-                e
+                "Environment creation failed with unreachable embedding service (expected): {e}"
             );
             // Test with mock embedder instead
             let mock_config = TestConfigBuilder::new().with_mock_embedder().build();
@@ -468,7 +464,7 @@ async fn test_external_service_failures() -> Result<()> {
             assert!(!memory.content.is_empty());
         }
         Ok(Err(e)) => {
-            println!("Memory creation failed due to embedding service: {}", e);
+            println!("Memory creation failed due to embedding service: {e}");
             // This is acceptable when embedding service is unavailable
         }
         Err(_) => {
@@ -502,7 +498,7 @@ async fn test_external_service_failures() -> Result<()> {
             );
         }
         Err(e) => {
-            println!("Memory creation with provided embedding failed: {}", e);
+            println!("Memory creation with provided embedding failed: {e}");
         }
     }
 
@@ -539,7 +535,7 @@ async fn test_external_service_failures() -> Result<()> {
             // May return empty results if no memories have embeddings
         }
         Ok(Err(e)) => {
-            println!("Search failed due to embedding service: {}", e);
+            println!("Search failed due to embedding service: {e}");
         }
         Err(_) => {
             println!("Search timed out");
@@ -573,7 +569,7 @@ async fn test_database_error_handling() -> Result<()> {
                 // Rapid-fire operations that might stress connection pool
                 for j in 0..10 {
                     let request = CreateMemoryRequest {
-                        content: format!("Rapid operation {} - {}", i, j),
+                        content: format!("Rapid operation {i} - {j}"),
                         embedding: None,
                         tier: Some(MemoryTier::Working),
                         importance_score: Some(0.5),
@@ -590,7 +586,7 @@ async fn test_database_error_handling() -> Result<()> {
                     match repo.create_memory(request).await {
                         Ok(_) => {}
                         Err(e) => {
-                            println!("Rapid operation failed: {}", e);
+                            println!("Rapid operation failed: {e}");
                             return Err(e);
                         }
                     }
@@ -609,8 +605,7 @@ async fn test_database_error_handling() -> Result<()> {
     let failed_workers = rapid_operations.iter().filter(|r| r.is_err()).count();
 
     println!(
-        "Rapid operations: {} workers succeeded, {} failed",
-        successful_workers, failed_workers
+        "Rapid operations: {successful_workers} workers succeeded, {failed_workers} failed"
     );
 
     // Most operations should succeed despite stress
@@ -642,14 +637,14 @@ async fn test_database_error_handling() -> Result<()> {
     .await;
 
     let long_duration = long_operation_start.elapsed();
-    println!("Long operation took: {:?}", long_duration);
+    println!("Long operation took: {long_duration:?}");
 
     match long_result {
         Ok(Ok(_)) => {
             println!("Long operation completed successfully");
         }
         Ok(Err(e)) => {
-            println!("Long operation failed: {}", e);
+            println!("Long operation failed: {e}");
         }
         Err(_) => {
             println!("Long operation timed out (may indicate connection issues)");
@@ -658,7 +653,7 @@ async fn test_database_error_handling() -> Result<()> {
 
     // Test 4: Statistics consistency after errors
     let final_stats = env.repository.get_statistics().await?;
-    println!("Final statistics: {:?}", final_stats);
+    println!("Final statistics: {final_stats:?}");
 
     // Statistics should be retrievable even after various error conditions
     assert!(final_stats.total_active.is_some());
@@ -691,7 +686,7 @@ async fn test_data_integrity_after_errors() -> Result<()> {
                     0 => {
                         // Valid operation
                         let request = CreateMemoryRequest {
-                            content: format!("Valid memory {}", i),
+                            content: format!("Valid memory {i}"),
                             embedding: None,
                             tier: Some(MemoryTier::Working),
                             importance_score: Some(0.7),
@@ -743,7 +738,7 @@ async fn test_data_integrity_after_errors() -> Result<()> {
     .await?;
 
     let successful_mixed = mixed_operations.iter().filter(|r| r.is_ok()).count();
-    println!("Mixed operations: {} out of 20 succeeded", successful_mixed);
+    println!("Mixed operations: {successful_mixed} out of 20 succeeded");
 
     // Test 2: Verify baseline memories are still intact
     env.wait_for_consistency().await;
@@ -780,7 +775,7 @@ async fn test_data_integrity_after_errors() -> Result<()> {
 
     // Test 4: Verify statistics are consistent
     let post_error_stats = env.repository.get_statistics().await?;
-    println!("Post-error statistics: {:?}", post_error_stats);
+    println!("Post-error statistics: {post_error_stats:?}");
 
     assert!(post_error_stats.total_active.unwrap_or(0) >= baseline_memories.len() as i64);
 
@@ -845,8 +840,7 @@ async fn test_graceful_degradation() -> Result<()> {
     let failed_large = large_memory_operations.len() - successful_large;
 
     println!(
-        "Under memory pressure: {} large memories created, {} failed/timed out",
-        successful_large, failed_large
+        "Under memory pressure: {successful_large} large memories created, {failed_large} failed/timed out"
     );
 
     // System should either succeed or fail gracefully
@@ -872,7 +866,7 @@ async fn test_graceful_degradation() -> Result<()> {
             );
         }
         Err(e) => {
-            println!("Basic operation failed under pressure: {}", e);
+            println!("Basic operation failed under pressure: {e}");
         }
     }
 
@@ -894,7 +888,7 @@ async fn test_graceful_degradation() -> Result<()> {
             );
         }
         Ok(Err(e)) => {
-            println!("Search failed under pressure: {}", e);
+            println!("Search failed under pressure: {e}");
         }
         Err(_) => {
             println!("Search timed out under pressure");
@@ -918,7 +912,7 @@ async fn test_graceful_degradation() -> Result<()> {
             assert!(!memory.content.is_empty());
         }
         Err(e) => {
-            println!("System recovery incomplete: {}", e);
+            println!("System recovery incomplete: {e}");
         }
     }
 

@@ -205,7 +205,7 @@ async fn test_repository_statistics() -> Result<()> {
     for i in 0..5 {
         env.repository
             .create_memory(CreateMemoryRequest {
-                content: format!("Stats test memory {}", i),
+                content: format!("Stats test memory {i}"),
                 embedding: None,
                 tier: Some(match i % 3 {
                     0 => MemoryTier::Working,

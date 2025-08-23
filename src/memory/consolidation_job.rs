@@ -416,7 +416,6 @@ pub async fn spawn_consolidation_job(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_consolidation_job_creation() {

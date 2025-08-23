@@ -19,8 +19,6 @@ fn create_test_memory(
     hours_since_access: i64,
     decay_rate: f64,
 ) -> Memory {
-    
-
     Memory {
         id: Uuid::new_v4(),
         content: "Test memory content".to_string(),

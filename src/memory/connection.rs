@@ -108,6 +108,46 @@ impl ConnectionPool {
         }
     }
 
+    /// Monitor connection pool health and log warnings if thresholds are exceeded
+    pub async fn monitor_pool_health(&self) -> Result<PoolHealthStatus> {
+        let stats = self.get_pool_stats().await;
+        let utilization = stats.utilization_percentage();
+        
+        let status = if utilization >= 90.0 {
+            tracing::error!(
+                "CRITICAL: Connection pool utilization at {:.1}% ({}/{} connections active)",
+                utilization, stats.active_connections, stats.max_size
+            );
+            PoolHealthStatus::Critical
+        } else if utilization >= 70.0 {
+            tracing::warn!(
+                "WARNING: Connection pool utilization at {:.1}% ({}/{} connections active)",
+                utilization, stats.active_connections, stats.max_size
+            );
+            PoolHealthStatus::Warning
+        } else {
+            tracing::debug!(
+                "Connection pool healthy: {:.1}% utilization ({}/{} connections active)",
+                utilization, stats.active_connections, stats.max_size
+            );
+            PoolHealthStatus::Healthy
+        };
+
+        Ok(status)
+    }
+
+    /// Get connection pool metrics for Prometheus/monitoring systems
+    pub async fn get_metrics(&self) -> ConnectionPoolMetrics {
+        let stats = self.get_pool_stats().await;
+        ConnectionPoolMetrics {
+            max_connections: stats.max_size,
+            active_connections: stats.active_connections,
+            idle_connections: stats.idle,
+            utilization_percentage: stats.utilization_percentage(),
+            health_status: stats.health_status(),
+        }
+    }
+
     pub async fn close(&self) {
         self.pool.close().await;
         info!("Connection pool closed");
@@ -158,6 +198,22 @@ impl PoolStats {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum PoolHealthStatus {
+    Healthy,
+    Warning,
+    Critical,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionPoolMetrics {
+    pub max_connections: u32,
+    pub active_connections: u32,
+    pub idle_connections: u32,
+    pub utilization_percentage: f32,
+    pub health_status: String,
+}
+
 pub async fn create_connection_pool(config: ConnectionConfig) -> Result<PgPool> {
     let connection_string = format!(
         "postgres://{}:{}@{}:{}/{}",
@@ -178,28 +234,38 @@ pub async fn create_connection_pool(config: ConnectionConfig) -> Result<PgPool> 
 
 // Optimized pool creation for high-throughput vector operations
 pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgPool> {
-    // Use more conservative connection limits for MCP usage
-    let effective_max_connections = std::cmp::min(max_connections, 20); // Cap at 20 for MCP
-    let min_connections = std::cmp::max(effective_max_connections / 4, 2); // 25% minimum, at least 2
+    // Vector workloads require more connections due to CPU-intensive operations
+    // that hold connections longer than typical OLTP queries
+    let effective_max_connections = std::cmp::max(max_connections, 100); // Minimum 100 for vector workloads
+    let min_connections = std::cmp::max(effective_max_connections / 5, 20); // 20% minimum, at least 20
+
+    // Enhanced connection string for vector operations
+    let mut enhanced_url = database_url.to_string();
+    if !enhanced_url.contains('?') {
+        enhanced_url.push('?');
+    } else {
+        enhanced_url.push('&');
+    }
+    enhanced_url.push_str("statement_timeout=300s&prepared_statement_cache_queries=64&tcp_keepalives_idle=60&tcp_keepalives_interval=30&tcp_keepalives_count=3");
 
     let pool = PgPoolOptions::new()
         .max_connections(effective_max_connections)
         .min_connections(min_connections)
-        .acquire_timeout(Duration::from_secs(5)) // Faster timeout for MCP
+        .acquire_timeout(Duration::from_secs(10)) // Longer timeout for vector operations
         .idle_timeout(Some(Duration::from_secs(300))) // 5 minutes
-        .max_lifetime(Some(Duration::from_secs(1800))) // 30 minutes for MCP
-        .test_before_acquire(false) // Skip test for faster acquisition
-        .connect(database_url)
+        .max_lifetime(Some(Duration::from_secs(3600))) // 1 hour for vector workloads
+        .test_before_acquire(true) // Ensure connection health for vector operations
+        .connect(&enhanced_url)
         .await?;
 
-    // Test the connection with vector capability
+    // Test the connection with vector capability and pgvector extension
     sqlx::query("SELECT vector_dims('[1,2,3]'::vector)")
         .fetch_one(&pool)
         .await
         .map_err(|e| anyhow::anyhow!("Vector capability test failed: {}", e))?;
 
     info!(
-        "Connected to PostgreSQL with {} max connections ({} min) - MCP optimized pool",
+        "Connected to PostgreSQL with {} max connections ({} min) - Vector workload optimized",
         effective_max_connections, min_connections
     );
     Ok(pool)
@@ -207,6 +273,44 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
 
 pub fn get_pool(pool: &PgPool) -> &PgPool {
     pool
+}
+
+/// Enhanced monitoring for vector workload connection pools
+pub async fn monitor_vector_pool_health(pool: &PgPool, pool_name: &str) -> Result<bool> {
+    let size = pool.size();
+    let idle = pool.num_idle() as u32;
+    let active = size - idle;
+    let utilization = if size > 0 { (active as f32 / size as f32) * 100.0 } else { 0.0 };
+    
+    // Vector-specific monitoring: check for connection saturation patterns
+    let is_healthy = if utilization >= 90.0 {
+        tracing::error!(
+            "CRITICAL: Vector pool '{}' at {:.1}% utilization ({}/{} active) - connection exhaustion risk",
+            pool_name, utilization, active, size
+        );
+        false
+    } else if utilization >= 70.0 {
+        tracing::warn!(
+            "WARNING: Vector pool '{}' at {:.1}% utilization ({}/{} active) - scaling recommended",
+            pool_name, utilization, active, size
+        );
+        true
+    } else {
+        tracing::debug!(
+            "Vector pool '{}' healthy: {:.1}% utilization ({}/{} active)",
+            pool_name, utilization, active, size
+        );
+        true
+    };
+
+    // Test vector capability is still available
+    match sqlx::query("SELECT vector_dims('[1,2,3]'::vector)").fetch_one(pool).await {
+        Ok(_) => Ok(is_healthy),
+        Err(e) => {
+            tracing::error!("Vector capability test failed for pool '{}': {}", pool_name, e);
+            Ok(false)
+        }
+    }
 }
 
 #[cfg(test)]

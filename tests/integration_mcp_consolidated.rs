@@ -14,13 +14,12 @@ use codex_memory::{
         tools::MCPTools,
         MCPServer, MCPServerConfig,
     },
-    memory::{connection::create_pool, models::MemoryTier, MemoryRepository},
+    memory::{connection::create_pool, MemoryRepository},
     Config, SimpleEmbedder,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
-use uuid::Uuid;
 
 #[tokio::test]
 async fn test_mcp_server_creation() -> anyhow::Result<()> {
@@ -100,6 +99,8 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
         embedder,
         harvester_service,
         circuit_breaker.clone(),
+        None, // auth
+        None, // rate_limiter
     );
 
     // Test initialization request
@@ -466,7 +467,7 @@ async fn test_timeout_handling() -> anyhow::Result<()> {
 
 fn test_config() -> Config {
     use codex_memory::config::*;
-    
+
     Config {
         database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgresql://test:test@localhost:5432/codex_memory_test".to_string()
@@ -475,8 +476,7 @@ fn test_config() -> Config {
             provider: "mock".to_string(),
             api_key: "test".to_string(),
             model: "test-model".to_string(),
-            base_url: None,
-            max_retries: 3,
+            base_url: "http://localhost:11434".to_string(),
             timeout_seconds: 30,
         },
         operational: OperationalConfig {

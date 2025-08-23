@@ -72,6 +72,42 @@ impl DatabaseSetup {
         Ok(identifier.to_string())
     }
 
+    /// Validate and format vector data for safe embedding in SQL queries
+    /// This prevents injection via malformed vector values
+    fn validate_and_format_vector(vector: &[f32]) -> Result<String> {
+        if vector.is_empty() {
+            return Err(anyhow::anyhow!("Vector cannot be empty"));
+        }
+
+        // Validate vector dimensions are within reasonable bounds
+        if vector.len() > 2000 {
+            return Err(anyhow::anyhow!(
+                "Vector too large: {} dimensions (max 2000)",
+                vector.len()
+            ));
+        }
+
+        // Validate each component is a valid finite number
+        for (i, &value) in vector.iter().enumerate() {
+            if !value.is_finite() {
+                return Err(anyhow::anyhow!(
+                    "Invalid vector component at index {}: {} (must be finite)",
+                    i,
+                    value
+                ));
+            }
+        }
+
+        // Format vector safely - each component is validated to be finite
+        let formatted_vector = vector
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        Ok(formatted_vector)
+    }
+
     /// Complete database setup process
     pub async fn setup(&self) -> Result<()> {
         info!("🗄️  Starting database setup...");
@@ -519,29 +555,29 @@ impl DatabaseSetup {
         info!("🧪 Testing vector operations...");
 
         // Insert a test memory using 768-dimensional vector (matching schema)
-        let test_vector = vec![0.1f32; 768]
-            .iter()
-            .map(|f| f.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+        let test_vector = vec![0.1f32; 768];
+        let validated_vector = Self::validate_and_format_vector(&test_vector)
+            .context("Invalid test vector format")?;
+        
+        // Use parameterized query with vector cast - the validation ensures safe formatting
         client
             .execute(
-                &format!("INSERT INTO memories (content, embedding) VALUES ($1, '[{test_vector}]'::vector) ON CONFLICT DO NOTHING"),
-                &[&"Setup test memory"],
+                "INSERT INTO memories (content, embedding) VALUES ($1, ($2)::vector) ON CONFLICT DO NOTHING",
+                &[&"Setup test memory", &format!("[{}]", validated_vector)],
             )
             .await
             .context("Failed to insert test memory")?;
 
         // Test vector similarity search using 768-dimensional vector
-        let query_vector = vec![0.1f32; 768]
-            .iter()
-            .map(|f| f.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
+        let query_vector = vec![0.1f32; 768];
+        let validated_query_vector = Self::validate_and_format_vector(&query_vector)
+            .context("Invalid query vector format")?;
+            
+        // Use parameterized query for vector similarity search
         client
             .query(
-                &format!("SELECT content FROM memories ORDER BY embedding <-> '[{query_vector}]'::vector LIMIT 1"),
-                &[],
+                "SELECT content FROM memories ORDER BY embedding <-> ($1)::vector LIMIT 1",
+                &[&format!("[{}]", validated_query_vector)],
             )
             .await
             .context("Failed to perform vector similarity search")?;

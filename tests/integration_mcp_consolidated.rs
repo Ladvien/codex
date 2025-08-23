@@ -465,18 +465,21 @@ async fn test_timeout_handling() -> anyhow::Result<()> {
 // Helper functions
 
 fn test_config() -> Config {
+    use codex_memory::config::*;
+    
     Config {
         database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgresql://test:test@localhost:5432/codex_memory_test".to_string()
         }),
-        embedding: codex_memory::config::EmbeddingConfig {
+        embedding: EmbeddingConfig {
             provider: "mock".to_string(),
             api_key: "test".to_string(),
             model: "test-model".to_string(),
             base_url: None,
-            dimensions: 1536,
+            max_retries: 3,
+            timeout_seconds: 30,
         },
-        operational: codex_memory::config::OperationalConfig {
+        operational: OperationalConfig {
             max_db_connections: 5,
             request_timeout_seconds: 30,
             enable_metrics: false,
@@ -484,6 +487,11 @@ fn test_config() -> Config {
         },
         http_port: 3000,
         mcp_port: None,
+        tier_config: TierConfig::default(),
+        backup: BackupConfiguration::default(),
+        security: SecurityConfiguration::default(),
+        tier_manager: TierManagerConfig::default(),
+        forgetting: ForgettingConfig::default(),
     }
 }
 
@@ -525,5 +533,7 @@ async fn create_test_handlers(
         embedder,
         harvester_service,
         circuit_breaker,
+        None, // auth
+        None, // rate_limiter
     ))
 }

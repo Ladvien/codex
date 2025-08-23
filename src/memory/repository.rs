@@ -3133,7 +3133,7 @@ mod tests {
         builder.add_importance_range(Some(0.5), Some(0.9));
 
         // Add pagination
-        builder.add_pagination(10, 0).unwrap();
+        builder.add_pagination(10, 0)?;
 
         let query = builder.build_query();
 
@@ -3279,7 +3279,7 @@ mod tests {
         builder.add_exclude_frozen(true);
 
         builder.add_condition("ORDER BY importance_score DESC");
-        builder.add_pagination(50, 100).unwrap();
+        builder.add_pagination(50, 100)?;
 
         let query = builder.build_query();
 

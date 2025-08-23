@@ -70,11 +70,27 @@ pub struct ApiKeyInfo {
 
 impl Default for MCPAuthConfig {
     fn default() -> Self {
+        // SECURITY: Force explicit JWT secret configuration - no defaults allowed
+        let jwt_secret = env::var("MCP_JWT_SECRET").unwrap_or_else(|_| {
+            panic!(
+                "SECURITY ERROR: MCP_JWT_SECRET environment variable must be set. \
+                 No default JWT secrets are allowed for security reasons. \
+                 Generate a secure random key with: openssl rand -base64 32"
+            )
+        });
+
+        // Validate JWT secret meets minimum security requirements
+        if jwt_secret.len() < 32 {
+            panic!(
+                "SECURITY ERROR: MCP_JWT_SECRET must be at least 32 characters long. \
+                 Current length: {}. Generate a secure key with: openssl rand -base64 32",
+                jwt_secret.len()
+            );
+        }
+
         Self {
             enabled: false,
-            jwt_secret: env::var("MCP_JWT_SECRET").unwrap_or_else(|_| {
-                "change-me-in-production-super-secret-key-minimum-32-chars".to_string()
-            }),
+            jwt_secret,
             jwt_expiry_seconds: env::var("MCP_JWT_EXPIRY_SECONDS")
                 .ok()
                 .and_then(|s| s.parse().ok())

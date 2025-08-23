@@ -178,17 +178,17 @@ pub async fn create_connection_pool(config: ConnectionConfig) -> Result<PgPool> 
 
 // Optimized pool creation for high-throughput vector operations
 pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgPool> {
-    // Apply HIGH-004 optimization defaults
-    let optimized_max_connections = std::cmp::max(max_connections, 100); // Enforce minimum 100
-    let min_connections = std::cmp::max(optimized_max_connections / 5, 20); // 20% minimum, at least 20
+    // Use more conservative connection limits for MCP usage
+    let effective_max_connections = std::cmp::min(max_connections, 20); // Cap at 20 for MCP
+    let min_connections = std::cmp::max(effective_max_connections / 4, 2); // 25% minimum, at least 2
 
     let pool = PgPoolOptions::new()
-        .max_connections(optimized_max_connections)
+        .max_connections(effective_max_connections)
         .min_connections(min_connections)
-        .acquire_timeout(Duration::from_secs(10)) // Fast failure detection
+        .acquire_timeout(Duration::from_secs(5)) // Faster timeout for MCP
         .idle_timeout(Some(Duration::from_secs(300))) // 5 minutes
-        .max_lifetime(Some(Duration::from_secs(3600))) // 1 hour
-        .test_before_acquire(true) // Validate connections
+        .max_lifetime(Some(Duration::from_secs(1800))) // 30 minutes for MCP
+        .test_before_acquire(false) // Skip test for faster acquisition
         .connect(database_url)
         .await?;
 
@@ -199,8 +199,8 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
         .map_err(|e| anyhow::anyhow!("Vector capability test failed: {}", e))?;
 
     info!(
-        "Connected to PostgreSQL with {} max connections ({} min) - Vector operations enabled",
-        optimized_max_connections, min_connections
+        "Connected to PostgreSQL with {} max connections ({} min) - MCP optimized pool",
+        effective_max_connections, min_connections
     );
     Ok(pool)
 }

@@ -1,9 +1,9 @@
 {
   "dxt_version": "0.1",
   "name": "codex-memory",
-  "version": "0.1.21",
-  "display_name": "Codex Memory System",
-  "description": "Advanced hierarchical memory system for AI agents with semantic search, auto-tiering, and PostgreSQL/pgvector backend",
+  "version": "0.1.35",
+  "display_name": "Enhanced Agentic Memory System v2.0",
+  "description": "Next-generation agentic memory system with three-component scoring (recency/importance/relevance), cognitive reflection loops, and advanced PostgreSQL/pgvector backend with MCP protocol integration",
   "author": {
     "name": "Ladvien",
     "email": "your-email@example.com"
@@ -22,7 +22,10 @@
         "EMBEDDING_PROVIDER": "${user_config.embedding_provider}",
         "EMBEDDING_MODEL": "${user_config.embedding_model}",
         "EMBEDDING_BASE_URL": "${user_config.ollama_base_url}",
-        "RUST_LOG": "${user_config.log_level}"
+        "MCP_PORT": "13513",
+        "MCP_AUTH_ENABLED": "false",
+        "RUST_LOG": "${user_config.log_level}",
+        "RUST_BACKTRACE": "1"
       }
     }
   },

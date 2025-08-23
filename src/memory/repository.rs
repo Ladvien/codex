@@ -104,7 +104,7 @@ impl SafeQueryBuilder {
 
     /// Add a parameterized similarity threshold
     pub fn add_similarity_threshold(&mut self, threshold: f64) -> &mut Self {
-        let condition = format!("AND 1 - (m.embedding <=> $1) >= ${}", self.bind_index);
+        let condition = format!("AND (1 - (m.embedding <=> $1)) >= ${}", self.bind_index);
         self.query_parts.push(condition);
         self.parameters.push(QueryParameter::Float(threshold));
         self.bind_index += 1;
@@ -649,6 +649,8 @@ impl MemoryRepository {
         let mut builder = SafeQueryBuilder::new(
             "SELECT m.*, 1 - (m.embedding <=> $1) as similarity_score FROM memories m WHERE m.status = 'active' AND m.embedding IS NOT NULL"
         );
+        // Set bind index to 2 since $1 is already used for the query embedding
+        builder.bind_index = 2;
 
         // Add filters safely
         self.add_filters_safe(request, &mut builder)?;

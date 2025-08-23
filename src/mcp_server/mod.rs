@@ -51,7 +51,9 @@ impl Default for MCPServerConfig {
         Self {
             request_timeout_ms: 30000,
             max_request_size: 10 * 1024 * 1024, // 10MB
-            enable_circuit_breaker: true,
+            enable_circuit_breaker: std::env::var("MCP_CIRCUIT_BREAKER_ENABLED")
+                .map(|s| s.parse().unwrap_or(true))
+                .unwrap_or(true),
             circuit_breaker: CircuitBreakerConfig::default(),
             enable_authentication: std::env::var("MCP_AUTH_ENABLED")
                 .map(|s| s.parse().unwrap_or(true))

@@ -12,6 +12,25 @@ An intelligent, tiered memory management system for Claude AI agents, implementi
 - 🎯 **Flexible Embeddings**: Support for Ollama (local), OpenAI, or mock providers
 - 💾 **PostgreSQL Backend**: Robust storage with pgvector for vector operations
 - 🛡️ **Production Ready**: Comprehensive error handling, retries, and circuit breakers
+- 💡 **Codex Dreams** (Optional): AI-powered insight generation from stored memories
+
+## Insight Generation (Codex Dreams)
+
+Codex Dreams analyzes your stored memories to discover patterns, connections, and learnings using local LLMs via Ollama. This feature is **completely manual** by default - no automatic processing occurs unless explicitly requested.
+
+### Key Features
+- Generate insights on-demand through Claude
+- Discover patterns, learnings, and connections in your memories
+- Export insights in Markdown or JSON format
+- Privacy-first: All processing happens locally
+
+### Usage
+Simply ask Claude to generate insights:
+- "Generate insights from my memories from the last week"
+- "Find patterns in my coding-related memories"
+- "Export my insights as markdown"
+
+For detailed documentation, automation options, and troubleshooting, see [INSIGHTS.md](INSIGHTS.md).
 
 ## Quick Start
 

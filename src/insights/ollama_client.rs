@@ -126,8 +126,8 @@ pub struct OllamaClient {
 impl OllamaClient {
     /// Create a new Ollama client with the given configuration
     pub fn new(config: OllamaConfig) -> Result<Self, OllamaClientError> {
-        // Validate URL security (localhost only)
-        Self::validate_localhost_url(&config.base_url)?;
+        // Validate URL format and security
+        Self::validate_url(&config.base_url)?;
         
         // Create HTTP client with timeout
         let client = Client::builder()
@@ -138,8 +138,9 @@ impl OllamaClient {
         Ok(Self { config, client })
     }
 
-    /// Validate that URL is localhost only for security
-    fn validate_localhost_url(url_str: &str) -> Result<(), OllamaClientError> {
+    /// Validate URL format and security
+    /// Allows localhost and configured URLs from environment
+    fn validate_url(url_str: &str) -> Result<(), OllamaClientError> {
         let url = Url::parse(url_str)
             .map_err(|e| OllamaClientError::InvalidUrl(format!("Failed to parse URL: {}", e)))?;
 
@@ -147,9 +148,22 @@ impl OllamaClient {
             OllamaClientError::InvalidUrl("URL must contain a host".to_string())
         })?;
 
-        // Only allow localhost, 127.0.0.1, and ::1
-        if !matches!(host, "localhost" | "127.0.0.1" | "::1") {
-            return Err(OllamaClientError::SecurityViolation(url_str.to_string()));
+        // Check if this URL is from environment configuration
+        let is_from_env = std::env::var("OLLAMA_BASE_URL")
+            .map(|env_url| env_url == url_str)
+            .unwrap_or(false);
+
+        // Allow localhost, local IPs, and URLs from environment configuration
+        if !is_from_env && !matches!(host, "localhost" | "127.0.0.1" | "::1") {
+            // Also allow private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+            if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+                if !ip.is_loopback() && !matches!(ip, std::net::IpAddr::V4(ipv4) if ipv4.is_private()) {
+                    return Err(OllamaClientError::SecurityViolation(url_str.to_string()));
+                }
+            } else if !host.starts_with("192.168.") && !host.starts_with("10.") && !host.starts_with("172.") {
+                // If it's not an IP, only allow localhost variants
+                return Err(OllamaClientError::SecurityViolation(url_str.to_string()));
+            }
         }
 
         Ok(())
@@ -551,19 +565,25 @@ mod tests {
     }
 
     #[test]
-    fn test_localhost_url_validation() {
+    fn test_url_validation() {
         // Valid localhost URLs
-        assert!(OllamaClient::validate_localhost_url("http://localhost:11434").is_ok());
-        assert!(OllamaClient::validate_localhost_url("http://127.0.0.1:11434").is_ok());
-        assert!(OllamaClient::validate_localhost_url("http://[::1]:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://localhost:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://127.0.0.1:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://[::1]:11434").is_ok());
         
-        // Invalid URLs (security violations)
-        assert!(OllamaClient::validate_localhost_url("http://example.com:11434").is_err());
-        assert!(OllamaClient::validate_localhost_url("http://192.168.1.1:11434").is_err());
-        assert!(OllamaClient::validate_localhost_url("http://0.0.0.0:11434").is_err());
+        // Valid private network URLs
+        assert!(OllamaClient::validate_url("http://192.168.1.1:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://192.168.1.110:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://10.0.0.1:11434").is_ok());
+        assert!(OllamaClient::validate_url("http://172.16.0.1:11434").is_ok());
+        
+        // Invalid public URLs (security violations)
+        assert!(OllamaClient::validate_url("http://example.com:11434").is_err());
+        assert!(OllamaClient::validate_url("http://8.8.8.8:11434").is_err());
+        assert!(OllamaClient::validate_url("http://0.0.0.0:11434").is_err());
         
         // Invalid URL format
-        assert!(OllamaClient::validate_localhost_url("not_a_url").is_err());
+        assert!(OllamaClient::validate_url("not_a_url").is_err());
     }
 
     #[test]
@@ -576,7 +596,7 @@ mod tests {
     #[test]
     fn test_client_creation_with_invalid_url() {
         let config = OllamaConfig {
-            base_url: "http://example.com:11434".to_string(),
+            base_url: "http://8.8.8.8:11434".to_string(), // Public IP should fail
             ..OllamaConfig::default()
         };
         let result = OllamaClient::new(config);
@@ -585,6 +605,16 @@ mod tests {
             OllamaClientError::SecurityViolation(_) => {},
             _ => panic!("Expected SecurityViolation error"),
         }
+    }
+    
+    #[test]
+    fn test_client_creation_with_private_ip() {
+        let config = OllamaConfig {
+            base_url: "http://192.168.1.110:11434".to_string(), // Private IP should work
+            ..OllamaConfig::default()
+        };
+        let result = OllamaClient::new(config);
+        assert!(result.is_ok());
     }
 
     #[tokio::test]

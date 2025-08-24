@@ -23,6 +23,9 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# Scheduling for Codex Dreams
+tokio-cron-scheduler = "0.11"
+
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
 pgvector = { version = "0.4.1", features = ["sqlx"] }

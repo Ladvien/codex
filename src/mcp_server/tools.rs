@@ -11,10 +11,9 @@ pub struct MCPTools;
 impl MCPTools {
     /// Get the list of available tools with their schemas
     pub fn get_tools_list() -> Value {
-        json!({
-            "tools": [
-                {
-                    "name": "store_memory",
+        let mut tools = vec![
+            json!({
+                "name": "store_memory",
                     "description": "Store a memory in the hierarchical memory system",
                     "inputSchema": {
                         "type": "object",
@@ -220,6 +219,169 @@ impl MCPTools {
                         "required": ["memory_id", "confirm"]
                     }
                 }
+                    "name": "generate_insights",
+                    "description": "★ Generate insights from memories (time period/topic)",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "time_period": {
+                                "type": "string",
+                                "enum": ["last_hour", "last_day", "last_week", "last_month", "all"],
+                                "description": "Time period to analyze for insights",
+                                "default": "last_day"
+                            },
+                            "topic": {
+                                "type": "string",
+                                "description": "Optional topic/theme to focus insight generation on"
+                            },
+                            "insight_type": {
+                                "type": "string",
+                                "enum": ["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"],
+                                "description": "Type of insight to generate",
+                                "default": "all"
+                            },
+                            "max_insights": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 20,
+                                "default": 5,
+                                "description": "Maximum number of insights to generate"
+                            }
+                        },
+                        "required": []
+                    }
+                },
+                {
+                    "name": "show_insights",
+                    "description": "★ Display recent insights with confidence scores",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 50,
+                                "default": 10,
+                                "description": "Number of insights to display"
+                            },
+                            "insight_type": {
+                                "type": "string",
+                                "enum": ["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"],
+                                "description": "Filter by insight type",
+                                "default": "all"
+                            },
+                            "min_confidence": {
+                                "type": "number",
+                                "minimum": 0.0,
+                                "maximum": 1.0,
+                                "default": 0.6,
+                                "description": "Minimum confidence score threshold"
+                            },
+                            "include_feedback": {
+                                "type": "boolean",
+                                "default": true,
+                                "description": "Include user feedback scores"
+                            }
+                        },
+                        "required": []
+                    }
+                },
+                {
+                    "name": "search_insights",
+                    "description": "★ Search insights using semantic similarity",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query for insights"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 50,
+                                "default": 10,
+                                "description": "Maximum number of results"
+                            },
+                            "similarity_threshold": {
+                                "type": "number",
+                                "minimum": 0.0,
+                                "maximum": 1.0,
+                                "default": 0.7,
+                                "description": "Minimum similarity score"
+                            },
+                            "insight_type": {
+                                "type": "string",
+                                "enum": ["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"],
+                                "description": "Filter by insight type",
+                                "default": "all"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "insight_feedback",
+                    "description": "★ Provide feedback on insight quality (helpful/not helpful)",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "insight_id": {
+                                "type": "string",
+                                "description": "UUID of the insight to rate"
+                            },
+                            "helpful": {
+                                "type": "boolean",
+                                "description": "Whether the insight was helpful (true) or not (false)"
+                            },
+                            "comment": {
+                                "type": "string",
+                                "description": "Optional feedback comment"
+                            }
+                        },
+                        "required": ["insight_id", "helpful"]
+                    }
+                },
+                {
+                    "name": "export_insights",
+                    "description": "★ Export insights in Markdown or JSON format",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "format": {
+                                "type": "string",
+                                "enum": ["markdown", "json"],
+                                "description": "Export format",
+                                "default": "markdown"
+                            },
+                            "time_period": {
+                                "type": "string",
+                                "enum": ["last_hour", "last_day", "last_week", "last_month", "all"],
+                                "description": "Time period to export",
+                                "default": "all"
+                            },
+                            "insight_type": {
+                                "type": "string",
+                                "enum": ["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"],
+                                "description": "Filter by insight type",
+                                "default": "all"
+                            },
+                            "min_confidence": {
+                                "type": "number",
+                                "minimum": 0.0,
+                                "maximum": 1.0,
+                                "default": 0.6,
+                                "description": "Minimum confidence score threshold"
+                            },
+                            "include_metadata": {
+                                "type": "boolean",
+                                "default": true,
+                                "description": "Include metadata in export"
+                            }
+                        },
+                        "required": []
+                    }
+                }
             ]
         })
     }
@@ -376,6 +538,127 @@ impl MCPTools {
             }
             "get_statistics" | "get_harvester_metrics" => {
                 // These tools don't require validation
+            }
+            #[cfg(feature = "codex-dreams")]
+            "generate_insights" => {
+                // Validate time_period if provided
+                if let Some(period) = args.get("time_period").and_then(|p| p.as_str()) {
+                    if !["last_hour", "last_day", "last_week", "last_month", "all"].contains(&period) {
+                        return Err("Invalid time period".to_string());
+                    }
+                }
+                
+                // Validate insight_type if provided
+                if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
+                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                        return Err("Invalid insight type".to_string());
+                    }
+                }
+                
+                // Validate max_insights if provided
+                if let Some(max) = args.get("max_insights").and_then(|m| m.as_i64()) {
+                    if !(1..=20).contains(&max) {
+                        return Err("Max insights must be between 1 and 20".to_string());
+                    }
+                }
+            }
+            #[cfg(feature = "codex-dreams")]
+            "show_insights" => {
+                // Validate limit if provided
+                if let Some(limit) = args.get("limit").and_then(|l| l.as_i64()) {
+                    if !(1..=50).contains(&limit) {
+                        return Err("Limit must be between 1 and 50".to_string());
+                    }
+                }
+                
+                // Validate min_confidence if provided
+                if let Some(conf) = args.get("min_confidence").and_then(|c| c.as_f64()) {
+                    if !(0.0..=1.0).contains(&conf) {
+                        return Err("Minimum confidence must be between 0.0 and 1.0".to_string());
+                    }
+                }
+                
+                // Validate insight_type if provided
+                if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
+                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                        return Err("Invalid insight type".to_string());
+                    }
+                }
+            }
+            #[cfg(feature = "codex-dreams")]
+            "search_insights" => {
+                if args
+                    .get("query")
+                    .and_then(|q| q.as_str())
+                    .is_none_or(|s| s.is_empty())
+                {
+                    return Err("Query is required and cannot be empty".to_string());
+                }
+                
+                // Validate limit if provided
+                if let Some(limit) = args.get("limit").and_then(|l| l.as_i64()) {
+                    if !(1..=50).contains(&limit) {
+                        return Err("Limit must be between 1 and 50".to_string());
+                    }
+                }
+                
+                // Validate similarity_threshold if provided
+                if let Some(threshold) = args.get("similarity_threshold").and_then(|t| t.as_f64()) {
+                    if !(0.0..=1.0).contains(&threshold) {
+                        return Err("Similarity threshold must be between 0.0 and 1.0".to_string());
+                    }
+                }
+                
+                // Validate insight_type if provided
+                if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
+                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                        return Err("Invalid insight type".to_string());
+                    }
+                }
+            }
+            #[cfg(feature = "codex-dreams")]
+            "insight_feedback" => {
+                if args
+                    .get("insight_id")
+                    .and_then(|id| id.as_str())
+                    .is_none_or(|s| s.is_empty())
+                {
+                    return Err("Insight ID is required".to_string());
+                }
+                
+                if args.get("helpful").and_then(|h| h.as_bool()).is_none() {
+                    return Err("Helpful flag is required (true/false)".to_string());
+                }
+            }
+            #[cfg(feature = "codex-dreams")]
+            "export_insights" => {
+                // Validate format if provided
+                if let Some(format) = args.get("format").and_then(|f| f.as_str()) {
+                    if !["markdown", "json"].contains(&format) {
+                        return Err("Invalid format. Must be 'markdown' or 'json'".to_string());
+                    }
+                }
+                
+                // Validate time_period if provided
+                if let Some(period) = args.get("time_period").and_then(|p| p.as_str()) {
+                    if !["last_hour", "last_day", "last_week", "last_month", "all"].contains(&period) {
+                        return Err("Invalid time period".to_string());
+                    }
+                }
+                
+                // Validate insight_type if provided
+                if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
+                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                        return Err("Invalid insight type".to_string());
+                    }
+                }
+                
+                // Validate min_confidence if provided
+                if let Some(conf) = args.get("min_confidence").and_then(|c| c.as_f64()) {
+                    if !(0.0..=1.0).contains(&conf) {
+                        return Err("Minimum confidence must be between 0.0 and 1.0".to_string());
+                    }
+                }
             }
             _ => return Err(format!("Unknown tool: {tool_name}")),
         }

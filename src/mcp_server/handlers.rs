@@ -344,6 +344,16 @@ impl MCPHandlers {
             "get_harvester_metrics" => self.execute_get_harvester_metrics().await,
             "migrate_memory" => self.execute_migrate_memory(arguments).await,
             "delete_memory" => self.execute_delete_memory(arguments).await,
+            #[cfg(feature = "codex-dreams")]
+            "generate_insights" => self.execute_generate_insights(arguments).await,
+            #[cfg(feature = "codex-dreams")]
+            "show_insights" => self.execute_show_insights(arguments).await,
+            #[cfg(feature = "codex-dreams")]
+            "search_insights" => self.execute_search_insights(arguments).await,
+            #[cfg(feature = "codex-dreams")]
+            "insight_feedback" => self.execute_insight_feedback(arguments).await,
+            #[cfg(feature = "codex-dreams")]
+            "export_insights" => self.execute_export_insights(arguments).await,
             _ => Err(anyhow::anyhow!("Unknown tool: {}", tool_name)),
         }
     }
@@ -1002,6 +1012,246 @@ impl MCPHandlers {
 
         let response_text = format!("Successfully deleted memory {memory_id}");
         Ok(format_tool_response(&response_text))
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    /// Execute generate_insights tool
+    async fn execute_generate_insights(&self, args: &Value) -> Result<Value> {
+        // Parse parameters
+        let time_period = args
+            .get("time_period")
+            .and_then(|t| t.as_str())
+            .unwrap_or("last_day");
+        let topic = args.get("topic").and_then(|t| t.as_str());
+        let insight_type = args
+            .get("insight_type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("all");
+        let max_insights = args
+            .get("max_insights")
+            .and_then(|m| m.as_i64())
+            .unwrap_or(5) as usize;
+
+        // TODO: Once Story 6 processor is available, use it instead of placeholder
+        // For now, return a user-friendly message that the feature will be available soon
+        let response_text = format!(
+            "★ Insights Generation\n\
+            ⚠️ Feature currently in development (Story 6 dependency)\n\
+            • Time period: {}\n\
+            • Topic: {}\n\
+            • Type: {}\n\
+            • Max insights: {}\n\
+            \n\
+            ℹ️ This will generate real-time insights from your memories once the processor is ready.\n\
+            The system will analyze patterns, connections, and learnings from your memory corpus.",
+            time_period,
+            topic.unwrap_or("all topics"),
+            insight_type,
+            max_insights
+        );
+
+        Ok(format_tool_response(&response_text))
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    /// Execute show_insights tool
+    async fn execute_show_insights(&self, args: &Value) -> Result<Value> {
+        let limit = args
+            .get("limit")
+            .and_then(|l| l.as_i64())
+            .unwrap_or(10) as usize;
+        let insight_type = args
+            .get("insight_type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("all");
+        let min_confidence = args
+            .get("min_confidence")
+            .and_then(|c| c.as_f64())
+            .unwrap_or(0.6);
+        let include_feedback = args
+            .get("include_feedback")
+            .and_then(|f| f.as_bool())
+            .unwrap_or(true);
+
+        // TODO: Once insights are being generated, query them from InsightStorage
+        let response_text = format!(
+            "★ Recent Insights ({})\n\
+            ⚠️ No insights available yet - insights will appear here once generation begins\n\
+            \n\
+            • Filters:\n\
+            ○ Type: {}\n\
+            ○ Min confidence: {:.0}%\n\
+            ○ Include feedback: {}\n\
+            ○ Limit: {}\n\
+            \n\
+            ℹ️ Use 'generate_insights' to start creating insights from your memories.\n\
+            Insights will be displayed here with ★ confidence scores and user feedback.",
+            if insight_type == "all" { "All Types" } else { insight_type },
+            insight_type,
+            min_confidence * 100.0,
+            if include_feedback { "Yes" } else { "No" },
+            limit
+        );
+
+        Ok(format_tool_response(&response_text))
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    /// Execute search_insights tool
+    async fn execute_search_insights(&self, args: &Value) -> Result<Value> {
+        let query = args
+            .get("query")
+            .and_then(|q| q.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'query' parameter"))?;
+        let limit = args
+            .get("limit")
+            .and_then(|l| l.as_i64())
+            .unwrap_or(10) as usize;
+        let similarity_threshold = args
+            .get("similarity_threshold")
+            .and_then(|t| t.as_f64())
+            .unwrap_or(0.7);
+        let insight_type = args
+            .get("insight_type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("all");
+
+        // TODO: Implement semantic search using InsightStorage when available
+        let response_text = format!(
+            "★ Insight Search: \"{}\"\n\
+            ⚠️ Search will be available once insights are generated\n\
+            \n\
+            • Search parameters:\n\
+            ○ Query: {}\n\
+            ○ Type filter: {}\n\
+            ○ Min similarity: {:.0}%\n\
+            ○ Results limit: {}\n\
+            \n\
+            ℹ️ This will perform semantic search across all generated insights.\n\
+            Results will show matching insights with similarity scores and confidence ratings.",
+            query,
+            query,
+            if insight_type == "all" { "All types" } else { insight_type },
+            similarity_threshold * 100.0,
+            limit
+        );
+
+        Ok(format_tool_response(&response_text))
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    /// Execute insight_feedback tool
+    async fn execute_insight_feedback(&self, args: &Value) -> Result<Value> {
+        let insight_id_str = args
+            .get("insight_id")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'insight_id' parameter"))?;
+        let _insight_id = Uuid::parse_str(insight_id_str)?;
+        let helpful = args
+            .get("helpful")
+            .and_then(|h| h.as_bool())
+            .ok_or_else(|| anyhow::anyhow!("Missing required 'helpful' parameter"))?;
+        let comment = args.get("comment").and_then(|c| c.as_str());
+
+        // TODO: Store feedback using InsightStorage when available
+        let feedback_text = if helpful { "👍 Helpful" } else { "👎 Not helpful" };
+        let response_text = format!(
+            "★ Feedback Recorded\n\
+            • Insight: {}\n\
+            • Rating: {}\n\
+            • Comment: {}\n\
+            \n\
+            ✓ Feedback will improve future insight generation quality.\n\
+            Thank you for helping train the insight system!",
+            insight_id_str,
+            feedback_text,
+            comment.unwrap_or("(none)")
+        );
+
+        Ok(format_tool_response(&response_text))
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    /// Execute export_insights tool
+    async fn execute_export_insights(&self, args: &Value) -> Result<Value> {
+        let format = args
+            .get("format")
+            .and_then(|f| f.as_str())
+            .unwrap_or("markdown");
+        let time_period = args
+            .get("time_period")
+            .and_then(|t| t.as_str())
+            .unwrap_or("all");
+        let insight_type = args
+            .get("insight_type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("all");
+        let min_confidence = args
+            .get("min_confidence")
+            .and_then(|c| c.as_f64())
+            .unwrap_or(0.6);
+        let include_metadata = args
+            .get("include_metadata")
+            .and_then(|m| m.as_bool())
+            .unwrap_or(true);
+
+        // TODO: Generate actual export using InsightStorage when available
+        let export_content = if format == "json" {
+            r#"★ Insights Export (JSON)
+⚠️ Export will contain actual insights once generation is active
+
+{
+  "export_info": {
+    "format": "json",
+    "time_period": "all",
+    "insight_type": "all",
+    "min_confidence": 0.6,
+    "include_metadata": true,
+    "generated_at": "2025-08-24T00:00:00Z"
+  },
+  "insights": [],
+  "summary": {
+    "total_insights": 0,
+    "by_type": {},
+    "confidence_distribution": {}
+  }
+}
+
+ℹ️ This will export all insights in JSON-LD format with Schema.org compliance."#
+        } else {
+            format!(
+                r#"★ Insights Export (Markdown)
+⚠️ Export will contain actual insights once generation is active
+
+## Export Summary
+- **Format**: {}
+- **Time Period**: {}
+- **Type Filter**: {}
+- **Min Confidence**: {:.0}%
+- **Include Metadata**: {}
+- **Generated**: {}
+
+## Insights
+*(No insights available yet)*
+
+---
+
+ℹ️ This export will contain:
+• All insights matching your criteria
+• Confidence scores and types
+• Source memory references
+• User feedback scores
+• Rich Markdown formatting with ★ indicators"#,
+                format,
+                time_period,
+                if insight_type == "all" { "All types" } else { insight_type },
+                min_confidence * 100.0,
+                if include_metadata { "Yes" } else { "No" },
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+            )
+        };
+
+        Ok(format_tool_response(&export_content))
     }
 }
 

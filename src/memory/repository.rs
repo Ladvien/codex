@@ -1364,6 +1364,185 @@ impl MemoryRepository {
         Ok(())
     }
 
+    /// Record a testing effect retrieval attempt with success/failure and difficulty
+    /// Based on research by Roediger & Karpicke (2008) showing 1.5x consolidation boost for successful retrievals
+    pub async fn record_retrieval_attempt(
+        &self,
+        memory_id: Uuid,
+        success: bool,
+        difficulty: f64,
+        retrieval_latency_ms: u64,
+        context: Option<serde_json::Value>,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // Get current memory state
+        let memory = sqlx::query_as::<_, Memory>(
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+        )
+        .bind(memory_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        // Calculate testing effect boost (1.5x for successful retrievals per research)
+        let testing_effect_multiplier = if success { 1.5 } else { 0.8 };
+        let difficulty_factor = 1.0 + (difficulty - 0.5) * 0.3; // Desirable difficulty
+        let consolidation_boost = testing_effect_multiplier * difficulty_factor;
+        
+        // Apply boost to consolidation strength
+        let new_strength = (memory.consolidation_strength * consolidation_boost)
+            .min(15.0) // Cap at reasonable maximum
+            .max(0.1); // Floor at minimum
+
+        // Calculate next spaced repetition interval using Pimsleur method
+        let next_interval_days = memory.calculate_next_spaced_interval(success, difficulty);
+        let next_review_at = Utc::now() + chrono::Duration::days(next_interval_days as i64);
+
+        // Update ease factor based on success (SuperMemo2 algorithm adaptation)
+        let new_ease_factor = if success {
+            (memory.ease_factor + 0.1).min(3.0)
+        } else {
+            (memory.ease_factor - 0.2).max(1.3)
+        };
+
+        // Update memory with testing effect results
+        let successful_retrievals = if success {
+            memory.successful_retrievals + 1
+        } else {
+            memory.successful_retrievals
+        };
+        let failed_retrievals = if success {
+            memory.failed_retrievals
+        } else {
+            memory.failed_retrievals + 1
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE memories 
+            SET consolidation_strength = $2,
+                successful_retrievals = $3,
+                failed_retrievals = $4,
+                total_retrieval_attempts = $5,
+                last_retrieval_difficulty = $6,
+                last_retrieval_success = $7,
+                next_review_at = $8,
+                current_interval_days = $9,
+                ease_factor = $10,
+                access_count = access_count + 1,
+                last_accessed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(memory_id)
+        .bind(new_strength)
+        .bind(successful_retrievals)
+        .bind(failed_retrievals)
+        .bind(memory.total_retrieval_attempts + 1)
+        .bind(difficulty)
+        .bind(success)
+        .bind(next_review_at)
+        .bind(next_interval_days)
+        .bind(new_ease_factor)
+        .execute(&mut *tx)
+        .await?;
+
+        // Log the testing effect event
+        let log_context = serde_json::json!({
+            "testing_effect_applied": true,
+            "retrieval_success": success,
+            "difficulty": difficulty,
+            "retrieval_latency_ms": retrieval_latency_ms,
+            "consolidation_boost": consolidation_boost,
+            "testing_effect_multiplier": testing_effect_multiplier,
+            "next_interval_days": next_interval_days,
+            "spaced_repetition_method": "pimsleur",
+            "ease_factor_change": new_ease_factor - memory.ease_factor,
+            "research_basis": "Roediger_Karpicke_2008",
+            "additional_context": context
+        });
+
+        self.log_consolidation_event(
+            memory_id,
+            "testing_effect_retrieval",
+            memory.consolidation_strength,
+            new_strength,
+            memory.recall_probability,
+            memory.recall_probability, // Recall prob updated separately by consolidation engine
+            None, // We're not using recall_interval for testing effect
+            log_context,
+        ).await?;
+
+        tx.commit().await?;
+
+        info!(
+            "Recorded testing effect for memory {}: success={}, difficulty={:.2}, boost={:.2}x, new_strength={:.2}",
+            memory_id, success, difficulty, consolidation_boost, new_strength
+        );
+
+        Ok(())
+    }
+
+    /// Get memories due for testing effect review (spaced repetition)
+    pub async fn get_memories_due_for_review(
+        &self, 
+        limit: Option<i32>
+    ) -> Result<Vec<Memory>> {
+        let limit = limit.unwrap_or(100);
+        
+        let memories = sqlx::query_as::<_, Memory>(
+            r#"
+            SELECT * FROM memories 
+            WHERE status = 'active'
+            AND (next_review_at IS NULL OR next_review_at <= NOW())
+            ORDER BY 
+                CASE 
+                    WHEN next_review_at IS NULL THEN 0  -- Never reviewed first
+                    ELSE 1
+                END,
+                next_review_at ASC,
+                importance_score DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(memories)
+    }
+
+    /// Get testing effect statistics for analytics
+    pub async fn get_testing_effect_statistics(&self) -> Result<serde_json::Value> {
+        let stats = sqlx::query!(
+            r#"
+            SELECT 
+                COUNT(*) as total_memories,
+                AVG(CASE WHEN total_retrieval_attempts > 0 
+                    THEN successful_retrievals::float / total_retrieval_attempts::float 
+                    ELSE 0 END) as avg_success_rate,
+                AVG(consolidation_strength) as avg_consolidation_strength,
+                AVG(ease_factor) as avg_ease_factor,
+                COUNT(CASE WHEN next_review_at <= NOW() THEN 1 END) as due_for_review,
+                AVG(current_interval_days) as avg_current_interval
+            FROM memories 
+            WHERE status = 'active'
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(serde_json::json!({
+            "total_memories": stats.total_memories,
+            "average_success_rate": stats.avg_success_rate,
+            "average_consolidation_strength": stats.avg_consolidation_strength,
+            "average_ease_factor": stats.avg_ease_factor,
+            "memories_due_for_review": stats.due_for_review,
+            "average_current_interval_days": stats.avg_current_interval
+        }))
+    }
+
     /// Freeze a memory by moving it to compressed storage using zstd compression
     pub async fn freeze_memory(
         &self,

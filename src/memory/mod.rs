@@ -133,3 +133,6 @@ mod tests;
 
 #[cfg(test)]  
 mod ebbinghaus_tests;
+
+#[cfg(test)]
+mod testing_effect_tests;

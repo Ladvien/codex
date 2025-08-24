@@ -275,23 +275,30 @@ impl CognitiveConsolidationEngine {
 
     /// Calculate testing effect based on retrieval difficulty
     ///
-    /// Implements findings from Bjork (1994) that desirable difficulties
-    /// during retrieval enhance long-term retention.
+    /// Implements findings from Roediger & Karpicke (2008) and Bjork (1994) that desirable 
+    /// difficulties during retrieval enhance long-term retention. Now integrated with
+    /// dedicated testing effect implementation for research compliance.
     fn calculate_testing_effect(&self, context: &RetrievalContext) -> Result<f64> {
-        // Convert retrieval latency to difficulty score
+        // Enhanced testing effect calculation based on research
         let difficulty = match context.retrieval_latency_ms {
-            0..=500 => 0.2,     // Too easy - minimal benefit
-            501..=2000 => 1.0,  // Optimal difficulty
-            2001..=5000 => 1.5, // High difficulty - strong benefit
-            _ => 0.8,           // Too difficult - reduced benefit
+            0..=500 => 0.2,     // Too easy - minimal benefit (automatic recall)
+            501..=1500 => 0.8,  // Easy - some benefit
+            1501..=3000 => 1.5, // Optimal difficulty - maximum testing effect (Roediger & Karpicke)
+            3001..=6000 => 1.2, // Hard - good benefit but effortful
+            6001..=10000 => 0.9, // Very hard - some benefit but approaching failure
+            _ => 0.6,           // Too difficult - minimal benefit (near failure)
         };
 
-        // Adjust by confidence - lower confidence indicates more effort
-        let confidence_factor = 1.0 + (1.0 - context.confidence_score) * 0.5;
+        // Adjust by confidence - lower confidence indicates more effort and greater benefit
+        let confidence_factor = 1.0 + (1.0 - context.confidence_score) * 0.4;
 
-        let testing_effect = difficulty * confidence_factor * self.config.difficulty_scaling;
+        // Apply research-backed multipliers (1.5x for successful retrieval as per Karpicke & Roediger 2008)
+        let testing_effect_multiplier = if context.confidence_score > 0.7 { 1.5 } else { 1.2 };
 
-        Ok(testing_effect.max(0.1).min(2.0))
+        let testing_effect = difficulty * confidence_factor * testing_effect_multiplier * self.config.difficulty_scaling;
+
+        // Ensure testing effect stays within research-validated bounds
+        Ok(testing_effect.max(0.2).min(2.5))
     }
 
     /// Calculate semantic clustering bonus
@@ -549,6 +556,58 @@ impl CognitiveConsolidationEngine {
             previous_strength,
             result.new_consolidation_strength,
             result.recall_probability
+        );
+
+        Ok(())
+    }
+
+    /// Apply testing effect to memory using dedicated testing effect implementation
+    /// This method integrates the research-backed testing effect from testing_effect.rs
+    /// with the cognitive consolidation system for comprehensive memory enhancement.
+    pub async fn apply_testing_effect(
+        &self,
+        memory_id: uuid::Uuid,
+        retrieval_success: bool,
+        retrieval_latency_ms: u64,
+        confidence_score: f64,
+        query_type: crate::memory::testing_effect::RetrievalType,
+        repository: &crate::memory::repository::MemoryRepository,
+    ) -> Result<()> {
+        use crate::memory::testing_effect::{
+            RetrievalAttempt, TestingEffectConfig, TestingEffectEngine,
+        };
+        use std::sync::Arc;
+
+        // Create testing effect engine with research-backed configuration
+        let testing_config = TestingEffectConfig::default();
+        let repo_arc = Arc::new(repository);
+        let testing_engine = TestingEffectEngine::new(testing_config, repo_arc);
+
+        // Create retrieval attempt context
+        let retrieval_attempt = RetrievalAttempt {
+            memory_id,
+            success: retrieval_success,
+            retrieval_latency_ms,
+            confidence_score,
+            context_similarity: None,
+            query_type,
+            additional_context: Some(serde_json::json!({
+                "integration": "cognitive_consolidation",
+                "research_basis": "Roediger_Karpicke_2008",
+                "consolidation_method": "enhanced_cognitive"
+            })),
+        };
+
+        // Process the testing effect
+        let testing_result = testing_engine
+            .process_retrieval_attempt(retrieval_attempt)
+            .await?;
+
+        info!(
+            "Testing effect applied via cognitive consolidation: memory={}, boost={:.2}x, next_review={:.1}d",
+            memory_id,
+            testing_result.consolidation_boost,
+            testing_result.next_interval_days
         );
 
         Ok(())

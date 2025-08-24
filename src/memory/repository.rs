@@ -847,6 +847,15 @@ impl MemoryRepository {
                 last_recall_interval: row.try_get("last_recall_interval")?,
                 recency_score: row.try_get("recency_score").unwrap_or(0.0),
                 relevance_score: row.try_get("relevance_score").unwrap_or(0.0),
+                // Testing effect fields
+                successful_retrievals: row.try_get("successful_retrievals").unwrap_or(0),
+                failed_retrievals: row.try_get("failed_retrievals").unwrap_or(0),
+                total_retrieval_attempts: row.try_get("total_retrieval_attempts").unwrap_or(0),
+                last_retrieval_difficulty: row.try_get("last_retrieval_difficulty").ok(),
+                last_retrieval_success: row.try_get("last_retrieval_success").ok(),
+                next_review_at: row.try_get("next_review_at").ok(),
+                current_interval_days: row.try_get("current_interval_days").ok(),
+                ease_factor: row.try_get("ease_factor").unwrap_or(2.5),
             };
 
             let similarity_score: f32 = row.try_get("similarity_score").unwrap_or(0.0);

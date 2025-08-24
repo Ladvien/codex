@@ -123,7 +123,7 @@ impl MCPServer {
             Some(Arc::new(MCPRateLimiter::new(
                 config.rate_limiting.clone(),
                 audit_logger.clone(),
-            )))
+            )?))
         } else {
             None
         };
@@ -165,7 +165,7 @@ impl MCPServer {
         );
 
         // Create transport
-        let transport = StdioTransport::new(config.request_timeout_ms);
+        let transport = StdioTransport::new(config.request_timeout_ms)?;
 
         Ok(Self {
             config,

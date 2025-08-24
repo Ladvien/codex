@@ -635,6 +635,8 @@ mod tests {
             silent_mode_multiplier: 0.5,
             whitelist_clients: vec!["whitelisted-client".to_string()],
             performance_target_ms: 5,
+            client_ttl_minutes: 5,
+            cleanup_interval_minutes: 1,
         }
     }
 

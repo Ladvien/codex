@@ -143,7 +143,7 @@ fn test_mcp_content_types() {
 /// Test JSON-RPC request validation
 #[test]
 fn test_jsonrpc_request_validation() {
-    let transport = StdioTransport::new(5000);
+    let transport = StdioTransport::new(5000).unwrap();
     
     // Valid request
     let valid_request = json!({

@@ -4,8 +4,8 @@
 //! docs/mathematical_formulas.md to ensure they match the research
 //! literature and implementation specifications.
 
-use codex::memory::math_engine::{MathEngine, MemoryParameters};
-use codex::memory::three_component_scoring::{ThreeComponentEngine, ThreeComponentConfig, ScoringContext};
+use codex_memory::memory::math_engine::{MathEngine, MemoryParameters};
+use codex_memory::memory::three_component_scoring::{ThreeComponentEngine, ThreeComponentConfig, ScoringContext};
 use chrono::{Duration, Utc};
 use std::f64::consts::E;
 
@@ -158,12 +158,12 @@ mod three_component_validation {
         let test_hours = vec![0.0, 1.0, 100.0, 1000.0];
         
         for hours in test_hours {
-            let mut memory = codex::memory::models::Memory::default();
+            let mut memory = codex_memory::memory::models::Memory::default();
             memory.last_accessed_at = Some(Utc::now() - Duration::seconds((hours * 3600.0) as i64));
             memory.importance_score = 0.5;
             
             let result = engine.calculate_score(&memory, &context, false).unwrap();
-            let expected = (-lambda * hours).exp();
+            let expected = (-lambda * hours as f64).exp();
             
             // Within 1% tolerance for exponential decay
             let tolerance = expected * 0.01 + 0.001; // Add small constant for very small values
@@ -183,7 +183,7 @@ mod three_component_validation {
         let engine = ThreeComponentEngine::new(config).unwrap();
         let context = ScoringContext::default();
         
-        let mut memory = codex::memory::models::Memory::default();
+        let mut memory = codex_memory::memory::models::Memory::default();
         memory.importance_score = 0.8;
         memory.last_accessed_at = Some(Utc::now()); // Recent for high recency
         memory.access_count = 10;
@@ -213,7 +213,7 @@ mod three_component_validation {
         let context = ScoringContext::default();
         
         // Test extreme values
-        let mut memory = codex::memory::models::Memory::default();
+        let mut memory = codex_memory::memory::models::Memory::default();
         memory.importance_score = 0.0; // Minimum importance
         memory.access_count = 0; // No access history
         memory.last_accessed_at = Some(Utc::now() - Duration::days(365)); // Very old
@@ -260,7 +260,7 @@ mod performance_validation {
     fn test_three_component_performance_target() {
         let engine = ThreeComponentEngine::default();
         let context = ScoringContext::default();
-        let mut memory = codex::memory::models::Memory::default();
+        let mut memory = codex_memory::memory::models::Memory::default();
         memory.importance_score = 0.5;
         
         let result = engine.calculate_score(&memory, &context, false).unwrap();
@@ -414,7 +414,7 @@ mod integration_validation {
             importance_score: 0.7,
         };
         
-        let mut memory = codex::memory::models::Memory::default();
+        let mut memory = codex_memory::memory::models::Memory::default();
         memory.importance_score = params.importance_score;
         memory.access_count = params.access_count;
         memory.last_accessed_at = params.last_accessed_at;

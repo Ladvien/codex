@@ -449,6 +449,15 @@ impl SemanticDeduplicationEngine {
                 last_recall_interval: row.get("last_recall_interval"),
                 recency_score: row.get("recency_score"),
                 relevance_score: row.get("relevance_score"),
+                // Testing effect fields
+                successful_retrievals: row.get("successful_retrievals"),
+                failed_retrievals: row.get("failed_retrievals"),
+                total_retrieval_attempts: row.get("total_retrieval_attempts"),
+                last_retrieval_difficulty: row.get("last_retrieval_difficulty"),
+                last_retrieval_success: row.get("last_retrieval_success"),
+                next_review_at: row.get("next_review_at"),
+                current_interval_days: row.get("current_interval_days"),
+                ease_factor: row.get("ease_factor"),
             };
             similar_memories.push(memory);
         }
@@ -1501,6 +1510,15 @@ impl MemoryMerger {
             last_recall_interval: row.get("last_recall_interval"),
             recency_score: row.get("recency_score"),
             relevance_score: row.get("relevance_score"),
+            // Testing effect fields
+            successful_retrievals: row.get("successful_retrievals"),
+            failed_retrievals: row.get("failed_retrievals"),
+            total_retrieval_attempts: row.get("total_retrieval_attempts"),
+            last_retrieval_difficulty: row.get("last_retrieval_difficulty"),
+            last_retrieval_success: row.get("last_retrieval_success"),
+            next_review_at: row.get("next_review_at"),
+            current_interval_days: row.get("current_interval_days"),
+            ease_factor: row.get("ease_factor"),
         })
     }
 

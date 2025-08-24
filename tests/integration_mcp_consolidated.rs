@@ -11,6 +11,8 @@ use codex_memory::{
     mcp_server::{
         circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState},
         handlers::MCPHandlers,
+        logging::MCPLogger,
+        progress::ProgressTracker,
         tools::MCPTools,
         MCPServer, MCPServerConfig,
     },
@@ -94,6 +96,9 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
         &prometheus::default_registry(),
     )?);
 
+    let mcp_logger = Arc::new(MCPLogger::new(None));
+    let progress_tracker = Arc::new(ProgressTracker::new());
+    
     let mut handlers = MCPHandlers::new(
         repository,
         embedder,
@@ -101,6 +106,8 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
         circuit_breaker.clone(),
         None, // auth
         None, // rate_limiter
+        mcp_logger,
+        progress_tracker,
     );
 
     // Test initialization request
@@ -528,6 +535,9 @@ async fn create_test_handlers(
         CircuitBreakerConfig::default(),
     )));
 
+    let mcp_logger = Arc::new(MCPLogger::new(None));
+    let progress_tracker = Arc::new(ProgressTracker::new());
+    
     Ok(MCPHandlers::new(
         repository,
         embedder,
@@ -535,5 +545,7 @@ async fn create_test_handlers(
         circuit_breaker,
         None, // auth
         None, // rate_limiter
+        mcp_logger,
+        progress_tracker,
     ))
 }

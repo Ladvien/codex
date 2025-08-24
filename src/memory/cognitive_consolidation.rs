@@ -47,6 +47,7 @@ use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::types::PgInterval;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -571,17 +572,15 @@ impl CognitiveConsolidationEngine {
         retrieval_latency_ms: u64,
         confidence_score: f64,
         query_type: crate::memory::testing_effect::RetrievalType,
-        repository: &crate::memory::repository::MemoryRepository,
+        repository: Arc<crate::memory::repository::MemoryRepository>,
     ) -> Result<()> {
         use crate::memory::testing_effect::{
             RetrievalAttempt, TestingEffectConfig, TestingEffectEngine,
         };
-        use std::sync::Arc;
 
         // Create testing effect engine with research-backed configuration
         let testing_config = TestingEffectConfig::default();
-        let repo_arc = Arc::new(repository);
-        let testing_engine = TestingEffectEngine::new(testing_config, repo_arc);
+        let testing_engine = TestingEffectEngine::new(testing_config, repository);
 
         // Create retrieval attempt context
         let retrieval_attempt = RetrievalAttempt {

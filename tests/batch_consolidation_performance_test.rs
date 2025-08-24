@@ -191,7 +191,7 @@ async fn test_empty_batch_consolidation() -> Result<()> {
 #[tokio::test]
 async fn test_concurrent_batch_consolidation_updates() -> Result<()> {
     let (repository, memory_ids) = create_test_repository_with_consolidation_data().await?;
-    let repo = Arc::new(repository.as_ref().clone());
+    let repo = repository;
 
     // Split memory IDs into chunks for concurrent testing
     let chunk_size = 25;

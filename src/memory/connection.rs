@@ -236,8 +236,8 @@ pub async fn create_connection_pool(config: ConnectionConfig) -> Result<PgPool> 
 pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgPool> {
     // Vector workloads require more connections due to CPU-intensive operations
     // that hold connections longer than typical OLTP queries
-    let effective_max_connections = std::cmp::max(max_connections, 100); // Minimum 100 for vector workloads
-    let min_connections = std::cmp::max(effective_max_connections / 5, 20); // 20% minimum, at least 20
+    let effective_max_connections = std::cmp::max(max_connections, 50); // Reduced from 100 to prevent startup timeouts
+    let min_connections = std::cmp::min(10, effective_max_connections / 5); // Start with fewer connections to speed up initialization
 
     // Enhanced connection string for vector operations
     let mut enhanced_url = database_url.to_string();
@@ -251,7 +251,7 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
     let pool = PgPoolOptions::new()
         .max_connections(effective_max_connections)
         .min_connections(min_connections)
-        .acquire_timeout(Duration::from_secs(10)) // Longer timeout for vector operations
+        .acquire_timeout(Duration::from_secs(30)) // Increased timeout for initial connection setup
         .idle_timeout(Some(Duration::from_secs(300))) // 5 minutes
         .max_lifetime(Some(Duration::from_secs(3600))) // 1 hour for vector workloads
         .test_before_acquire(true) // Ensure connection health for vector operations
@@ -259,10 +259,17 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
         .await?;
 
     // Test the connection with vector capability and pgvector extension
-    sqlx::query("SELECT vector_dims('[1,2,3]'::vector)")
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| anyhow::anyhow!("Vector capability test failed: {}", e))?;
+    // Use a timeout to prevent hanging if the database is unavailable
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        sqlx::query("SELECT vector_dims('[1,2,3]'::vector)").fetch_one(&pool)
+    )
+    .await
+    {
+        Ok(Ok(_)) => {},
+        Ok(Err(e)) => return Err(anyhow::anyhow!("Vector capability test failed: {}", e)),
+        Err(_) => return Err(anyhow::anyhow!("Vector capability test timed out after 5 seconds")),
+    }
 
     info!(
         "Connected to PostgreSQL with {} max connections ({} min) - Vector workload optimized",

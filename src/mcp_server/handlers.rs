@@ -70,6 +70,82 @@ impl MCPHandlers {
             .await
     }
 
+    /// Securely determine if request should be processed in silent mode
+    /// Silent mode provides reduced rate limits but requires proper authorization
+    async fn determine_silent_mode_securely(
+        &self,
+        method: &str,
+        params: Option<&Value>,
+        auth_context: Option<&AuthContext>,
+    ) -> bool {
+        // SECURITY: Silent mode bypass prevention
+        // 1. Only specific pre-authorized methods can use silent mode
+        // 2. Client must be explicitly authorized for silent mode operation
+        // 3. Cannot be arbitrarily requested via parameters
+
+        // Pre-authorized silent mode methods (internal/system operations)
+        let method_allows_silent = matches!(method, "harvest_conversation");
+
+        if !method_allows_silent {
+            return false;
+        }
+
+        // Check if client is authorized for silent mode based on authentication context
+        if let Some(auth_ctx) = auth_context {
+            // Check if client has silent mode scope in their authorization
+            let has_silent_scope = auth_ctx.scopes.contains(&"mcp:silent".to_string())
+                || auth_ctx.scopes.contains(&"mcp:admin".to_string());
+
+            if !has_silent_scope {
+                warn!(
+                    "Client {} attempted to use silent mode without proper scope authorization",
+                    auth_ctx.client_id
+                );
+                return false;
+            }
+
+            // Additional check: client ID must be in silent mode whitelist
+            let client_authorized_for_silent = self.is_client_authorized_for_silent(&auth_ctx.client_id).await;
+            
+            if !client_authorized_for_silent {
+                warn!(
+                    "Client {} has silent scope but is not in silent mode whitelist",
+                    auth_ctx.client_id
+                );
+                return false;
+            }
+
+            debug!("Silent mode authorized for client: {}", auth_ctx.client_id);
+            return true;
+        }
+
+        // No authentication context - cannot use silent mode
+        false
+    }
+
+    /// Check if a client is authorized for silent mode operation
+    async fn is_client_authorized_for_silent(&self, client_id: &str) -> bool {
+        // SECURITY: Whitelist-based approach for silent mode authorization
+        // This prevents arbitrary clients from reducing their rate limits
+        
+        let silent_authorized_clients = [
+            "harvester-service",
+            "internal-processor", 
+            "system-agent",
+            "codex-admin",
+        ];
+
+        let is_authorized = silent_authorized_clients.contains(&client_id) 
+            || client_id.starts_with("system-")
+            || client_id.starts_with("internal-");
+
+        if !is_authorized {
+            debug!("Client {} is not authorized for silent mode", client_id);
+        }
+
+        is_authorized
+    }
+
     /// Handle incoming MCP requests with headers for auth/rate limiting
     pub async fn handle_request_with_headers(
         &mut self,
@@ -101,12 +177,9 @@ impl MCPHandlers {
 
         // Check rate limits
         if let Some(ref rate_limiter) = self.rate_limiter {
-            // Determine if we're in silent mode based on the tool/method
-            let silent_mode = matches!(method, "harvest_conversation")
-                || params
-                    .and_then(|p| p.get("silent_mode"))
-                    .and_then(|s| s.as_bool())
-                    .unwrap_or(false);
+            // SECURITY: Determine silent mode with proper authentication
+            // Silent mode requires explicit authorization and cannot be requested arbitrarily
+            let silent_mode = self.determine_silent_mode_securely(method, params, auth_context.as_ref()).await;
 
             let tool_name = if method == "tools/call" {
                 params

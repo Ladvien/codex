@@ -17,7 +17,9 @@ use std::collections::HashMap;
 use std::env;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use tokio::time::interval;
 use tracing::{debug, error, warn};
 
 /// Rate limiting configuration for MCP
@@ -33,6 +35,8 @@ pub struct MCPRateLimitConfig {
     pub silent_mode_multiplier: f64,
     pub whitelist_clients: Vec<String>,
     pub performance_target_ms: u64,
+    pub client_ttl_minutes: u32,
+    pub cleanup_interval_minutes: u32,
 }
 
 impl Default for MCPRateLimitConfig {
@@ -67,6 +71,14 @@ impl Default for MCPRateLimitConfig {
                 .map(|s| s.split(',').map(|c| c.trim().to_string()).collect())
                 .unwrap_or_default(),
             performance_target_ms: 5, // Must be <5ms per requirement
+            client_ttl_minutes: env::var("MCP_CLIENT_TTL_MINUTES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60), // 1 hour TTL for inactive clients
+            cleanup_interval_minutes: env::var("MCP_CLEANUP_INTERVAL_MINUTES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(15), // Cleanup every 15 minutes
         }
     }
 }
@@ -138,12 +150,14 @@ pub struct RateLimitStats {
     pub peak_requests_per_minute: u64,
 }
 
-/// Individual rate limiter for a specific scope
+/// Individual rate limiter for a specific scope with TTL tracking
 pub struct ScopedRateLimiter {
     limiter: Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
     requests_per_minute: u32,
     burst_size: u32,
     name: String,
+    created_at: Instant,
+    last_used: Arc<RwLock<Instant>>,
 }
 
 impl ScopedRateLimiter {
@@ -157,20 +171,35 @@ impl ScopedRateLimiter {
         let quota = Quota::per_minute(rate).allow_burst(burst);
         let limiter = Arc::new(GovernorRateLimiter::direct(quota));
 
+        let now = Instant::now();
         Ok(Self {
             limiter,
             requests_per_minute,
             burst_size,
             name,
+            created_at: now,
+            last_used: Arc::new(RwLock::new(now)),
         })
     }
 
-    fn check_rate_limit(&self) -> Result<(), governor::NotUntil<governor::clock::QuantaInstant>> {
-        self.limiter.check()
+    async fn check_rate_limit(&self) -> Result<(), governor::NotUntil<governor::clock::QuantaInstant>> {
+        let result = self.limiter.check();
+        if result.is_ok() {
+            // Update last used timestamp when rate limit check succeeds
+            let mut last_used = self.last_used.write().await;
+            *last_used = Instant::now();
+        }
+        result
+    }
+
+    /// Check if this limiter has expired based on TTL
+    async fn is_expired(&self, ttl_duration: Duration) -> bool {
+        let last_used = *self.last_used.read().await;
+        last_used.elapsed() > ttl_duration
     }
 }
 
-/// MCP Rate Limiter implementation
+/// MCP Rate Limiter implementation with memory leak prevention
 pub struct MCPRateLimiter {
     config: MCPRateLimitConfig,
     global_limiter: Option<ScopedRateLimiter>,
@@ -219,14 +248,84 @@ impl MCPRateLimiter {
             peak_requests_per_minute: 0,
         }));
 
-        Ok(Self {
-            config,
+        let client_limiters = Arc::new(RwLock::new(HashMap::new()));
+        
+        // Create rate limiter instance
+        let rate_limiter = Self {
+            config: config.clone(),
             global_limiter,
-            client_limiters: Arc::new(RwLock::new(HashMap::new())),
+            client_limiters: client_limiters.clone(),
             tool_limiters,
             stats,
             audit_logger,
-        })
+        };
+
+        // Start TTL cleanup task for memory leak prevention
+        if config.client_ttl_minutes > 0 {
+            Self::start_cleanup_task(client_limiters, config);
+        }
+
+        Ok(rate_limiter)
+    }
+
+    /// Start background cleanup task to prevent memory leaks
+    fn start_cleanup_task(
+        client_limiters: Arc<RwLock<HashMap<String, ScopedRateLimiter>>>,
+        config: MCPRateLimitConfig,
+    ) {
+        tokio::spawn(async move {
+            let mut cleanup_interval = interval(Duration::from_secs(config.cleanup_interval_minutes as u64 * 60));
+            let ttl_duration = Duration::from_secs(config.client_ttl_minutes as u64 * 60);
+
+            loop {
+                cleanup_interval.tick().await;
+                
+                let start_cleanup = Instant::now();
+                let initial_count;
+                let expired_clients;
+                
+                // Collect expired clients
+                {
+                    let limiters = client_limiters.read().await;
+                    initial_count = limiters.len();
+                    
+                    let mut expired = Vec::new();
+                    for (client_id, limiter) in limiters.iter() {
+                        if limiter.is_expired(ttl_duration).await {
+                            expired.push(client_id.clone());
+                        }
+                    }
+                    expired_clients = expired;
+                }
+
+                // Remove expired clients
+                if !expired_clients.is_empty() {
+                    let mut limiters = client_limiters.write().await;
+                    for client_id in &expired_clients {
+                        limiters.remove(client_id);
+                    }
+                    
+                    let final_count = limiters.len();
+                    let cleanup_duration = start_cleanup.elapsed();
+                    
+                    debug!(
+                        "Rate limiter TTL cleanup completed: {} expired clients removed, {} active clients remain, cleanup took {}ms",
+                        expired_clients.len(),
+                        final_count,
+                        cleanup_duration.as_millis()
+                    );
+                    
+                    if expired_clients.len() > 100 {
+                        warn!(
+                            "Large number of expired clients ({}) suggests possible memory leak or aggressive cleanup needed",
+                            expired_clients.len()
+                        );
+                    }
+                } else {
+                    debug!("Rate limiter TTL cleanup: no expired clients found ({})", initial_count);
+                }
+            }
+        });
     }
 
     /// Check rate limits for an MCP request
@@ -271,7 +370,7 @@ impl MCPRateLimiter {
 
         // Check global rate limit
         if let Some(ref global_limiter) = self.global_limiter {
-            if global_limiter.check_rate_limit().is_err() {
+            if global_limiter.check_rate_limit().await.is_err() {
                 self.handle_rate_limit_violation("global", client_id, tool_name)
                     .await;
                 return Err(SecurityError::RateLimitExceeded.into());
@@ -290,7 +389,7 @@ impl MCPRateLimiter {
             }
         };
         
-        if client_limiter.check_rate_limit().is_err() {
+        if client_limiter.check_rate_limit().await.is_err() {
             self.handle_rate_limit_violation("client", client_id, tool_name)
                 .await;
             return Err(SecurityError::RateLimitExceeded.into());
@@ -298,7 +397,7 @@ impl MCPRateLimiter {
 
         // Check per-tool rate limit
         if let Some(tool_limiter) = self.tool_limiters.get(tool_name) {
-            if tool_limiter.check_rate_limit().is_err() {
+            if tool_limiter.check_rate_limit().await.is_err() {
                 self.handle_rate_limit_violation("tool", client_id, tool_name)
                     .await;
                 return Err(SecurityError::RateLimitExceeded.into());
@@ -345,6 +444,8 @@ impl MCPRateLimiter {
                     requests_per_minute: limiter.requests_per_minute,
                     burst_size: limiter.burst_size,
                     name: limiter.name.clone(),
+                    created_at: limiter.created_at,
+                    last_used: limiter.last_used.clone(),
                 });
             }
         }
@@ -370,6 +471,8 @@ impl MCPRateLimiter {
                     requests_per_minute: limiter.requests_per_minute,
                     burst_size: limiter.burst_size,
                     name: limiter.name.clone(),
+                    created_at: limiter.created_at,
+                    last_used: limiter.last_used.clone(),
                 },
             );
         }

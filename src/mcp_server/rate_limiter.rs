@@ -148,18 +148,22 @@ pub struct ScopedRateLimiter {
 }
 
 impl ScopedRateLimiter {
-    fn new(requests_per_minute: u32, burst_size: u32, name: String) -> Self {
-        let rate = NonZeroU32::new(requests_per_minute).unwrap_or(nonzero!(1u32));
-        let burst = NonZeroU32::new(burst_size).unwrap_or(nonzero!(1u32));
+    fn new(requests_per_minute: u32, burst_size: u32, name: String) -> Result<Self> {
+        // SECURITY: Remove panic-prone unwrap() calls and use proper error handling
+        let rate = NonZeroU32::new(requests_per_minute.max(1))
+            .ok_or_else(|| anyhow::anyhow!("Invalid rate limit: {}", requests_per_minute))?;
+        let burst = NonZeroU32::new(burst_size.max(1))
+            .ok_or_else(|| anyhow::anyhow!("Invalid burst size: {}", burst_size))?;
+        
         let quota = Quota::per_minute(rate).allow_burst(burst);
         let limiter = Arc::new(GovernorRateLimiter::direct(quota));
 
-        Self {
+        Ok(Self {
             limiter,
             requests_per_minute,
             burst_size,
             name,
-        }
+        })
     }
 
     fn check_rate_limit(&self) -> Result<(), governor::NotUntil<governor::clock::QuantaInstant>> {
@@ -179,13 +183,13 @@ pub struct MCPRateLimiter {
 
 impl MCPRateLimiter {
     /// Create a new rate limiter
-    pub fn new(config: MCPRateLimitConfig, audit_logger: Arc<AuditLogger>) -> Self {
+    pub fn new(config: MCPRateLimitConfig, audit_logger: Arc<AuditLogger>) -> Result<Self> {
         let global_limiter = if config.enabled {
             Some(ScopedRateLimiter::new(
                 config.global_requests_per_minute,
                 config.global_burst_size,
                 "global".to_string(),
-            ))
+            )?)
         } else {
             None
         };
@@ -201,7 +205,7 @@ impl MCPRateLimiter {
 
                 tool_limiters.insert(
                     tool_name.clone(),
-                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}")),
+                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}"))?,
                 );
             }
         }
@@ -216,14 +220,14 @@ impl MCPRateLimiter {
             peak_requests_per_minute: 0,
         }));
 
-        Self {
+        Ok(Self {
             config,
             global_limiter,
             client_limiters: Arc::new(RwLock::new(HashMap::new())),
             tool_limiters,
             stats,
             audit_logger,
-        }
+        })
     }
 
     /// Check rate limits for an MCP request
@@ -276,9 +280,17 @@ impl MCPRateLimiter {
         }
 
         // Check per-client rate limit
-        let client_limiter = self
+        let client_limiter = match self
             .get_or_create_client_limiter(client_id, rate_multiplier)
-            .await;
+            .await
+        {
+            Ok(limiter) => limiter,
+            Err(e) => {
+                error!("Failed to create client rate limiter: {}", e);
+                return Err(SecurityError::RateLimitExceeded.into());
+            }
+        };
+        
         if client_limiter.check_rate_limit().is_err() {
             self.handle_rate_limit_violation("client", client_id, tool_name)
                 .await;
@@ -325,16 +337,16 @@ impl MCPRateLimiter {
         &self,
         client_id: &str,
         rate_multiplier: f64,
-    ) -> ScopedRateLimiter {
+    ) -> Result<ScopedRateLimiter> {
         {
             let limiters = self.client_limiters.read().await;
             if let Some(limiter) = limiters.get(client_id) {
-                return ScopedRateLimiter {
+                return Ok(ScopedRateLimiter {
                     limiter: limiter.limiter.clone(),
                     requests_per_minute: limiter.requests_per_minute,
                     burst_size: limiter.burst_size,
                     name: limiter.name.clone(),
-                };
+                });
             }
         }
 
@@ -347,7 +359,7 @@ impl MCPRateLimiter {
             adjusted_rate.max(1),
             adjusted_burst.max(1),
             format!("client:{client_id}"),
-        );
+        )?;
 
         // Store the limiter for future use
         {
@@ -363,7 +375,7 @@ impl MCPRateLimiter {
             );
         }
 
-        limiter
+        Ok(limiter)
     }
 
     /// Handle rate limit violations
@@ -410,7 +422,7 @@ impl MCPRateLimiter {
             self.config.per_client_requests_per_minute,
             self.config.per_client_burst_size,
             format!("client:{client_id}"),
-        );
+        )?;
 
         limiters.insert(client_id.to_string(), fresh_limiter);
         debug!("Reset rate limits for client: {}", client_id);
@@ -432,7 +444,7 @@ impl MCPRateLimiter {
                 new_config.global_requests_per_minute,
                 new_config.global_burst_size,
                 "global".to_string(),
-            ))
+            )?)
         } else {
             None
         };
@@ -449,7 +461,7 @@ impl MCPRateLimiter {
 
                 self.tool_limiters.insert(
                     tool_name.clone(),
-                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}")),
+                    ScopedRateLimiter::new(rate, burst, format!("tool:{tool_name}"))?,
                 );
             }
         }
@@ -536,7 +548,7 @@ mod tests {
             retention_days: 30,
         };
         let audit_logger = Arc::new(AuditLogger::new(audit_config).unwrap());
-        MCPRateLimiter::new(config, audit_logger)
+        MCPRateLimiter::new(config, audit_logger).unwrap()
     }
 
     fn create_test_auth_context(client_id: &str) -> AuthContext {
@@ -660,7 +672,7 @@ mod tests {
             retention_days: 30,
         };
         let audit_logger = Arc::new(AuditLogger::new(audit_config).unwrap());
-        let limiter = MCPRateLimiter::new(config, audit_logger);
+        let limiter = MCPRateLimiter::new(config, audit_logger).unwrap();
 
         let auth_context = create_test_auth_context("test-client");
 

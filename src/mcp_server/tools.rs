@@ -251,6 +251,16 @@ impl MCPTools {
                 },
                 "prompts": {
                     "listChanged": false
+                },
+                "logging": {
+                    "supported": true
+                },
+                "progress": {
+                    "supported": true
+                },
+                "completion": {
+                    "supported": true,
+                    "argument": true
                 }
             },
             "serverInfo": {

@@ -9,6 +9,8 @@
 pub mod auth;
 pub mod circuit_breaker;
 pub mod handlers;
+pub mod logging;
+pub mod progress;
 pub mod rate_limiter;
 pub mod tools;
 pub mod transport;
@@ -21,6 +23,8 @@ pub use circuit_breaker::{
     CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats, CircuitState,
 };
 pub use handlers::MCPHandlers;
+pub use logging::{LogLevel, LogMessage, MCPLogger};
+pub use progress::{ProgressHandle, ProgressReport, ProgressTracker};
 pub use rate_limiter::{MCPRateLimitConfig, MCPRateLimiter, RateLimitStats};
 pub use tools::MCPTools;
 pub use transport::StdioTransport;
@@ -83,6 +87,8 @@ pub struct MCPServer {
     auth: Option<Arc<MCPAuth>>,
     rate_limiter: Option<Arc<MCPRateLimiter>>,
     audit_logger: Arc<AuditLogger>,
+    mcp_logger: Arc<MCPLogger>,
+    progress_tracker: Arc<ProgressTracker>,
 }
 
 impl MCPServer {
@@ -94,6 +100,10 @@ impl MCPServer {
     ) -> Result<Self> {
         // Initialize audit logger
         let audit_logger = Arc::new(AuditLogger::new(config.audit.clone())?);
+
+        // Initialize MCP logger and progress tracker
+        let mcp_logger = Arc::new(MCPLogger::new(LogLevel::Info));
+        let progress_tracker = Arc::new(ProgressTracker::new());
 
         // Initialize authentication if enabled
         let auth = if config.enable_authentication {
@@ -147,6 +157,8 @@ impl MCPServer {
             circuit_breaker.clone(),
             auth.clone(),
             rate_limiter.clone(),
+            mcp_logger.clone(),
+            progress_tracker.clone(),
         );
 
         // Create transport
@@ -163,6 +175,8 @@ impl MCPServer {
             auth,
             rate_limiter,
             audit_logger,
+            mcp_logger,
+            progress_tracker,
         })
     }
 

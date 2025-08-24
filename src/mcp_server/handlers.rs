@@ -6,6 +6,8 @@
 use crate::mcp_server::{
     auth::{AuthContext, MCPAuth},
     circuit_breaker::{CircuitBreaker, CircuitBreakerError},
+    logging::{LogLevel, MCPLogger},
+    progress::{ProgressTracker, ProgressHandle},
     rate_limiter::MCPRateLimiter,
     tools::MCPTools,
     transport::{create_error_response, create_success_response, format_tool_response},
@@ -29,6 +31,8 @@ pub struct MCPHandlers {
     circuit_breaker: Option<Arc<CircuitBreaker>>,
     auth: Option<Arc<MCPAuth>>,
     rate_limiter: Option<Arc<MCPRateLimiter>>,
+    mcp_logger: Arc<MCPLogger>,
+    progress_tracker: Arc<ProgressTracker>,
 }
 
 impl MCPHandlers {
@@ -40,6 +44,8 @@ impl MCPHandlers {
         circuit_breaker: Option<Arc<CircuitBreaker>>,
         auth: Option<Arc<MCPAuth>>,
         rate_limiter: Option<Arc<MCPRateLimiter>>,
+        mcp_logger: Arc<MCPLogger>,
+        progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             repository,
@@ -48,6 +54,8 @@ impl MCPHandlers {
             circuit_breaker,
             auth,
             rate_limiter,
+            mcp_logger,
+            progress_tracker,
         }
     }
 

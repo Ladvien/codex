@@ -725,6 +725,7 @@ impl Clone for TierManager {
             repository: self.repository.clone(),
             config: self.config.clone(),
             math_engine: MathEngine::new(), // Math engine is stateless
+            auto_tiering: AutoTieringEngine::new(self.repository.clone()),
             running: self.running.clone(),
             last_scan_time: self.last_scan_time.clone(),
             migrations_completed: self.migrations_completed.clone(),

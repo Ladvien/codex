@@ -219,6 +219,8 @@ impl From<sqlx::postgres::PgRow> for Insight {
             feedback_score: row.get("feedback_score"),
             version: row.get("version"),
             previous_version: row.get("previous_version"),
+            previous_version_id: row.get("previous_version_id"),
+            embedding: row.get("embedding"),
         }
     }
 }
@@ -482,6 +484,8 @@ mod tests {
             feedback_score: 0.0,
             version: 1,
             previous_version: None,
+            previous_version_id: None,
+            embedding: None,
         }
     }
     

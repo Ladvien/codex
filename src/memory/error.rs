@@ -62,6 +62,26 @@ pub enum MemoryError {
     #[error("Decompression error: {message}")]
     DecompressionError { message: String },
 
+    #[cfg(feature = "codex-dreams")]
+    #[error("Ollama integration error: {0}")]
+    OllamaError(String),
+
+    #[cfg(feature = "codex-dreams")]
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
+
+    #[cfg(feature = "codex-dreams")]
+    #[error("Embedding generation error: {0}")]
+    EmbeddingGenerationError(String),
+
+    #[cfg(feature = "codex-dreams")]
+    #[error("Invalid insight type: {0}")]
+    InvalidInsightType(String),
+
+    #[cfg(feature = "codex-dreams")]
+    #[error("Deserialization error: {0}")]
+    DeserializationError(String),
+
     #[error("Serialization error: {message}")]
     SerializationError { message: String },
 

@@ -235,7 +235,7 @@ impl InsightStorage {
         
         match result {
             Ok(insight) => Ok(Some(insight)),
-            Err(MemoryError::NotFound { id: insight_id.to_string() }) => Ok(None),
+            Err(MemoryError::NotFound { .. }) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -260,7 +260,7 @@ impl InsightStorage {
 
         match row {
             Some(row) => self.row_to_insight(&row),
-            None => Err(MemoryError::NotFound { id: insight_id.to_string() }),
+            None => Err(MemoryError::NotFound { id: id.to_string() }),
         }
     }
 
@@ -463,20 +463,22 @@ impl InsightStorage {
         let insight_type = self.string_to_insight_type(&insight_type_str)?;
 
         Ok(Insight {
-            id: row.try_get("id").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            content: row.try_get("content").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
+            id: row.try_get("id").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            content: row.try_get("content").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
             insight_type,
-            confidence_score: row.try_get("confidence_score").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
+            confidence_score: row.try_get("confidence_score").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
             source_memory_ids,
-            metadata: row.try_get("metadata").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
+            metadata: row.try_get("metadata").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
             tags,
-            tier: row.try_get("tier").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            created_at: row.try_get("created_at").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            updated_at: row.try_get("updated_at").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            version: row.try_get("version").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            previous_version_id: row.try_get("previous_version_id").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            feedback_score: row.try_get("feedback_score").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
-            embedding: row.try_get("embedding").map_err(|e| MemoryError::DatabaseError(e.to_string()))?,
+            tier: row.try_get("tier").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            created_at: row.try_get("created_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            updated_at: row.try_get("updated_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            last_accessed_at: row.try_get("last_accessed_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            version: row.try_get("version").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            previous_version: row.try_get("previous_version").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            previous_version_id: row.try_get("previous_version_id").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            feedback_score: row.try_get("feedback_score").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            embedding: row.try_get("embedding").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
         })
     }
 

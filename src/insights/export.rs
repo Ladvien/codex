@@ -225,6 +225,8 @@ mod tests {
             feedback_score: 0.5,
             version: 1,
             previous_version: None,
+            previous_version_id: None,
+            embedding: None,
         }
     }
 

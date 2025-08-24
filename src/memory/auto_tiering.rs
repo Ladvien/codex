@@ -23,7 +23,7 @@ impl AutoTieringEngine {
     }
 
     /// Analyze a memory and determine its appropriate tier
-    pub fn classify_memory(&self, memory: &Memory) -> (MemoryTier, f32) {
+    pub fn classify_memory(&self, memory: &Memory) -> (MemoryTier, f64) {
         let content_lower = memory.content.to_lowercase();
         
         // Suspicious content that indicates data corruption

@@ -264,7 +264,7 @@ pub struct CacheEntry {
     pub results: Vec<MemoryAwareSearchResult>,
     pub created_at: DateTime<Utc>,
     pub access_count: u32,
-    pub last_accessed: DateTime<Utc>,
+    pub last_accessed_at: DateTime<Utc>,
 }
 
 /// Query pattern cache implementation
@@ -334,7 +334,7 @@ impl QueryPatternCache {
                         let mut cache_write = self.cache.write().await;
                         if let Some(entry) = cache_write.get_mut(cache_key) {
                             entry.access_count += 1;
-                            entry.last_accessed = Utc::now();
+                            entry.last_accessed_at = Utc::now();
                         }
                     }
 
@@ -372,7 +372,7 @@ impl QueryPatternCache {
             results,
             created_at: Utc::now(),
             access_count: 0,
-            last_accessed: Utc::now(),
+            last_accessed_at: Utc::now(),
         };
 
         cache.insert(cache_key, entry);
@@ -382,7 +382,7 @@ impl QueryPatternCache {
     async fn evict_lru(&self, cache: &mut HashMap<String, CacheEntry>) {
         if let Some((oldest_key, _)) = cache
             .iter()
-            .min_by_key(|(_, entry)| entry.last_accessed)
+            .min_by_key(|(_, entry)| entry.last_accessed_at)
             .map(|(k, v)| (k.clone(), v.clone()))
         {
             cache.remove(&oldest_key);

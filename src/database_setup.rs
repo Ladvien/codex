@@ -427,7 +427,7 @@ impl DatabaseSetup {
                     tier VARCHAR(20) NOT NULL DEFAULT 'working',
                     importance_score FLOAT DEFAULT 0.0,
                     access_count INTEGER DEFAULT 0,
-                    last_accessed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    last_accessed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
@@ -457,11 +457,11 @@ impl DatabaseSetup {
 
         client
             .execute(
-                "CREATE INDEX IF NOT EXISTS memories_last_accessed_idx ON memories (last_accessed DESC)",
+                "CREATE INDEX IF NOT EXISTS memories_last_accessed_idx ON memories (last_accessed_at DESC)",
                 &[],
             )
             .await
-            .context("Failed to create last_accessed index")?;
+            .context("Failed to create last_accessed_at index")?;
 
         client
             .execute(

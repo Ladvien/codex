@@ -437,7 +437,7 @@ struct CachedEmbedding {
     embedding: Vec<f32>,
     cached_at: DateTime<Utc>,
     ttl_seconds: u64,
-    last_accessed: DateTime<Utc>,
+    last_accessed_at: DateTime<Utc>,
 }
 
 /// LRU cache entry for tracking access order
@@ -468,7 +468,7 @@ impl CachedEmbedding {
             embedding,
             cached_at: now,
             ttl_seconds,
-            last_accessed: now,
+            last_accessed_at: now,
         }
     }
 
@@ -479,7 +479,7 @@ impl CachedEmbedding {
     }
 
     fn touch(&mut self) {
-        self.last_accessed = Utc::now();
+        self.last_accessed_at = Utc::now();
     }
 }
 
@@ -522,7 +522,7 @@ impl EmbeddingCache {
                 .collect();
             lru_list.push_front(LRUNode {
                 key: key.to_string(),
-                timestamp: cached.last_accessed,
+                timestamp: cached.last_accessed_at,
             });
 
             Some(cached.clone())
@@ -559,7 +559,7 @@ impl EmbeddingCache {
         cache.insert(key.clone(), value.clone());
         lru_list.push_front(LRUNode {
             key: key.clone(),
-            timestamp: value.last_accessed,
+            timestamp: value.last_accessed_at,
         });
 
         Ok(())

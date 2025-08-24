@@ -348,7 +348,7 @@ impl MemoryRepository {
                     let lru_memory_id: Option<Uuid> = sqlx::query_scalar(
                         "SELECT id FROM memories 
                          WHERE tier = 'working' AND status = 'active'
-                         ORDER BY last_accessed ASC
+                         ORDER BY last_accessed_at ASC
                          LIMIT 1",
                     )
                     .fetch_optional(&self.pool)

@@ -11,6 +11,8 @@
 //! - Records user feedback and calculates quality scores
 
 #[cfg(feature = "codex-dreams")]
+use super::models::{Insight, InsightFeedback, InsightType, InsightUpdate};
+#[cfg(feature = "codex-dreams")]
 use crate::embedding::EmbeddingService;
 #[cfg(feature = "codex-dreams")]
 use crate::memory::error::{MemoryError, Result};
@@ -26,46 +28,6 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 #[cfg(feature = "codex-dreams")]
 use uuid::Uuid;
-
-// Placeholder types that will be replaced when Story 2 (models) is complete
-#[cfg(feature = "codex-dreams")]
-#[derive(Debug, Clone)]
-pub struct Insight {
-    pub id: Uuid,
-    pub content: String,
-    pub insight_type: InsightType,
-    pub confidence_score: f64,
-    pub source_memory_ids: Vec<Uuid>,
-    pub metadata: serde_json::Value,
-    pub tags: Vec<String>,
-    pub tier: String, // Will use proper tier enum when models are ready
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub version: i32,
-    pub previous_version_id: Option<Uuid>,
-    pub feedback_score: f64,
-    pub embedding: Option<Vector>,
-}
-
-#[cfg(feature = "codex-dreams")]
-#[derive(Debug, Clone)]
-pub enum InsightType {
-    Learning,
-    Connection,
-    Relationship,
-    Assertion,
-    MentalModel,
-    Pattern,
-}
-
-#[cfg(feature = "codex-dreams")]
-#[derive(Debug, Clone)]
-pub struct InsightUpdate {
-    pub content: Option<String>,
-    pub confidence_score: Option<f64>,
-    pub metadata: Option<serde_json::Value>,
-    pub tags: Option<Vec<String>>,
-}
 
 #[cfg(feature = "codex-dreams")]
 #[derive(Debug, Clone)]
@@ -125,7 +87,6 @@ impl InsightStorage {
 
         // Generate embedding for the insight content
         let embedding = self.generate_embedding(&insight.content).await?;
-        insight.embedding = Some(embedding);
         insight.id = Uuid::new_v4(); // Ensure unique ID
         insight.version = 1; // New insights start at version 1
         insight.created_at = Utc::now();
@@ -137,7 +98,7 @@ impl InsightStorage {
             INSERT INTO insights (
                 id, content, insight_type, confidence_score, source_memory_ids,
                 metadata, tags, tier, created_at, updated_at, version,
-                previous_version_id, feedback_score, embedding
+                previous_version, feedback_score, embedding
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
             )
@@ -161,9 +122,9 @@ impl InsightStorage {
             .bind(&insight.created_at)
             .bind(&insight.updated_at)
             .bind(&insight.version)
-            .bind(&insight.previous_version_id)
+            .bind(&insight.previous_version)
             .bind(&insight.feedback_score)
-            .bind(&insight.embedding)
+            .bind(&embedding)
             .execute(&mut *tx)
             .await
             .map_err(|e| MemoryError::DatabaseError(e.to_string()))?;

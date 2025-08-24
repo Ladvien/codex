@@ -13,6 +13,7 @@ pub mod semantic_deduplication;
 pub mod simple_consolidation;
 pub mod testing_effect;
 pub mod tier_manager;
+pub mod auto_tiering;
 
 // Cognitive enhancement modules
 pub mod background_reflection_service;

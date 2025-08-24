@@ -2,6 +2,7 @@ use super::error::{MemoryError, Result};
 use super::math_engine::{MathEngine, MemoryParameters};
 use super::models::{Memory, MemoryTier};
 use super::repository::MemoryRepository;
+use super::auto_tiering::AutoTieringEngine;
 use crate::config::TierManagerConfig;
 use chrono::{DateTime, Duration, Utc};
 use prometheus::{register_counter, register_gauge, register_histogram, Counter, Gauge, Histogram};
@@ -23,6 +24,7 @@ pub struct TierManager {
     repository: Arc<MemoryRepository>,
     config: TierManagerConfig,
     math_engine: MathEngine,
+    auto_tiering: AutoTieringEngine,
 
     // Service state
     running: Arc<AtomicBool>,
@@ -111,9 +113,10 @@ impl TierManager {
         )?;
 
         Ok(Self {
-            repository,
+            repository: repository.clone(),
             config,
             math_engine: MathEngine::new(),
+            auto_tiering: AutoTieringEngine::new(repository),
             running: Arc::new(AtomicBool::new(false)),
             last_scan_time: Arc::new(RwLock::new(None)),
             migrations_completed: Arc::new(AtomicU64::new(0)),
@@ -220,6 +223,16 @@ impl TierManager {
         let scan_time = Utc::now();
 
         debug!("Starting tier management scan");
+        
+        // First, run auto-tiering to clean up test data and dev artifacts
+        match self.auto_tiering.apply_auto_tiering().await {
+            Ok(report) => {
+                info!("Auto-tiering: {}", report.summary());
+            }
+            Err(e) => {
+                warn!("Auto-tiering failed (non-fatal): {}", e);
+            }
+        }
 
         // Find migration candidates for each tier transition
         let candidates = self.find_migration_candidates().await?;

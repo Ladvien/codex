@@ -11,6 +11,7 @@ pub mod models;
 pub mod repository;
 pub mod semantic_deduplication;
 pub mod simple_consolidation;
+pub mod testing_effect;
 pub mod tier_manager;
 
 // Cognitive enhancement modules
@@ -112,6 +113,12 @@ pub use enhanced_retrieval::{
     MemoryAwareRetrievalEngine, MemoryAwareSearchRequest, MemoryAwareSearchResponse,
     MemoryAwareSearchResult, MemoryDescendant, MemoryLineage, PerformanceMetrics,
     ProvenanceMetadata, QueryPatternCache, RelationshipType,
+};
+
+// Testing effect exports
+pub use testing_effect::{
+    DifficultyThresholds, ResearchCompliance, RetrievalAttempt, RetrievalType, TestingEffectConfig,
+    TestingEffectEngine, TestingEffectResult, TestingEffectService, TestingEffectStatistics,
 };
 
 // Tier manager exports

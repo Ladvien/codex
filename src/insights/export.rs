@@ -77,7 +77,9 @@ impl InsightExporter {
         let insights = self.fetch_filtered_insights(&filter).await?;
         let export = self.create_export(insights, ExportFormat::JsonLd, filter)?;
         
-        let jsonld = export.to_jsonld();
+        let jsonld_value = export.to_json_ld();
+        let jsonld = serde_json::to_string_pretty(&jsonld_value)
+            .map_err(|e| MemoryError::Serialization(e))?;
         
         // Enforce size limit
         self.check_size_limit(&jsonld, "JSON-LD")?;
@@ -186,7 +188,7 @@ impl InsightExporter {
         let size = content.len();
         
         if size > MAX_EXPORT_SIZE {
-            return Err(MemoryError::ValidationError(
+            return Err(MemoryError::Validation(
                 format!(
                     "{} export size ({} bytes) exceeds maximum allowed size ({} bytes). \
                     Consider applying more restrictive filters to reduce the export size.",

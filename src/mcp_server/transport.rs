@@ -68,7 +68,7 @@ impl StdioTransport {
         Ok(())
     }
 
-    /// Process a single message
+    /// Process a single message, handling both single requests and batch requests
     async fn process_message(
         &self,
         line: &str,
@@ -90,12 +90,77 @@ impl StdioTransport {
             }
         };
 
+        // Handle batch requests (array) vs single requests (object)
+        if request.is_array() {
+            self.process_batch_request(&request, handlers, stdout).await?;
+        } else {
+            self.process_single_request(&request, handlers, stdout).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Process a batch of JSON-RPC requests
+    async fn process_batch_request(
+        &self,
+        requests: &Value,
+        handlers: &mut MCPHandlers,
+        stdout: &mut tokio::io::Stdout,
+    ) -> Result<()> {
+        let request_array = match requests.as_array() {
+            Some(arr) if !arr.is_empty() => arr,
+            _ => {
+                // Empty batch is invalid
+                self.send_invalid_request_error(stdout, None).await?;
+                return Ok(());
+            }
+        };
+
+        let mut responses = Vec::new();
+
+        for request in request_array {
+            // Process each request in the batch
+            let response = self.process_single_request_internal(request, handlers).await;
+            
+            // Only add non-notification responses to the batch
+            if let Some(resp) = response {
+                responses.push(resp);
+            }
+        }
+
+        // Send batch response (only if we have responses)
+        if !responses.is_empty() {
+            let batch_response = Value::Array(responses);
+            self.send_response(stdout, &batch_response).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Process a single JSON-RPC request
+    async fn process_single_request(
+        &self,
+        request: &Value,
+        handlers: &mut MCPHandlers,
+        stdout: &mut tokio::io::Stdout,
+    ) -> Result<()> {
+        if let Some(response) = self.process_single_request_internal(request, handlers).await {
+            self.send_response(stdout, &response).await?;
+        }
+        Ok(())
+    }
+
+    /// Process a single request and return the response (if any)
+    async fn process_single_request_internal(
+        &self,
+        request: &Value,
+        handlers: &mut MCPHandlers,
+    ) -> Option<Value> {
         // Validate JSON-RPC structure according to specification
-        if let Err(validation_error) = self.validate_jsonrpc_request(&request) {
+        if let Err(validation_error) = self.validate_jsonrpc_request(request) {
             error!("JSON-RPC validation failed: {}", validation_error);
             let id = request.get("id");
-            self.send_invalid_request_error(stdout, id).await?;
-            return Ok(());
+            return Some(create_error_response(id, -32600, "Invalid Request"));
         }
 
         // Extract method and ID
@@ -104,21 +169,21 @@ impl StdioTransport {
             None => {
                 error!("Missing method in request");
                 let id = request.get("id");
-                self.send_invalid_request_error(stdout, id).await?;
-                return Ok(());
+                return Some(create_error_response(id, -32600, "Invalid Request"));
             }
         };
 
         let id = request.get("id");
 
-        // Skip notifications (no response needed)
-        if method.starts_with("notifications/") {
-            debug!("Received notification: {}", method);
-            return Ok(());
+        // Handle notifications (no response needed) - proper JSON-RPC 2.0 notification detection
+        if id.is_none() {
+            debug!("Received JSON-RPC notification: {}", method);
+            self.handle_notification(method, request.get("params")).await;
+            return None;
         }
 
         // Extract headers from JSON-RPC extensions (if any)
-        let headers = self.extract_headers_from_request(&request);
+        let headers = self.extract_headers_from_request(request);
 
         // Process request with timeout
         let response = tokio::time::timeout(
@@ -128,16 +193,42 @@ impl StdioTransport {
         .await;
 
         match response {
-            Ok(resp) => {
-                self.send_response(stdout, &resp).await?;
-            }
+            Ok(resp) => Some(resp),
             Err(_) => {
                 error!("Request processing timeout for method: {}", method);
-                self.send_timeout_error(stdout, id).await?;
+                Some(create_error_response_with_data(
+                    id,
+                    -32603,
+                    "Internal error",
+                    Some(serde_json::json!({
+                        "type": "timeout",
+                        "details": "Request processing timeout exceeded"
+                    })),
+                ))
             }
         }
+    }
 
-        Ok(())
+    /// Handle JSON-RPC 2.0 notifications (no response expected)
+    async fn handle_notification(&self, method: &str, params: Option<&Value>) {
+        debug!("Processing notification: {} with params: {:?}", method, params);
+        
+        match method {
+            "notifications/initialized" => {
+                debug!("Client initialized notification received");
+            }
+            "notifications/cancelled" => {
+                if let Some(params) = params {
+                    if let Some(request_id) = params.get("requestId") {
+                        debug!("Request cancellation notification: {:?}", request_id);
+                        // TODO: Implement request cancellation logic
+                    }
+                }
+            }
+            _ => {
+                debug!("Unknown notification method: {}", method);
+            }
+        }
     }
 
     /// Send a response to stdout
@@ -194,14 +285,34 @@ impl StdioTransport {
         stdout: &mut tokio::io::Stdout,
         id: Option<&Value>,
     ) -> Result<()> {
-        let error_response = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": {
-                "code": -32603,
-                "message": "Request timeout"
-            }
-        });
+        let error_response = create_error_response_with_data(
+            id,
+            -32603,
+            "Internal error",
+            Some(serde_json::json!({
+                "type": "timeout",
+                "details": "Request processing timeout exceeded"
+            })),
+        );
+        self.send_response(stdout, &error_response).await
+    }
+
+    /// Send an internal error response
+    async fn send_internal_error(
+        &self,
+        stdout: &mut tokio::io::Stdout,
+        id: Option<&Value>,
+        details: &str,
+    ) -> Result<()> {
+        let error_response = create_error_response_with_data(
+            id,
+            -32603,
+            "Internal error",
+            Some(serde_json::json!({
+                "type": "internal",
+                "details": details
+            })),
+        );
         self.send_response(stdout, &error_response).await
     }
 
@@ -280,15 +391,31 @@ impl StdioTransport {
     }
 }
 
-/// Helper function to create JSON-RPC error responses
+/// Helper function to create JSON-RPC error responses with optional data
 pub fn create_error_response(id: Option<&Value>, code: i32, message: &str) -> Value {
+    create_error_response_with_data(id, code, message, None)
+}
+
+/// Helper function to create JSON-RPC error responses with data field
+pub fn create_error_response_with_data(
+    id: Option<&Value>,
+    code: i32,
+    message: &str,
+    data: Option<Value>,
+) -> Value {
+    let mut error = serde_json::json!({
+        "code": code,
+        "message": message
+    });
+    
+    if let Some(error_data) = data {
+        error["data"] = error_data;
+    }
+    
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": {
-            "code": code,
-            "message": message
-        }
+        "error": error
     })
 }
 
@@ -301,15 +428,82 @@ pub fn create_success_response(id: Option<&Value>, result: Value) -> Value {
     })
 }
 
-/// Helper function to format content for MCP tool responses
+/// Helper function to format content for MCP tool responses with text content
 pub fn format_tool_response(text: &str) -> Value {
+    format_tool_response_with_content(vec![create_text_content(text, None)])
+}
+
+/// Helper function to create MCP text content
+pub fn create_text_content(text: &str, annotations: Option<Value>) -> Value {
+    let mut content = serde_json::json!({
+        "type": "text",
+        "text": text
+    });
+    
+    if let Some(annotations) = annotations {
+        content["annotations"] = annotations;
+    }
+    
+    content
+}
+
+/// Helper function to create MCP image content
+pub fn create_image_content(data: &str, mime_type: &str, annotations: Option<Value>) -> Value {
+    let mut content = serde_json::json!({
+        "type": "image", 
+        "data": data,
+        "mimeType": mime_type
+    });
+    
+    if let Some(annotations) = annotations {
+        content["annotations"] = annotations;
+    }
+    
+    content
+}
+
+/// Helper function to create MCP resource content
+pub fn create_resource_content(uri: &str, mime_type: Option<&str>, text: Option<&str>, annotations: Option<Value>) -> Value {
+    let mut content = serde_json::json!({
+        "type": "resource",
+        "resource": {
+            "uri": uri
+        }
+    });
+    
+    if let Some(mime_type) = mime_type {
+        content["resource"]["mimeType"] = mime_type.into();
+    }
+    
+    if let Some(text) = text {
+        content["resource"]["text"] = text.into();
+    }
+    
+    if let Some(annotations) = annotations {
+        content["annotations"] = annotations;
+    }
+    
+    content
+}
+
+/// Helper function to format MCP tool responses with multiple content types
+pub fn format_tool_response_with_content(content: Vec<Value>) -> Value {
+    serde_json::json!({
+        "content": content,
+        "isError": false
+    })
+}
+
+/// Helper function to format MCP tool error responses
+pub fn format_tool_error_response(text: &str, is_error: bool) -> Value {
     serde_json::json!({
         "content": [
             {
                 "type": "text",
                 "text": text
             }
-        ]
+        ],
+        "isError": is_error
     })
 }
 

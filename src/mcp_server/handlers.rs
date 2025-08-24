@@ -10,7 +10,7 @@ use crate::mcp_server::{
     progress::{ProgressTracker, ProgressHandle},
     rate_limiter::MCPRateLimiter,
     tools::MCPTools,
-    transport::{create_error_response, create_success_response, format_tool_response},
+    transport::{create_error_response, create_error_response_with_data, create_success_response, format_tool_response, format_tool_response_with_content, format_tool_error_response, create_text_content},
 };
 use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::SimpleEmbedder;

@@ -588,7 +588,7 @@ impl MathEngine {
         // For new memories, use creation time with adjusted consolidation strength
         let adjusted_consolidation = params.consolidation_strength * params.importance_score;
         let normalized_time = time_since_creation / adjusted_consolidation.max(0.1);
-        self.forgetting_curve_formula(normalized_time, params.decay_rate)
+        self.ebbinghaus_forgetting_curve(normalized_time, params.decay_rate)
     }
 
     /// Validate memory parameters

@@ -43,15 +43,13 @@ mod ebbinghaus_validation_tests {
         assert_relative_eq!(
             calculate_ebbinghaus_retention(0.0, strength),
             1.0,
-            epsilon = EBBINGHAUS_TOLERANCE,
-            "At t=0, retention should be 100%"
+            epsilon = EBBINGHAUS_TOLERANCE
         );
         
         assert_relative_eq!(
             calculate_ebbinghaus_retention(strength, strength),
             std::f64::consts::E.recip(), // 1/e ≈ 0.368
-            epsilon = EBBINGHAUS_TOLERANCE,
-            "At t=S, retention should be 1/e"
+            epsilon = EBBINGHAUS_TOLERANCE
         );
         
         // Test monotonic decrease
@@ -79,9 +77,7 @@ mod ebbinghaus_validation_tests {
             assert_relative_eq!(
                 calculated_retention,
                 expected_retention,
-                epsilon = 0.05,
-                "Ebbinghaus empirical validation failed at t={} hours: expected {}, got {}",
-                time_hours, expected_retention, calculated_retention
+                epsilon = 0.05
             );
         }
     }
@@ -203,14 +199,12 @@ mod integration_tests {
         let result = engine.calculate_recall_probability(&params).unwrap();
         
         // After 24 hours with strength 10, retention should be e^(-24/10) ≈ 0.091
-        let expected_retention = (-24.0 / 10.0).exp();
+        let expected_retention: f64 = (-24.0_f64 / 10.0).exp();
         
         assert_relative_eq!(
             result.recall_probability,
             expected_retention,
-            epsilon = 0.05,
-            "MathEngine should implement Ebbinghaus curve: expected {}, got {}",
-            expected_retention, result.recall_probability
+            epsilon = 0.05
         );
     }
 
@@ -229,13 +223,12 @@ mod integration_tests {
         let result = engine.calculate_recall_probability(&params).unwrap();
         
         // For never-accessed memories, use time since creation
-        let expected_retention = (-12.0 / (8.0 * 0.5)).exp(); // Adjusted by importance
+        let expected_retention: f64 = (-12.0_f64 / (8.0 * 0.5)).exp(); // Adjusted by importance
         
         assert_relative_eq!(
             result.recall_probability,
             expected_retention,
-            epsilon = 0.1,
-            "Never-accessed memories should follow Ebbinghaus curve from creation time"
+            epsilon = 0.1
         );
     }
 
@@ -262,8 +255,7 @@ mod integration_tests {
         assert_relative_eq!(
             batch_result.results[0].recall_probability,
             individual_result.recall_probability,
-            epsilon = EBBINGHAUS_TOLERANCE,
-            "Batch processing should give identical results to individual calculations"
+            epsilon = EBBINGHAUS_TOLERANCE
         );
     }
 }

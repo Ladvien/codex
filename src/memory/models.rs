@@ -90,6 +90,15 @@ pub struct Memory {
     // Three-component scoring fields
     pub recency_score: f64,
     pub relevance_score: f64,
+    // Testing effect tracking fields (Roediger & Karpicke, 2008)
+    pub successful_retrievals: i32,
+    pub failed_retrievals: i32,
+    pub total_retrieval_attempts: i32,
+    pub last_retrieval_difficulty: Option<f64>,
+    pub last_retrieval_success: Option<bool>,
+    pub next_review_at: Option<DateTime<Utc>>,
+    pub current_interval_days: Option<f64>,
+    pub ease_factor: f64, // For spaced repetition (Anki-style SuperMemo2)
 }
 
 impl Serialize for Memory {
@@ -98,7 +107,7 @@ impl Serialize for Memory {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Memory", 21)?;
+        let mut state = serializer.serialize_struct("Memory", 29)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("content", &self.content)?;
         state.serialize_field("content_hash", &self.content_hash)?;
@@ -122,6 +131,15 @@ impl Serialize for Memory {
         )?;
         state.serialize_field("recency_score", &self.recency_score)?;
         state.serialize_field("relevance_score", &self.relevance_score)?;
+        // Testing effect fields serialization
+        state.serialize_field("successful_retrievals", &self.successful_retrievals)?;
+        state.serialize_field("failed_retrievals", &self.failed_retrievals)?;
+        state.serialize_field("total_retrieval_attempts", &self.total_retrieval_attempts)?;
+        state.serialize_field("last_retrieval_difficulty", &self.last_retrieval_difficulty)?;
+        state.serialize_field("last_retrieval_success", &self.last_retrieval_success)?;
+        state.serialize_field("next_review_at", &self.next_review_at)?;
+        state.serialize_field("current_interval_days", &self.current_interval_days)?;
+        state.serialize_field("ease_factor", &self.ease_factor)?;
         state.end()
     }
 }
@@ -402,6 +420,15 @@ impl Default for Memory {
             last_recall_interval: None,
             recency_score: 0.0,
             relevance_score: 0.0,
+            // Testing effect default values based on research
+            successful_retrievals: 0,
+            failed_retrievals: 0,
+            total_retrieval_attempts: 0,
+            last_retrieval_difficulty: None,
+            last_retrieval_success: None,
+            next_review_at: None,
+            current_interval_days: Some(1.0), // Start with 1 day interval (Pimsleur spacing)
+            ease_factor: 2.5, // Default ease factor from SuperMemo2 algorithm
         }
     }
 }
@@ -417,6 +444,45 @@ impl Memory {
     /// Get recall count (alias for access_count)
     pub fn recall_count(&self) -> i32 {
         self.access_count
+    }
+
+    /// Calculate testing effect success rate
+    pub fn testing_effect_success_rate(&self) -> f64 {
+        if self.total_retrieval_attempts == 0 {
+            return 0.5; // Neutral starting point
+        }
+        self.successful_retrievals as f64 / self.total_retrieval_attempts as f64
+    }
+
+    /// Get retrieval confidence based on success rate and repetitions
+    pub fn retrieval_confidence(&self) -> f64 {
+        let success_rate = self.testing_effect_success_rate();
+        let attempt_factor = (self.total_retrieval_attempts as f64).min(10.0) / 10.0;
+        (success_rate * 0.7) + (attempt_factor * 0.3)
+    }
+
+    /// Calculate next spaced repetition interval (based on Pimsleur method)
+    pub fn calculate_next_spaced_interval(&self, retrieval_success: bool, difficulty: f64) -> f64 {
+        let current_interval = self.current_interval_days.unwrap_or(1.0);
+        
+        if retrieval_success {
+            // Successful retrieval: increase interval using ease factor
+            let ease = self.ease_factor;
+            let difficulty_adjustment = 1.0 - (difficulty - 0.5); // Easier = longer interval
+            current_interval * ease * difficulty_adjustment.max(0.5)
+        } else {
+            // Failed retrieval: reset to minimum interval
+            1.0
+        }
+    }
+
+    /// Check if memory is due for testing effect review
+    pub fn is_due_for_review(&self) -> bool {
+        if let Some(next_review) = self.next_review_at {
+            Utc::now() >= next_review
+        } else {
+            true // First review
+        }
     }
 
     pub fn should_migrate(&self) -> bool {

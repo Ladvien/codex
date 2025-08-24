@@ -317,7 +317,7 @@ impl StdioTransport {
     }
 
     /// Validate JSON-RPC request structure according to specification
-    fn validate_jsonrpc_request(&self, request: &Value) -> Result<(), String> {
+    pub fn validate_jsonrpc_request(&self, request: &Value) -> Result<(), String> {
         // Check required jsonrpc field
         match request.get("jsonrpc") {
             Some(version) => {

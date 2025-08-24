@@ -300,9 +300,9 @@ impl InsightsProcessor {
                 Err(e) => {
                     total_errors += chunk.len();
                     let error_type = match &e {
-                        MemoryError::OllamaError(_) => "ollama_error",
-                        MemoryError::DatabaseError(_) => "database_error",
-                        MemoryError::ServiceUnavailable(_) => "service_unavailable",
+                        MemoryError::Database(_) => "database_error",
+                        MemoryError::NotFound { .. } => "not_found",
+                        MemoryError::StorageExhausted { .. } => "storage_exhausted",
                         _ => "other_error",
                     };
                     
@@ -454,7 +454,7 @@ impl InsightsProcessor {
         
         // Check ollama client
         components.insert("ollama_client".to_string(), 
-            self.ollama_client.health_check().await.is_ok());
+            self.ollama_client.health_check().await);
         
         // Check insight storage - for now assume healthy if we can create the component
         // In a full implementation, this would check database connectivity
@@ -503,14 +503,15 @@ impl InsightsProcessor {
         }
 
         // Filter by confidence threshold
+        let original_count = insight_requests.len();
         let filtered_insights: Vec<_> = insight_requests
             .into_iter()
             .filter(|insight| insight.confidence_score >= self.config.min_confidence_threshold)
             .collect();
 
-        if filtered_insights.len() < insight_requests.len() {
+        if filtered_insights.len() < original_count {
             debug!("Filtered {} insights below confidence threshold {}", 
-                   insight_requests.len() - filtered_insights.len(), 
+                   original_count - filtered_insights.len(), 
                    self.config.min_confidence_threshold);
         }
 
@@ -538,16 +539,13 @@ impl InsightsProcessor {
         
         for &memory_id in memory_ids {
             match self.memory_repository.get_memory_by_id(memory_id).await {
-                Ok(Some(memory)) => {
+                Ok(memory) => {
                     // Only process active memories
                     if matches!(memory.status, MemoryStatus::Active) {
                         memories.push(memory);
                     } else {
                         debug!("Skipping inactive memory {}", memory_id);
                     }
-                }
-                Ok(None) => {
-                    debug!("Memory {} not found", memory_id);
                 }
                 Err(e) => {
                     error!("Failed to fetch memory {}: {}", memory_id, e);
@@ -564,7 +562,7 @@ impl InsightsProcessor {
         let mut insights = Vec::new();
 
         for memory in memories {
-            match self.ollama_client.generate_insight(vec![memory.clone()]).await {
+            match self.ollama_client.generate_insights_batch(vec![memory.clone()]).await {
                 Ok(insight_response) => {
                     // Convert InsightResponse to Insight
                     let insight = self.convert_insight_response_to_insight(insight_response, memory).await;

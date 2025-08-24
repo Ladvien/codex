@@ -169,7 +169,8 @@ impl InsightStorage {
         if let Some(content) = updates.content {
             new_version.content = content;
             // Regenerate embedding if content changed
-            new_version.embedding = Some(self.generate_embedding(&new_version.content).await?);
+            let vector = self.generate_embedding(&new_version.content).await?;
+            new_version.embedding = Some(vector.to_vec());
         }
         if let Some(confidence) = updates.confidence_score {
             new_version.confidence_score = confidence;
@@ -447,7 +448,7 @@ impl InsightStorage {
     }
 
     /// Convert database row to Insight struct
-    fn row_to_insight(&self, row: &Row) -> Result<Insight> {
+    fn row_to_insight(&self, row: &sqlx::postgres::PgRow) -> Result<Insight> {
         let source_memory_ids_json: serde_json::Value = row.try_get("source_memory_ids")
             .map_err(MemoryError::Database)?;
         let source_memory_ids: Vec<Uuid> = serde_json::from_value(source_memory_ids_json)

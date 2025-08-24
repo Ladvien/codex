@@ -3214,6 +3214,28 @@ impl MemoryRepository {
         tx.commit().await?;
         Ok(deleted_count)
     }
+
+    /// Health check for the memory repository
+    #[cfg(feature = "codex-dreams")]
+    pub async fn health_check(&self) -> Result<bool> {
+        match sqlx::query("SELECT 1").fetch_one(&self.pool).await {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Get memory by ID
+    #[cfg(feature = "codex-dreams")]
+    pub async fn get_memory_by_id(&self, id: Uuid) -> Result<Memory> {
+        let memory = sqlx::query_as::<_, Memory>(
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?;
+        
+        Ok(memory)
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]

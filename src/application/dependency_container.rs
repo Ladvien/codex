@@ -9,6 +9,13 @@ use crate::{
     monitoring::HealthChecker,
     Config, DatabaseSetup, MemoryRepository, SetupManager, SimpleEmbedder,
 };
+
+#[cfg(feature = "codex-dreams")]
+use crate::insights::{
+    processor::{InsightsProcessor, ProcessorConfig},
+    storage::InsightStorage,
+    ollama_client::{OllamaClient, OllamaConfig},
+};
 use anyhow::Result;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -37,6 +44,14 @@ pub struct DependencyContainer {
     pub health_checker: Arc<HealthChecker>,
     pub mcp_server: Option<Arc<MCPServer>>,
     pub server_manager: Arc<ServerManager>,
+
+    // Codex Dreams components (feature gated)
+    #[cfg(feature = "codex-dreams")]
+    pub ollama_client: Option<Arc<OllamaClient>>,
+    #[cfg(feature = "codex-dreams")]
+    pub insight_storage: Option<Arc<InsightStorage>>,
+    #[cfg(feature = "codex-dreams")]
+    pub insights_processor: Option<Arc<InsightsProcessor>>,
 }
 
 impl DependencyContainer {
@@ -97,6 +112,78 @@ impl DependencyContainer {
         //     &prometheus_registry,
         // )?));
 
+        // Initialize Codex Dreams components (feature gated)
+        #[cfg(feature = "codex-dreams")]
+        let (ollama_client, insight_storage, insights_processor) = {
+            info!("🧠 Initializing Codex Dreams components...");
+            
+            // Create Ollama client with configuration from environment
+            let ollama_config = OllamaConfig {
+                base_url: std::env::var("OLLAMA_BASE_URL")
+                    .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+                model: std::env::var("OLLAMA_MODEL")
+                    .unwrap_or_else(|_| "llama2:latest".to_string()),
+                timeout_seconds: std::env::var("OLLAMA_TIMEOUT")
+                    .unwrap_or_else(|_| "30".to_string())
+                    .parse().unwrap_or(30),
+                max_retries: 3,
+                initial_retry_delay_ms: 1000,
+                max_retry_delay_ms: 10000,
+            };
+            
+            let ollama_client = match OllamaClient::new(ollama_config) {
+                Ok(client) => {
+                    info!("✅ Ollama client initialized");
+                    Some(Arc::new(client))
+                },
+                Err(e) => {
+                    info!("⚠️  Ollama client initialization failed: {}. Insights will be disabled.", e);
+                    None
+                }
+            };
+            
+            // Create insight storage
+            let insight_storage = Some(Arc::new(InsightStorage::new(
+                db_pool.clone(),
+                embedder.clone(),
+            )));
+            info!("✅ Insight storage initialized");
+            
+            // Create insights processor (only if Ollama client is available)
+            let insights_processor = if let (Some(ollama_client), Some(insight_storage)) = 
+                (ollama_client.as_ref(), insight_storage.as_ref()) {
+                
+                let processor_config = ProcessorConfig {
+                    batch_size: std::env::var("INSIGHTS_BATCH_SIZE")
+                        .unwrap_or_else(|_| "50".to_string())
+                        .parse().unwrap_or(50),
+                    max_retries: 3,
+                    timeout_seconds: 120,
+                    circuit_breaker_threshold: 5,
+                    circuit_breaker_recovery_timeout: 60,
+                    min_confidence_threshold: std::env::var("INSIGHTS_MIN_CONFIDENCE")
+                        .unwrap_or_else(|_| "0.6".to_string())
+                        .parse().unwrap_or(0.6),
+                    max_insights_per_batch: 10,
+                };
+                
+                let processor = InsightsProcessor::new(
+                    memory_repository.clone(),
+                    ollama_client.clone(),
+                    insight_storage.clone(),
+                    processor_config,
+                );
+                
+                info!("✅ Insights processor initialized");
+                Some(Arc::new(processor))
+            } else {
+                info!("⚠️  Insights processor disabled (missing dependencies)");
+                None
+            };
+            
+            (ollama_client, insight_storage, insights_processor)
+        };
+
         info!("✅ Dependency container initialized successfully");
 
         Ok(Self {
@@ -112,6 +199,12 @@ impl DependencyContainer {
             health_checker,
             mcp_server: None, // Created on demand
             server_manager,
+            #[cfg(feature = "codex-dreams")]
+            ollama_client,
+            #[cfg(feature = "codex-dreams")]
+            insight_storage,
+            #[cfg(feature = "codex-dreams")]
+            insights_processor,
         })
     }
 
@@ -135,13 +228,27 @@ impl DependencyContainer {
     pub async fn create_mcp_server(&self) -> Result<MCPServer> {
         let mcp_config = MCPServerConfig::default();
 
-        let server = MCPServer::new(
-            self.memory_repository.clone(),
-            self.embedder.clone(),
-            mcp_config,
-        )?;
+        #[cfg(feature = "codex-dreams")]
+        {
+            let server = MCPServer::new_with_insights(
+                self.memory_repository.clone(),
+                self.embedder.clone(),
+                mcp_config,
+                self.insights_processor.clone(),
+                self.insight_storage.clone(),
+            )?;
+            Ok(server)
+        }
 
-        Ok(server)
+        #[cfg(not(feature = "codex-dreams"))]
+        {
+            let server = MCPServer::new(
+                self.memory_repository.clone(),
+                self.embedder.clone(),
+                mcp_config,
+            )?;
+            Ok(server)
+        }
     }
 
     pub async fn health_check(&self) -> Result<bool> {

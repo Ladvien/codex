@@ -30,7 +30,7 @@ use tokio::sync::{Mutex, RwLock};
 #[cfg(feature = "codex-dreams")]
 use tokio_cron_scheduler::{JobScheduler, Job};
 #[cfg(feature = "codex-dreams")]
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Utc, Duration, Timelike};
 #[cfg(feature = "codex-dreams")]
 use tracing::{info, warn, error, debug, instrument};
 #[cfg(feature = "codex-dreams")]
@@ -324,7 +324,7 @@ impl InsightScheduler {
 
         // Add the job to the scheduler
         let job_uuid = {
-            let mut sched = scheduler.lock().await;
+            let sched = scheduler.lock().await;
             sched.add(job).await.map_err(|e| {
                 anyhow::anyhow!("Failed to add job to scheduler: {}", e)
             })?
@@ -589,7 +589,7 @@ impl InsightScheduler {
         // Off-peak hours: longer processing for thoroughness
         let delay_ms = match hour {
             9..=17 => 100,  // Peak hours: fast processing
-            22..=6 => 500,  // Night hours: thorough processing (consolidation time)
+            22..=23 | 0..=6 => 500,  // Night hours: thorough processing (consolidation time)
             _ => 200,       // Transition hours: moderate processing
         };
 

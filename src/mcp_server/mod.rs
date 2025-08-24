@@ -38,6 +38,9 @@ use crate::memory::{
 };
 use crate::security::{audit::AuditLogger, AuditConfig};
 use crate::SimpleEmbedder;
+
+#[cfg(feature = "codex-dreams")]
+use crate::insights::processor::InsightsProcessor;
 use anyhow::Result;
 use std::sync::Arc;
 use tracing::info;
@@ -92,14 +95,56 @@ pub struct MCPServer {
     audit_logger: Arc<AuditLogger>,
     mcp_logger: Arc<MCPLogger>,
     progress_tracker: Arc<ProgressTracker>,
+    #[cfg(feature = "codex-dreams")]
+    insights_processor: Option<Arc<InsightsProcessor>>,
 }
 
 impl MCPServer {
     /// Create a new MCP server instance
+    #[cfg(not(feature = "codex-dreams"))]
     pub fn new(
         repository: Arc<MemoryRepository>,
         embedder: Arc<SimpleEmbedder>,
         config: MCPServerConfig,
+    ) -> Result<Self> {
+        Self::new_impl(repository, embedder, config, None, None)
+    }
+
+    /// Create a new MCP server instance with insights processor
+    #[cfg(feature = "codex-dreams")]
+    pub fn new(
+        repository: Arc<MemoryRepository>,
+        embedder: Arc<SimpleEmbedder>,
+        config: MCPServerConfig,
+    ) -> Result<Self> {
+        Self::new_impl(repository, embedder, config, None, None)
+    }
+
+    /// Create a new MCP server instance with insights processor
+    #[cfg(feature = "codex-dreams")]
+    pub fn new_with_insights(
+        repository: Arc<MemoryRepository>,
+        embedder: Arc<SimpleEmbedder>,
+        config: MCPServerConfig,
+        insights_processor: Option<Arc<InsightsProcessor>>,
+        insight_storage: Option<Arc<crate::insights::storage::InsightStorage>>,
+    ) -> Result<Self> {
+        Self::new_impl(repository, embedder, config, insights_processor, insight_storage)
+    }
+
+    /// Internal implementation for creating MCP server
+    fn new_impl(
+        repository: Arc<MemoryRepository>,
+        embedder: Arc<SimpleEmbedder>,
+        config: MCPServerConfig,
+        #[cfg(feature = "codex-dreams")]
+        insights_processor: Option<Arc<InsightsProcessor>>,
+        #[cfg(feature = "codex-dreams")]
+        insight_storage: Option<Arc<crate::insights::storage::InsightStorage>>,
+        #[cfg(not(feature = "codex-dreams"))]
+        _insights_processor: Option<()>,
+        #[cfg(not(feature = "codex-dreams"))]
+        _insight_storage: Option<()>,
     ) -> Result<Self> {
         // Initialize audit logger
         let audit_logger = Arc::new(AuditLogger::new(config.audit.clone())?);
@@ -153,6 +198,21 @@ impl MCPServer {
         };
 
         // Create handlers
+        #[cfg(feature = "codex-dreams")]
+        let handlers = MCPHandlers::new_with_insights(
+            repository.clone(),
+            embedder.clone(),
+            harvester_service.clone(),
+            circuit_breaker.clone(),
+            auth.clone(),
+            rate_limiter.clone(),
+            mcp_logger.clone(),
+            progress_tracker.clone(),
+            insights_processor.clone(),
+            insight_storage.clone(),
+        );
+
+        #[cfg(not(feature = "codex-dreams"))]
         let handlers = MCPHandlers::new(
             repository.clone(),
             embedder.clone(),
@@ -180,6 +240,8 @@ impl MCPServer {
             audit_logger,
             mcp_logger,
             progress_tracker,
+            #[cfg(feature = "codex-dreams")]
+            insights_processor,
         })
     }
 

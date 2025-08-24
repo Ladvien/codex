@@ -116,7 +116,7 @@ pub trait OllamaClientTrait {
 }
 
 #[cfg(feature = "codex-dreams")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OllamaClient {
     config: OllamaConfig,
     client: Client,
@@ -292,6 +292,33 @@ Requirements:
                 }
             }
         }
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    pub async fn health_check(&self) -> bool {
+        match self.execute_with_retry(|| async {
+            let response = self.client
+                .post(&format!("{}/api/version", self.config.base_url))
+                .timeout(Duration::from_millis(5000))
+                .send()
+                .await
+                .map_err(|e| OllamaClientError::HttpError(e))?;
+
+            if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(OllamaClientError::ServiceUnavailable(format!("Health check failed with status: {}", response.status())))
+            }
+        }).await {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(feature = "codex-dreams")]
+    pub async fn generate_insights_batch(&self, memories: Vec<crate::memory::Memory>) -> Result<InsightResponse, OllamaClientError> {
+        // Use the trait method implementation
+        OllamaClientTrait::generate_insight(self, memories).await
     }
 }
 

@@ -6,6 +6,8 @@ pub mod backup;
 pub mod config;
 pub mod database_setup;
 pub mod embedding;
+#[cfg(feature = "codex-dreams")]
+pub mod insights;
 pub mod manager;
 pub mod mcp_server;
 pub mod memory;
@@ -55,3 +57,11 @@ pub use security::{
 
 // Re-export manager types
 pub use manager::{ManagerPaths, ServerManager};
+
+// Re-export insights types (feature-gated)
+#[cfg(feature = "codex-dreams")]
+pub use insights::{
+    ExportFilter, ExportFormat, ExportMetadata, HealthStatus as InsightHealthStatus, Insight,
+    InsightExport, InsightFeedback, InsightType, InsightUpdate, ProcessingReport,
+    ProcessingStatus,
+};

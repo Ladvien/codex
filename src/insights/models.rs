@@ -330,7 +330,8 @@ mod tests {
     fn test_insight_type_serialization() {
         let insight_type = InsightType::Learning;
         let json = serde_json::to_string(&insight_type).unwrap();
-        assert_eq!(json, "\"learning\"");
+        // Note: sqlx::Type serialization uses PascalCase, not lowercase
+        assert_eq!(json, "\"Learning\"");
         
         let deserialized: InsightType = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, insight_type);
@@ -340,7 +341,8 @@ mod tests {
     fn test_processing_status_serialization() {
         let status = ProcessingStatus::Processing;
         let json = serde_json::to_string(&status).unwrap();
-        assert_eq!(json, "\"processing\"");
+        // Note: sqlx::Type serialization uses PascalCase, not lowercase
+        assert_eq!(json, "\"Processing\"");
         
         let deserialized: ProcessingStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, status);

@@ -17,7 +17,7 @@ impl AutoTieringEngine {
     pub fn new(repository: Arc<MemoryRepository>) -> Self {
         Self {
             repository,
-            test_pattern: Regex::new(r"(?i)(test|health check|concurrent.*thread|binary size)").unwrap(),
+            test_pattern: Regex::new(r"(?i)(test|health check|concurrent.*thread|binary size|about to be deleted|temporary.*true|op_id)").unwrap(),
             dev_pattern: Regex::new(r"(?i)(jira|story \d+|status:\s*completed|development.*summary|creating rust)").unwrap(),
         }
     }
@@ -25,6 +25,12 @@ impl AutoTieringEngine {
     /// Analyze a memory and determine its appropriate tier
     pub fn classify_memory(&self, memory: &Memory) -> (MemoryTier, f32) {
         let content_lower = memory.content.to_lowercase();
+        
+        // Suspicious content that indicates data corruption
+        if memory.content == "About to be deleted" {
+            debug!("Found corrupted memory with 'About to be deleted' content: {}", memory.id);
+            return (MemoryTier::Cold, 0.01); // Extremely low importance
+        }
         
         // Test data should go to cold storage with very low importance
         if self.test_pattern.is_match(&content_lower) {

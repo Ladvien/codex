@@ -81,6 +81,10 @@ pub struct Insight {
     pub version: i32,
     /// Previous version content (for rollback)
     pub previous_version: Option<String>,
+    /// ID of the previous version for tracking
+    pub previous_version_id: Option<Uuid>,
+    /// Vector embedding for semantic search (optional during creation)
+    pub embedding: Option<Vec<f32>>,
 }
 
 /// User feedback on insights

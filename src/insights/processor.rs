@@ -12,13 +12,13 @@
 //! - Provides comprehensive error handling and recovery
 
 #[cfg(feature = "codex-dreams")]
-use super::models::{Insight, InsightType, ProcessingReport, HealthStatus, ProcessingStatus};
+use super::models::{Insight, ProcessingReport, HealthStatus};
 #[cfg(feature = "codex-dreams")]
 use super::ollama_client::{OllamaClient, OllamaClientError};
 #[cfg(feature = "codex-dreams")]
-use super::storage::{InsightStorage, FeedbackRating};
+use super::storage::InsightStorage;
 #[cfg(feature = "codex-dreams")]
-use crate::memory::{Memory, MemoryRepository, MemoryTier, MemoryStatus};
+use crate::memory::{Memory, MemoryRepository, MemoryStatus};
 #[cfg(feature = "codex-dreams")]
 use crate::memory::error::{MemoryError, Result};
 
@@ -616,6 +616,8 @@ impl InsightsProcessor {
             feedback_score: 0.0,
             version: 1,
             previous_version: None,
+            previous_version_id: None,
+            embedding: None, // Will be generated during storage
         }
     }
 }
@@ -623,7 +625,7 @@ impl InsightsProcessor {
 #[cfg(all(feature = "codex-dreams", test))]
 mod tests {
     use super::*;
-    use crate::memory::test_utils::create_test_memory;
+    // use crate::memory::test_utils::create_test_memory;
     use tokio;
 
     // Mock implementations for testing would go here

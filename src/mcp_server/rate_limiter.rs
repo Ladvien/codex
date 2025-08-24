@@ -604,6 +604,12 @@ impl MCPRateLimiter {
             "whitelist_clients": self.config.whitelist_clients.len(),
         })
     }
+
+    /// Test helper to get the number of active client limiters
+    #[cfg(test)]
+    pub async fn get_client_limiter_count(&self) -> usize {
+        self.client_limiters.read().await.len()
+    }
 }
 
 #[cfg(test)]

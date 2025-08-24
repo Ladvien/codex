@@ -40,6 +40,15 @@ fn create_test_memory(
         last_recall_interval: None,
         recency_score: 0.5,
         relevance_score: 0.5,
+        // Testing effect fields
+        successful_retrievals: 0,
+        failed_retrievals: 0,
+        total_retrieval_attempts: 0,
+        last_retrieval_difficulty: None,
+        last_retrieval_success: None,
+        next_review_at: None,
+        current_interval_days: None,
+        ease_factor: 2.5, // Default ease factor
     }
 }
 

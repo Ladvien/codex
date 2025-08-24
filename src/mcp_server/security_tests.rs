@@ -678,10 +678,7 @@ async fn test_memory_leak_prevention() {
     }
 
     // Check initial client limiter count
-    let initial_count = {
-        let limiters = limiter.client_limiters.read().await;
-        limiters.len()
-    };
+    let initial_count = limiter.get_client_limiter_count().await;
     assert_eq!(initial_count, 50, "Should have created 50 client limiters");
 
     // Wait for TTL cleanup (TTL is 1 minute, cleanup every 1 minute)
@@ -689,10 +686,7 @@ async fn test_memory_leak_prevention() {
     sleep(std::time::Duration::from_secs(75)).await; // Wait longer than TTL + cleanup interval
 
     // Check that cleanup occurred
-    let final_count = {
-        let limiters = limiter.client_limiters.read().await;
-        limiters.len()
-    };
+    let final_count = limiter.get_client_limiter_count().await;
     
     // Due to timing, some limiters might still be present, but there should be significant cleanup
     assert!(

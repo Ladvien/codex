@@ -279,7 +279,7 @@ impl CognitiveConsolidationEngine {
     /// Implements findings from Roediger & Karpicke (2008) and Bjork (1994) that desirable 
     /// difficulties during retrieval enhance long-term retention. Now integrated with
     /// dedicated testing effect implementation for research compliance.
-    fn calculate_testing_effect(&self, context: &RetrievalContext) -> Result<f64> {
+    pub(crate) fn calculate_testing_effect(&self, context: &RetrievalContext) -> Result<f64> {
         // Enhanced testing effect calculation based on research
         let difficulty = match context.retrieval_latency_ms {
             0..=500 => 0.2,     // Too easy - minimal benefit (automatic recall)

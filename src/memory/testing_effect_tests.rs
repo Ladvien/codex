@@ -84,7 +84,7 @@ mod tests {
     fn test_difficulty_scoring_research_compliance() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test immediate recognition (very easy)
         let difficulty_very_easy = engine.calculate_difficulty_score(300, 0.95);
@@ -111,7 +111,7 @@ mod tests {
     fn test_consolidation_boost_research_bounds() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test successful retrieval with optimal difficulty
         let boost_success_optimal = engine.calculate_consolidation_boost(
@@ -147,7 +147,7 @@ mod tests {
     fn test_retrieval_type_effects() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         let difficulty = 0.5; // Optimal difficulty
         let success = true;
@@ -183,7 +183,7 @@ mod tests {
     fn test_spaced_repetition_intervals() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
         
         let memory = create_test_memory_with_history();
 
@@ -213,7 +213,7 @@ mod tests {
     fn test_ease_factor_adjustments() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test successful retrieval increases ease factor
         let ease_change_success = engine.calculate_ease_factor_change(true, 0.5);
@@ -264,7 +264,7 @@ mod tests {
     fn test_research_compliance_validation() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test compliant parameters
         let compliance_good = engine.validate_research_compliance(1.5, 14.0, 0.5);
@@ -287,7 +287,7 @@ mod tests {
     fn test_performance_bounds_and_edge_cases() {
         let config = create_test_config();
         let repository = create_mock_repository();
-        let engine = TestingEffectEngine::new(config, repository);
+        let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test extreme latency values
         let difficulty_zero = engine.calculate_difficulty_score(0, 1.0);

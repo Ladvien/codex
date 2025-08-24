@@ -198,13 +198,13 @@ impl TestingEffectEngine {
         let memory = self.repository.get_memory(attempt.memory_id).await?;
         
         // Calculate difficulty score based on retrieval latency
-        let difficulty_score = self.calculate_difficulty_score(
+        let difficulty_score = self._calculate_difficulty_score(
             attempt.retrieval_latency_ms,
             attempt.confidence_score,
         );
         
         // Calculate consolidation boost using testing effect research
-        let consolidation_boost = self.calculate_consolidation_boost(
+        let consolidation_boost = self._calculate_consolidation_boost(
             attempt.success,
             difficulty_score,
             &attempt.query_type,
@@ -217,7 +217,7 @@ impl TestingEffectEngine {
         );
         
         // Calculate next spaced repetition interval
-        let next_interval_days = self.calculate_next_interval(
+        let next_interval_days = self._calculate_next_interval(
             &memory,
             attempt.success,
             difficulty_score,
@@ -279,7 +279,17 @@ impl TestingEffectEngine {
     }
     
     /// Calculate difficulty score from retrieval latency and confidence
+    #[cfg(test)]
+    pub fn calculate_difficulty_score(&self, latency_ms: u64, confidence: f64) -> f64 {
+        self._calculate_difficulty_score(latency_ms, confidence)
+    }
+    
+    #[cfg(not(test))]
     fn calculate_difficulty_score(&self, latency_ms: u64, confidence: f64) -> f64 {
+        self._calculate_difficulty_score(latency_ms, confidence)
+    }
+    
+    fn _calculate_difficulty_score(&self, latency_ms: u64, confidence: f64) -> f64 {
         let thresholds = &self.config.difficulty_thresholds;
         
         // Map latency to difficulty (0.0 = very easy, 1.0 = very hard)
@@ -302,7 +312,17 @@ impl TestingEffectEngine {
     }
     
     /// Calculate consolidation boost based on testing effect research
+    #[cfg(test)]
+    pub fn calculate_consolidation_boost(&self, success: bool, difficulty: f64, query_type: &RetrievalType) -> f64 {
+        self._calculate_consolidation_boost(success, difficulty, query_type)
+    }
+    
+    #[cfg(not(test))]
     fn calculate_consolidation_boost(&self, success: bool, difficulty: f64, query_type: &RetrievalType) -> f64 {
+        self._calculate_consolidation_boost(success, difficulty, query_type)
+    }
+    
+    fn _calculate_consolidation_boost(&self, success: bool, difficulty: f64, query_type: &RetrievalType) -> f64 {
         // Base multiplier from research
         let base_multiplier = if success {
             self.config.successful_retrieval_multiplier
@@ -346,7 +366,17 @@ impl TestingEffectEngine {
     }
     
     /// Calculate next spaced repetition interval using Pimsleur method
+    #[cfg(test)]
+    pub fn calculate_next_interval(&self, memory: &Memory, success: bool, difficulty: f64) -> f64 {
+        self._calculate_next_interval(memory, success, difficulty)
+    }
+    
+    #[cfg(not(test))]
     fn calculate_next_interval(&self, memory: &Memory, success: bool, difficulty: f64) -> f64 {
+        self._calculate_next_interval(memory, success, difficulty)
+    }
+    
+    fn _calculate_next_interval(&self, memory: &Memory, success: bool, difficulty: f64) -> f64 {
         let current_interval = memory.current_interval_days.unwrap_or(1.0);
         let ease_factor = memory.ease_factor;
         
@@ -376,7 +406,7 @@ impl TestingEffectEngine {
     }
     
     /// Calculate ease factor change based on performance
-    fn calculate_ease_factor_change(&self, success: bool, difficulty: f64) -> f64 {
+    pub(crate) fn calculate_ease_factor_change(&self, success: bool, difficulty: f64) -> f64 {
         if success {
             // Successful retrieval: increase ease factor slightly
             let base_increase = 0.1;
@@ -407,7 +437,7 @@ impl TestingEffectEngine {
     }
     
     /// Validate implementation against research standards
-    fn validate_research_compliance(
+    pub(crate) fn validate_research_compliance(
         &self,
         consolidation_boost: f64,
         interval_days: f64,
@@ -542,7 +572,8 @@ mod tests {
         // TODO: Replace with proper test infrastructure
         return; // Skip test until test DB is available
         #[allow(unreachable_code)]
-        let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").unwrap().unwrap()));
+        // let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").await.unwrap()));
+        let repository: Arc<MemoryRepository> = unimplemented!("Test DB not available");
         let engine = TestingEffectEngine::new(config, repository);
 
         // Test optimal difficulty (1.5 seconds, high confidence)
@@ -564,7 +595,8 @@ mod tests {
         // TODO: Replace with proper test infrastructure
         return; // Skip test until test DB is available
         #[allow(unreachable_code)]
-        let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").unwrap().unwrap()));
+        // let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").await.unwrap()));
+        let repository: Arc<MemoryRepository> = unimplemented!("Test DB not available");
         let engine = TestingEffectEngine::new(config, repository);
 
         // Test successful retrieval with optimal difficulty
@@ -593,7 +625,8 @@ mod tests {
         // TODO: Replace with proper test infrastructure
         return; // Skip test until test DB is available
         #[allow(unreachable_code)]
-        let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").unwrap().unwrap()));
+        // let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").await.unwrap()));
+        let repository: Arc<MemoryRepository> = unimplemented!("Test DB not available");
         let engine = TestingEffectEngine::new(config, repository);
         
         let memory = create_test_memory();
@@ -613,7 +646,8 @@ mod tests {
         // TODO: Replace with proper test infrastructure
         return; // Skip test until test DB is available
         #[allow(unreachable_code)]
-        let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").unwrap().unwrap()));
+        // let repository = Arc::new(MemoryRepository::new(sqlx::PgPool::connect("").await.unwrap()));
+        let repository: Arc<MemoryRepository> = unimplemented!("Test DB not available");
         let engine = TestingEffectEngine::new(config, repository);
 
         let compliance = engine.validate_research_compliance(1.5, 14.0, 0.5);

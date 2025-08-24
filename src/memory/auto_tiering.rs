@@ -58,7 +58,7 @@ impl AutoTieringEngine {
     pub async fn apply_auto_tiering(&self) -> Result<TieringReport> {
         info!("Starting auto-tiering process to clean working memory");
         
-        let memories = self.repository.get_memories_by_tier(MemoryTier::Working, Some(100), Some(0)).await?;
+        let memories = self.repository.get_memories_by_tier(MemoryTier::Working, Some(100)).await?;
         let mut moved_to_warm = 0;
         let mut moved_to_cold = 0;
         
@@ -71,11 +71,17 @@ impl AutoTieringEngine {
                     memory.id, memory.tier, new_tier, memory.importance_score, new_importance
                 );
                 
-                // Update the memory's tier and importance using a full update
-                let mut updated_memory = memory.clone();
-                updated_memory.tier = new_tier.clone();
-                updated_memory.importance_score = new_importance;
-                self.repository.update_memory(updated_memory).await?;
+                // Update the memory's tier and importance using the proper update method
+                use crate::memory::models::UpdateMemoryRequest;
+                let update_request = UpdateMemoryRequest {
+                    content: None,
+                    embedding: None,
+                    tier: Some(new_tier.clone()),
+                    importance_score: Some(new_importance),
+                    metadata: None,
+                    expires_at: None,
+                };
+                self.repository.update_memory(memory.id, update_request).await?;
                 
                 match new_tier {
                     MemoryTier::Warm => moved_to_warm += 1,
@@ -91,7 +97,7 @@ impl AutoTieringEngine {
         Ok(TieringReport {
             moved_to_warm,
             moved_to_cold,
-            working_memory_count: self.repository.get_memories_by_tier(MemoryTier::Working, Some(1), Some(0))
+            working_memory_count: self.repository.get_memories_by_tier(MemoryTier::Working, Some(1))
                 .await?
                 .len(),
         })
@@ -101,24 +107,30 @@ impl AutoTieringEngine {
     async fn enforce_working_memory_limit(&self) -> Result<()> {
         const MAX_WORKING_MEMORIES: usize = 9; // Miller's 7±2
         
-        let working_memories = self.repository.get_memories_by_tier(MemoryTier::Working, Some(100), Some(0)).await?;
+        let working_memories = self.repository.get_memories_by_tier(MemoryTier::Working, Some(100)).await?;
         
         if working_memories.len() > MAX_WORKING_MEMORIES {
             // Sort by combined score and importance
             let mut sorted = working_memories;
             sorted.sort_by(|a, b| {
-                b.combined_score.partial_cmp(&a.combined_score)
+                b.importance_score.partial_cmp(&a.importance_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then(b.importance_score.partial_cmp(&a.importance_score)
-                        .unwrap_or(std::cmp::Ordering::Equal))
+                    .then(b.last_accessed_at.cmp(&a.last_accessed_at))
             });
             
             // Move excess memories to warm tier
             for memory in sorted.iter().skip(MAX_WORKING_MEMORIES) {
                 info!("Moving excess memory {} from working to warm tier", memory.id);
-                let mut updated = memory.clone();
-                updated.tier = MemoryTier::Warm;
-                self.repository.update_memory(updated).await?;
+                use crate::memory::models::UpdateMemoryRequest;
+                let update_request = UpdateMemoryRequest {
+                    content: None,
+                    embedding: None,
+                    tier: Some(MemoryTier::Warm),
+                    importance_score: None,
+                    metadata: None,
+                    expires_at: None,
+                };
+                self.repository.update_memory(memory.id, update_request).await?;
             }
         }
         

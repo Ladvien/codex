@@ -1,27 +1,126 @@
 //! Stdio Transport Implementation for MCP Protocol
 //!
 //! This module provides the stdio transport layer for MCP communication,
-//! handling JSON-RPC messages over standard input/output streams.
+//! handling JSON-RPC messages over standard input/output streams with
+//! transport-level security including rate limiting and connection throttling.
 
-use crate::mcp_server::handlers::MCPHandlers;
+use crate::mcp_server::{handlers::MCPHandlers, rate_limiter::MCPRateLimiter};
+use crate::security::SecurityError;
 use anyhow::Result;
+use governor::{
+    clock::DefaultClock, middleware::NoOpMiddleware, state::{InMemoryState, NotKeyed}, 
+    Quota, RateLimiter as GovernorRateLimiter,
+};
+use nonzero_ext::nonzero;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::num::NonZeroU32;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::RwLock;
 use tracing::{debug, error, warn};
 
-/// Stdio transport for MCP protocol
+/// Transport-level connection state tracking
+#[derive(Debug)]
+struct ConnectionState {
+    malformed_requests: u32,
+    last_malformed: Option<Instant>,
+    total_requests: u64,
+    first_request: Instant,
+    backoff_until: Option<Instant>,
+}
+
+impl Default for ConnectionState {
+    fn default() -> Self {
+        Self {
+            malformed_requests: 0,
+            last_malformed: None,
+            total_requests: 0,
+            first_request: Instant::now(),
+            backoff_until: None,
+        }
+    }
+}
+
+/// Transport-level rate limiting configuration
+#[derive(Debug, Clone)]
+pub struct TransportRateLimitConfig {
+    /// Maximum malformed requests before backoff
+    pub max_malformed_requests: u32,
+    /// Backoff duration for malformed requests (exponential)
+    pub malformed_backoff_base_ms: u64,
+    /// Maximum backoff duration
+    pub max_backoff_duration_ms: u64,
+    /// Reset period for malformed request counting
+    pub malformed_reset_period_ms: u64,
+    /// Maximum message size in bytes
+    pub max_message_size: usize,
+    /// Transport-level requests per minute (before parsing)
+    pub transport_requests_per_minute: u32,
+    /// Transport-level burst size
+    pub transport_burst_size: u32,
+}
+
+impl Default for TransportRateLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_malformed_requests: 5,
+            malformed_backoff_base_ms: 1000,     // Start with 1 second
+            max_backoff_duration_ms: 60_000,     // Max 1 minute
+            malformed_reset_period_ms: 300_000,  // Reset after 5 minutes
+            max_message_size: 1_048_576,         // 1MB
+            transport_requests_per_minute: 120,  // 2 per second at transport level
+            transport_burst_size: 10,
+        }
+    }
+}
+
+/// Stdio transport for MCP protocol with security hardening
 pub struct StdioTransport {
     request_timeout: Duration,
+    connection_state: Arc<RwLock<ConnectionState>>,
+    transport_config: TransportRateLimitConfig,
+    transport_limiter: Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
 }
 
 impl StdioTransport {
     /// Create a new stdio transport with the specified timeout
-    pub fn new(timeout_ms: u64) -> Self {
-        Self {
+    pub fn new(timeout_ms: u64) -> Result<Self> {
+        let transport_config = TransportRateLimitConfig::default();
+        
+        // Create transport-level rate limiter
+        let rate = NonZeroU32::new(transport_config.transport_requests_per_minute)
+            .ok_or_else(|| anyhow::anyhow!("Invalid transport rate limit"))?;
+        let burst = NonZeroU32::new(transport_config.transport_burst_size)
+            .ok_or_else(|| anyhow::anyhow!("Invalid transport burst size"))?;
+        let quota = Quota::per_minute(rate).allow_burst(burst);
+        let transport_limiter = Arc::new(GovernorRateLimiter::direct(quota));
+
+        Ok(Self {
             request_timeout: Duration::from_millis(timeout_ms),
-        }
+            connection_state: Arc::new(RwLock::new(ConnectionState::default())),
+            transport_config,
+            transport_limiter,
+        })
+    }
+    
+    /// Create a new stdio transport with custom configuration
+    pub fn new_with_config(timeout_ms: u64, transport_config: TransportRateLimitConfig) -> Result<Self> {
+        // Create transport-level rate limiter
+        let rate = NonZeroU32::new(transport_config.transport_requests_per_minute)
+            .ok_or_else(|| anyhow::anyhow!("Invalid transport rate limit"))?;
+        let burst = NonZeroU32::new(transport_config.transport_burst_size)
+            .ok_or_else(|| anyhow::anyhow!("Invalid transport burst size"))?;
+        let quota = Quota::per_minute(rate).allow_burst(burst);
+        let transport_limiter = Arc::new(GovernorRateLimiter::direct(quota));
+
+        Ok(Self {
+            request_timeout: Duration::from_millis(timeout_ms),
+            connection_state: Arc::new(RwLock::new(ConnectionState::default())),
+            transport_config,
+            transport_limiter,
+        })
     }
 
     /// Start the transport layer and begin processing requests
@@ -68,6 +167,85 @@ impl StdioTransport {
         Ok(())
     }
 
+    /// Check transport-level security before processing messages
+    async fn check_transport_security(&self, message: &str) -> Result<()> {
+        let now = Instant::now();
+        
+        // Check transport-level rate limiting first
+        if self.transport_limiter.check().is_err() {
+            warn!("Transport-level rate limit exceeded");
+            return Err(SecurityError::RateLimitExceeded.into());
+        }
+
+        let mut state = self.connection_state.write().await;
+        state.total_requests += 1;
+
+        // Check if we're in backoff period
+        if let Some(backoff_until) = state.backoff_until {
+            if now < backoff_until {
+                warn!("Connection in backoff period until {:?}", backoff_until);
+                return Err(SecurityError::RateLimitExceeded.into());
+            } else {
+                // Reset backoff
+                state.backoff_until = None;
+                debug!("Backoff period expired, resuming normal processing");
+            }
+        }
+
+        // Check message size limit
+        if message.len() > self.transport_config.max_message_size {
+            warn!(
+                "Message size {} exceeds limit {}", 
+                message.len(), 
+                self.transport_config.max_message_size
+            );
+            self.handle_malformed_request(&mut state, now).await?;
+            return Err(anyhow::anyhow!("Message too large"));
+        }
+
+        // Reset malformed request counter if enough time has passed
+        if let Some(last_malformed) = state.last_malformed {
+            if now.duration_since(last_malformed).as_millis() 
+                > self.transport_config.malformed_reset_period_ms as u128 {
+                debug!("Resetting malformed request counter after timeout");
+                state.malformed_requests = 0;
+                state.last_malformed = None;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle malformed requests with exponential backoff
+    async fn handle_malformed_request(&self, state: &mut ConnectionState, now: Instant) -> Result<()> {
+        state.malformed_requests += 1;
+        state.last_malformed = Some(now);
+
+        warn!(
+            "Malformed request detected, count: {}/{}",
+            state.malformed_requests, 
+            self.transport_config.max_malformed_requests
+        );
+
+        if state.malformed_requests >= self.transport_config.max_malformed_requests {
+            // Calculate exponential backoff
+            let backoff_multiplier = 2_u64.pow((state.malformed_requests - self.transport_config.max_malformed_requests).min(10));
+            let backoff_ms = (self.transport_config.malformed_backoff_base_ms * backoff_multiplier)
+                .min(self.transport_config.max_backoff_duration_ms);
+            
+            state.backoff_until = Some(now + Duration::from_millis(backoff_ms));
+            
+            warn!(
+                "Too many malformed requests ({}), entering backoff for {}ms",
+                state.malformed_requests, backoff_ms
+            );
+            
+            return Err(SecurityError::RateLimitExceeded.into());
+        }
+
+        Ok(())
+    }
+
     /// Process a single message, handling both single requests and batch requests
     async fn process_message(
         &self,
@@ -80,11 +258,28 @@ impl StdioTransport {
             return Ok(());
         }
 
+        // SECURITY: Check transport-level security BEFORE parsing JSON
+        // This prevents malformed requests from bypassing rate limits
+        if let Err(e) = self.check_transport_security(line).await {
+            warn!("Transport security check failed: {}", e);
+            // Don't send response for rate limited requests to avoid amplifying attacks
+            return Ok(());
+        }
+
         // Parse JSON-RPC message
         let request: Value = match serde_json::from_str(line) {
             Ok(req) => req,
             Err(e) => {
                 error!("Failed to parse JSON-RPC request: {}", e);
+                
+                // SECURITY: Track malformed JSON requests
+                let mut state = self.connection_state.write().await;
+                if let Err(security_err) = self.handle_malformed_request(&mut state, Instant::now()).await {
+                    warn!("Malformed request triggered security backoff: {}", security_err);
+                    // Don't send parse error response during backoff
+                    return Ok(());
+                }
+                
                 self.send_parse_error(stdout, None).await?;
                 return Ok(());
             }
@@ -547,13 +742,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_transport_creation() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         assert_eq!(transport.request_timeout, Duration::from_millis(5000));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_valid() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -566,7 +761,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_missing_jsonrpc() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "method": "initialize",
@@ -580,7 +775,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_wrong_version() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "jsonrpc": "1.0",
@@ -595,7 +790,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_missing_method() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -609,7 +804,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_method_type() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -624,7 +819,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_id_type() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -639,7 +834,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_params_type() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -655,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_valid_with_object_params() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -669,7 +864,7 @@ mod tests {
 
     #[test]
     fn test_validate_jsonrpc_request_valid_with_array_params() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -683,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_extract_headers_from_request() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -708,7 +903,7 @@ mod tests {
 
     #[test]
     fn test_extract_headers_defaults_only() {
-        let transport = StdioTransport::new(5000);
+        let transport = StdioTransport::new(5000).unwrap();
         
         let request = serde_json::json!({
             "jsonrpc": "2.0",

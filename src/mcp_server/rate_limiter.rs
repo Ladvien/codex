@@ -12,14 +12,13 @@ use governor::{
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter as GovernorRateLimiter,
 };
-use nonzero_ext::nonzero;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 /// Rate limiting configuration for MCP
 #[derive(Debug, Clone, Serialize, Deserialize)]

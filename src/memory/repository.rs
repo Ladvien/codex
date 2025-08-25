@@ -646,9 +646,20 @@ impl MemoryRepository {
         let offset = request.offset.unwrap_or(0);
         let threshold = request.similarity_threshold.unwrap_or(0.7);
 
-        // Use safe query builder to prevent SQL injection
+        // Use safe query builder to prevent SQL injection - include all computed columns for build_search_results()
         let mut builder = SafeQueryBuilder::new(
-            "SELECT m.*, 1 - (m.embedding <=> $1) as similarity_score FROM memories m WHERE m.status = 'active' AND m.embedding IS NOT NULL"
+            "SELECT m.*, 
+                1 - (m.embedding <=> $1) as similarity_score,
+                m.recency_score as temporal_score,
+                m.importance_score,
+                m.relevance_score,
+                COALESCE(m.access_count, 0) as access_count,
+                m.combined_score as combined_score,
+                CASE 
+                    WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+                    ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+                END as access_frequency_score
+            FROM memories m WHERE m.status = 'active' AND m.embedding IS NOT NULL"
         );
         // Set bind index to 2 since $1 is already used for the query embedding
         builder.bind_index = 2;
@@ -754,7 +765,11 @@ impl MemoryRepository {
                 m.importance_score,
                 m.relevance_score,
                 COALESCE(m.access_count, 0) as access_count,
-                m.combined_score as combined_score
+                m.combined_score as combined_score,
+                CASE 
+                    WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+                    ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+                END as access_frequency_score
             FROM memories m
             WHERE m.status = 'active'
                 AND m.embedding IS NOT NULL

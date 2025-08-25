@@ -229,6 +229,71 @@
 
 **NEW VERDICT**: Core functionality restored. The SearchBackend trait validation system is working correctly and identifying real architectural inconsistencies that need to be addressed in search method implementations. The generate_insights tool is now functional but reveals deeper search consistency issues.
 
+**@devops** [18:27]: 🎯 FINAL FIX IMPLEMENTED - SearchBackend Column Issue RESOLVED!
+
+### ✅ ROOT CAUSE IDENTIFIED AND FIXED:
+
+**Problem**: SearchBackend validation was correctly identifying missing `temporal_score` and `access_frequency_score` columns in SQL SELECT statements
+
+**Analysis**:
+1. **temporal_search()**: ✅ Already had both columns (was working correctly)
+2. **semantic_search()**: ❌ Missing both computed columns - only selected `m.*` and `similarity_score` 
+3. **hybrid_search()**: ❌ Missing `access_frequency_score` computation
+4. **fulltext_search()**: ✅ Already had both columns (was working correctly)
+
+### 🔧 FIXES APPLIED:
+
+#### 1. Enhanced semantic_search() SQL query:
+```sql
+-- OLD (incomplete):
+SELECT m.*, 1 - (m.embedding <=> $1) as similarity_score
+
+-- NEW (complete with computed columns):
+SELECT m.*, 
+    1 - (m.embedding <=> $1) as similarity_score,
+    m.recency_score as temporal_score,
+    m.importance_score,
+    m.relevance_score,
+    COALESCE(m.access_count, 0) as access_count,
+    m.combined_score as combined_score,
+    CASE 
+        WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+        ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+    END as access_frequency_score
+```
+
+#### 2. Enhanced hybrid_search() SQL query:
+```sql  
+-- Added missing access_frequency_score calculation:
+CASE 
+    WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+    ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+END as access_frequency_score
+```
+
+### 🚀 VALIDATION RESULTS:
+
+**Before Fix** (line 549 in insights_monitor.log):
+```
+Column validation failed: Missing columns: [temporal_score, access_frequency_score]
+```
+
+**After Fix** (lines 554, 562 in insights_monitor.log):  
+```
+✓ Insight generation completed successfully
+✓ New insights generated!
+```
+
+### 📈 IMPACT ACHIEVED:
+
+✅ **SearchBackend validation system working perfectly** - Caught the real issue  
+✅ **All search methods now return consistent column structures** - semantic, hybrid, temporal, fulltext
+✅ **Insights generation restored** - Monitor logs show successful generation cycles  
+✅ **Code compiles cleanly** - No syntax or type errors
+✅ **Column calculations consistent** - Same logarithmic access_frequency_score formula across all methods
+
+**Status**: 🎉 **CDEX-001 FULLY RESOLVED** - SearchBackend validation identified and helped fix the actual column inconsistencies preventing insights generation. The system is now working as designed!
+
 ---
 
 ## #testing

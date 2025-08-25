@@ -634,12 +634,12 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
     // Set up MCP handlers (this is what Claude Desktop uses)
     let insight_storage = Arc::new(InsightStorage::new(
         Arc::new(env.pool.clone()), 
-        env.embedding_provider.clone()
+        env.embedder.clone()
     ));
     let insight_processor = Arc::new(InsightProcessor::new(
         env.repository.clone(),
         insight_storage.clone(),
-        env.embedding_provider.clone(),
+        env.embedder.clone(),
         env.config.clone(),
     ));
     let scheduler_service = Arc::new(SchedulerService::new(
@@ -648,10 +648,10 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
     ));
     let harvester_service = Arc::new(HarvesterService::new(
         env.repository.clone(),
-        env.embedding_provider.clone(),
+        env.embedder.clone(),
         env.config.clone(),
     ));
-    let mcp_logger = Arc::new(MCPLogger::new());
+    let mcp_logger = Arc::new(MCPLogger::new(codex_memory::mcp_server::logging::LogLevel::Info));
     let progress_tracker = Arc::new(ProgressTracker::new());
 
     let handlers = MCPHandlers::new(
@@ -659,7 +659,7 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
         insight_storage,
         insight_processor,
         scheduler_service,
-        env.embedding_provider.clone(),
+        env.embedder.clone(),
         harvester_service,
         mcp_logger,
         progress_tracker,
@@ -677,13 +677,11 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
     // Test 1: Fulltext search through MCP (the exact failure case from Claude Desktop)
     println!("  Testing fulltext search through MCP handler...");
     let fulltext_params = json!({
-        "query_text": "SEARCH_REGRESSION_TEST",
-        "search_type": "fulltext",
-        "limit": 5,
-        "explain_score": false
+        "query": "SEARCH_REGRESSION_TEST",
+        "limit": 5
     });
 
-    let fulltext_result = handlers.search_memory(&fulltext_params, None).await;
+    let fulltext_result = handlers.execute_tool("search_memory", &fulltext_params).await;
     assert!(fulltext_result.is_ok(), "Fulltext search through MCP should not fail with column errors");
     
     let fulltext_response = fulltext_result.unwrap();
@@ -715,14 +713,12 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
     // Test 2: Hybrid search consistency
     println!("  Testing hybrid search consistency...");
     let hybrid_params = json!({
-        "query_text": "SEARCH_REGRESSION_TEST",
-        "search_type": "hybrid",
+        "query": "SEARCH_REGRESSION_TEST",
         "limit": 5,
-        "threshold": 0.0,
-        "explain_score": true
+        "similarity_threshold": 0.0
     });
 
-    let hybrid_result = handlers.search_memory(&hybrid_params, None).await;
+    let hybrid_result = handlers.execute_tool("search_memory", &hybrid_params).await;
     assert!(hybrid_result.is_ok(), "Hybrid search should work");
     
     let hybrid_response = hybrid_result.unwrap();
@@ -742,12 +738,11 @@ async fn test_search_memory_regression_prevention() -> Result<()> {
     // Test 3: Edge case that might trigger column errors
     println!("  Testing edge cases for column error prevention...");
     let edge_params = json!({
-        "query_text": "",
-        "search_type": "fulltext",
+        "query": "",
         "limit": 0
     });
 
-    let edge_result = handlers.search_memory(&edge_params, None).await;
+    let edge_result = handlers.execute_tool("search_memory", &edge_params).await;
     match edge_result {
         Ok(_) => println!("    ✓ Edge case handled successfully"),
         Err(e) => {

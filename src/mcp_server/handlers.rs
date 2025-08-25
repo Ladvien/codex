@@ -1122,10 +1122,13 @@ impl MCPHandlers {
                 let memories = match time_period {
                     "last_hour" => {
                         let since = Utc::now() - ChronoDuration::hours(1);
-                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
                         self.repository
-                            .search_memories_simple(crate::memory::SearchRequest {
-                                query_text: Some("conversation memory".to_string()),
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
                                 query_embedding: Some(embedding),
                                 limit: Some(100),
                                 offset: None,
@@ -1146,19 +1149,25 @@ impl MCPHandlers {
                                 ranking_boost: None,
                                 explain_score: None,
                             })
-                            .await.map(|results| crate::memory::SearchResponse {
+                            .await
+                            .map(|results| SearchResponse {
                                 results,
                                 total_count: None,
                                 execution_time_ms: 0,
                                 facets: None,
+                                next_cursor: None,
+                                suggestions: None,
                             })
                     }
                     "last_day" => {
                         let since = Utc::now() - ChronoDuration::days(1);
-                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
                         self.repository
-                            .search_memories_simple(crate::memory::SearchRequest {
-                                query_text: Some("conversation memory".to_string()),
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
                                 query_embedding: Some(embedding),
                                 limit: Some(200),
                                 offset: None,
@@ -1179,19 +1188,25 @@ impl MCPHandlers {
                                 ranking_boost: None,
                                 explain_score: None,
                             })
-                            .await.map(|results| crate::memory::SearchResponse {
+                            .await
+                            .map(|results| SearchResponse {
                                 results,
                                 total_count: None,
                                 execution_time_ms: 0,
                                 facets: None,
+                                next_cursor: None,
+                                suggestions: None,
                             })
                     }
                     "last_week" => {
                         let since = Utc::now() - ChronoDuration::weeks(1);
-                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
                         self.repository
-                            .search_memories_simple(crate::memory::SearchRequest {
-                                query_text: Some("conversation memory".to_string()),
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
                                 query_embedding: Some(embedding),
                                 limit: Some(500),
                                 offset: None,
@@ -1212,19 +1227,25 @@ impl MCPHandlers {
                                 ranking_boost: None,
                                 explain_score: None,
                             })
-                            .await.map(|results| crate::memory::SearchResponse {
+                            .await
+                            .map(|results| SearchResponse {
                                 results,
                                 total_count: None,
                                 execution_time_ms: 0,
                                 facets: None,
+                                next_cursor: None,
+                                suggestions: None,
                             })
                     }
                     "last_month" => {
                         let since = Utc::now() - ChronoDuration::days(30);
-                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
                         self.repository
-                            .search_memories_simple(crate::memory::SearchRequest {
-                                query_text: Some("conversation memory".to_string()),
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
                                 query_embedding: Some(embedding),
                                 limit: Some(1000),
                                 offset: None,
@@ -1245,19 +1266,25 @@ impl MCPHandlers {
                                 ranking_boost: None,
                                 explain_score: None,
                             })
-                            .await.map(|results| crate::memory::SearchResponse {
+                            .await
+                            .map(|results| SearchResponse {
                                 results,
                                 total_count: None,
                                 execution_time_ms: 0,
                                 facets: None,
+                                next_cursor: None,
+                                suggestions: None,
                             })
                     }
                     _ => {
                         let since = Utc::now() - ChronoDuration::days(1);
-                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
                         self.repository
-                            .search_memories_simple(crate::memory::SearchRequest {
-                                query_text: Some("conversation memory".to_string()),
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
                                 query_embedding: Some(embedding),
                                 limit: Some(200),
                                 offset: None,
@@ -1278,11 +1305,14 @@ impl MCPHandlers {
                                 ranking_boost: None,
                                 explain_score: None,
                             })
-                            .await.map(|results| crate::memory::SearchResponse {
+                            .await
+                            .map(|results| SearchResponse {
                                 results,
                                 total_count: None,
                                 execution_time_ms: 0,
                                 facets: None,
+                                next_cursor: None,
+                                suggestions: None,
                             })
                     }
                 }?;
@@ -1860,8 +1890,8 @@ impl MCPHandlers {
             let stats = processor.get_stats().await;
             let current_state = &stats.circuit_breaker_state;
             let trip_count = stats.circuit_breaker_trips;
-            
-            // Test Ollama connectivity 
+
+            // Test Ollama connectivity
             let ollama_status = match self.test_ollama_connectivity().await {
                 Ok(_) => "✅ Connected",
                 Err(e) => {
@@ -1869,16 +1899,17 @@ impl MCPHandlers {
                     "❌ Failed"
                 }
             };
-            
+
             // Force circuit breaker recovery if Ollama is working
-            let recovery_attempted = if current_state == "Open" && ollama_status.starts_with("✅") {
+            let recovery_attempted = if current_state == "Open" && ollama_status.starts_with("✅")
+            {
                 // The circuit breaker will naturally recover on next successful request
                 // But we can provide guidance to the user
                 true
             } else {
                 false
             };
-            
+
             let response_text = format!(
                 "🔧 Circuit Breaker Diagnostic\n\
                 \n\
@@ -1904,7 +1935,7 @@ impl MCPHandlers {
                     "⏳ Circuit breaker in recovery mode - will test connectivity soon"
                 }
             );
-            
+
             Ok(format_tool_response(&response_text))
         } else {
             let error_text = "❌ Circuit Breaker Diagnostic\n\
@@ -1914,7 +1945,7 @@ impl MCPHandlers {
             • Ollama service not configured\n\
             • Missing codex-dreams feature\n\
             • Service initialization failure";
-            
+
             Ok(format_tool_response(error_text))
         }
     }
@@ -1923,7 +1954,7 @@ impl MCPHandlers {
     #[cfg(feature = "codex-dreams")]
     async fn test_ollama_connectivity(&self) -> Result<()> {
         use reqwest;
-        
+
         let client = reqwest::Client::new();
         let response = client
             .get("http://192.168.1.110:11434/api/tags")
@@ -1931,11 +1962,14 @@ impl MCPHandlers {
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("Ollama connection failed: {}", e))?;
-            
+
         if response.status().is_success() {
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Ollama returned status: {}", response.status()))
+            Err(anyhow::anyhow!(
+                "Ollama returned status: {}",
+                response.status()
+            ))
         }
     }
 }

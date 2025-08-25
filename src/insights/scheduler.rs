@@ -487,7 +487,7 @@ impl InsightScheduler {
             // For now, we'll process a small batch of recent memories
             // In a production system, this would be configurable
             // and potentially fetch candidate memories from the repository
-            // Fetch candidate memories for insights generation  
+            // Fetch candidate memories for insights generation
             let memory_ids = Self::fetch_candidate_memory_ids().await?;
             match processor.process_batch(memory_ids).await {
                 Ok(processing_result) => {
@@ -656,23 +656,24 @@ impl InsightScheduler {
     }
 
     /// Fetch candidate memory IDs for insights generation
-    /// 
+    ///
     /// This function retrieves memories that are suitable for insights generation
     /// based on various criteria including recency, importance, and processing status.
     async fn fetch_candidate_memory_ids() -> Result<Vec<uuid::Uuid>, anyhow::Error> {
         use crate::memory::{MemoryRepository, SearchRequest, SearchType};
-        
+
         // For now, implement a simple strategy: get recent memories from the last day
         // In production, this would be more sophisticated with tier-based selection
         let database_url = std::env::var("DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable not set"))?;
-        
+
         // Create database pool
-        let pool = sqlx::PgPool::connect(&database_url).await
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
-        
+
         let repository = MemoryRepository::new(pool);
-        
+
         let search_request = SearchRequest {
             query_text: None,
             query_embedding: None,
@@ -692,17 +693,23 @@ impl InsightScheduler {
             ranking_boost: None,
             explain_score: Some(false),
         };
-        
+
         debug!("Fetching candidate memories for insights generation");
-        let search_results = repository.search_memories(search_request).await
+        let search_results = repository
+            .search_memories(search_request)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to search for candidate memories: {}", e))?;
-        
-        let memory_ids: Vec<uuid::Uuid> = search_results.results
+
+        let memory_ids: Vec<uuid::Uuid> = search_results
+            .results
             .into_iter()
             .map(|result| result.memory.id)
             .collect();
-        
-        info!("Found {} candidate memories for insights generation", memory_ids.len());
+
+        info!(
+            "Found {} candidate memories for insights generation",
+            memory_ids.len()
+        );
         Ok(memory_ids)
     }
 }

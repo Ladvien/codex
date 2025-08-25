@@ -136,7 +136,7 @@ impl Default for ProcessorConfig {
             max_retries: 3,
             timeout_seconds: 900, // 15 minutes for large model processing
             circuit_breaker_threshold: 20, // High tolerance for cold starts and model loading
-            circuit_breaker_recovery_timeout: 60, // Reasonable recovery time for Ollama cold starts  
+            circuit_breaker_recovery_timeout: 60, // Reasonable recovery time for Ollama cold starts
             min_confidence_threshold: 0.3,
             max_insights_per_batch: 50,
         }

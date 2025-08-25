@@ -109,7 +109,7 @@ struct OllamaOptions {
 struct OllamaResponse {
     response: String,
     #[serde(default)]
-    thinking: String,  // Some models (like gpt-oss) use this field for Chain-of-Thought
+    thinking: String, // Some models (like gpt-oss) use this field for Chain-of-Thought
     done: bool,
 }
 

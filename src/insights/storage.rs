@@ -580,6 +580,87 @@ impl InsightStorage {
             FeedbackRating::Incorrect => "incorrect".to_string(),
         }
     }
+
+    /// List recent insights with optional limit
+    pub async fn list_recent(&self, limit: usize) -> Result<Vec<Insight>> {
+        let query = r#"
+            SELECT i.*
+            FROM insights i
+            WHERE i.tier != 'archived'
+            ORDER BY i.updated_at DESC, i.created_at DESC
+            LIMIT $1
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(limit as i64)
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(MemoryError::Database)?;
+
+        let mut insights = Vec::new();
+        for row in rows {
+            insights.push(self.row_to_insight(&row)?);
+        }
+
+        Ok(insights)
+    }
+
+    /// Update the tier of an insight
+    pub async fn update_tier(&self, insight_id: Uuid, new_tier: String) -> Result<Insight> {
+        // Validate tier value
+        if !["working", "warm", "cold", "archived"].contains(&new_tier.as_str()) {
+            return Err(MemoryError::Validation(format!(
+                "Invalid tier '{}'. Must be one of: working, warm, cold, archived",
+                new_tier
+            )));
+        }
+
+        let mut tx = self.pool.begin().await.map_err(MemoryError::Database)?;
+
+        // Update the tier
+        let update_query = r#"
+            UPDATE insights
+            SET tier = $1, updated_at = $2
+            WHERE id = $3
+        "#;
+
+        let rows_affected = sqlx::query(update_query)
+            .bind(&new_tier)
+            .bind(Utc::now())
+            .bind(&insight_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(MemoryError::Database)?
+            .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(MemoryError::NotFound {
+                id: insight_id.to_string(),
+            });
+        }
+
+        // Fetch the updated insight
+        let fetch_query = r#"
+            SELECT * FROM insights WHERE id = $1
+        "#;
+
+        let row = sqlx::query(fetch_query)
+            .bind(&insight_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(MemoryError::Database)?;
+
+        let insight = self.row_to_insight(&row)?;
+
+        tx.commit().await.map_err(MemoryError::Database)?;
+
+        info!(
+            "Updated insight tier: {} -> {}",
+            insight_id, new_tier
+        );
+
+        Ok(insight)
+    }
 }
 
 #[cfg(feature = "codex-dreams")]

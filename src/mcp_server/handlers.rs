@@ -7,10 +7,14 @@ use crate::mcp_server::{
     auth::{AuthContext, MCPAuth},
     circuit_breaker::{CircuitBreaker, CircuitBreakerError},
     logging::{LogLevel, MCPLogger},
-    progress::{ProgressTracker, ProgressHandle},
+    progress::{ProgressHandle, ProgressTracker},
     rate_limiter::MCPRateLimiter,
     tools::MCPTools,
-    transport::{create_error_response, create_error_response_with_data, create_success_response, format_tool_response, format_tool_response_with_content, format_tool_error_response, create_text_content},
+    transport::{
+        create_error_response, create_error_response_with_data, create_success_response,
+        create_text_content, format_tool_error_response, format_tool_response,
+        format_tool_response_with_content,
+    },
 };
 use crate::memory::{models::*, ConversationMessage, MemoryRepository, SilentHarvesterService};
 use crate::SimpleEmbedder;
@@ -80,16 +84,16 @@ impl MCPHandlers {
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self::new_with_insights(
-            repository, 
-            embedder, 
-            harvester_service, 
-            circuit_breaker, 
-            auth, 
-            rate_limiter, 
-            mcp_logger, 
-            progress_tracker, 
+            repository,
+            embedder,
+            harvester_service,
+            circuit_breaker,
+            auth,
+            rate_limiter,
+            mcp_logger,
+            progress_tracker,
             None,
-            None
+            None,
         )
     }
 
@@ -167,8 +171,10 @@ impl MCPHandlers {
             }
 
             // Additional check: client ID must be in silent mode whitelist
-            let client_authorized_for_silent = self.is_client_authorized_for_silent(&auth_ctx.client_id).await;
-            
+            let client_authorized_for_silent = self
+                .is_client_authorized_for_silent(&auth_ctx.client_id)
+                .await;
+
             if !client_authorized_for_silent {
                 warn!(
                     "Client {} has silent scope but is not in silent mode whitelist",
@@ -189,15 +195,15 @@ impl MCPHandlers {
     async fn is_client_authorized_for_silent(&self, client_id: &str) -> bool {
         // SECURITY: Whitelist-based approach for silent mode authorization
         // This prevents arbitrary clients from reducing their rate limits
-        
+
         let silent_authorized_clients = [
             "harvester-service",
-            "internal-processor", 
+            "internal-processor",
             "system-agent",
             "codex-admin",
         ];
 
-        let is_authorized = silent_authorized_clients.contains(&client_id) 
+        let is_authorized = silent_authorized_clients.contains(&client_id)
             || client_id.starts_with("system-")
             || client_id.starts_with("internal-");
 
@@ -241,7 +247,9 @@ impl MCPHandlers {
         if let Some(ref rate_limiter) = self.rate_limiter {
             // SECURITY: Determine silent mode with proper authentication
             // Silent mode requires explicit authorization and cannot be requested arbitrarily
-            let silent_mode = self.determine_silent_mode_securely(method, params, auth_context.as_ref()).await;
+            let silent_mode = self
+                .determine_silent_mode_securely(method, params, auth_context.as_ref())
+                .await;
 
             let tool_name = if method == "tools/call" {
                 params
@@ -286,7 +294,7 @@ impl MCPHandlers {
     /// Only provides basic server info, no sensitive capabilities
     async fn handle_initialize(&self, id: Option<&Value>, _params: Option<&Value>) -> Value {
         info!("MCP server initializing (authenticated)");
-        
+
         // Provide minimal server capabilities - no sensitive information exposed
         let basic_capabilities = serde_json::json!({
             "protocolVersion": "2025-06-18",
@@ -300,7 +308,7 @@ impl MCPHandlers {
                 "prompts": {}
             }
         });
-        
+
         create_success_response(id, basic_capabilities)
     }
 
@@ -577,7 +585,7 @@ impl MCPHandlers {
         } else {
             // Normal mode - generate embedding and search (with timeout protection)
             let embedding = match tokio::time::timeout(
-                Duration::from_secs(5),
+                Duration::from_secs(30), // Increased for large model
                 self.embedder.generate_embedding(query),
             )
             .await
@@ -614,7 +622,7 @@ impl MCPHandlers {
 
             // Perform search with timeout
             let results = match tokio::time::timeout(
-                Duration::from_secs(10),
+                Duration::from_secs(60), // Increased for complex searches
                 self.repository.search_memories_simple(search_req),
             )
             .await
@@ -1035,7 +1043,9 @@ impl MCPHandlers {
             .get("target_tier")
             .and_then(|t| t.as_str())
             .and_then(|t| t.parse::<MemoryTier>().ok())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid required 'target_tier' parameter"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("Missing or invalid required 'target_tier' parameter")
+            })?;
 
         let reason = args
             .get("reason")
@@ -1098,65 +1108,82 @@ impl MCPHandlers {
         {
             // Check if insights processor is available
             if let Some(processor) = &self.insights_processor {
-                info!("🧠 Generating insights: period={}, topic={:?}, type={}, max={}", 
-                      time_period, topic, insight_type, max_insights);
+                info!(
+                    "🧠 Generating insights: period={}, topic={:?}, type={}, max={}",
+                    time_period, topic, insight_type, max_insights
+                );
 
                 // Get memories based on time period
                 let memories = match time_period {
                     "last_hour" => {
                         let since = Utc::now() - ChronoDuration::hours(1);
-                        self.repository.search_memories(crate::memory::SearchRequest {
-                            date_range: Some(DateRange {
-                                start: Some(since),
-                                end: None,
-                            }),
-                            limit: Some(100),
-                            ..Default::default()
-                        }).await
-                    },
+                        self.repository
+                            .search_memories(crate::memory::SearchRequest {
+                                date_range: Some(DateRange {
+                                    start: Some(since),
+                                    end: None,
+                                }),
+                                limit: Some(100),
+                                search_type: Some(crate::memory::SearchType::Temporal),
+                                ..Default::default()
+                            })
+                            .await
+                    }
                     "last_day" => {
                         let since = Utc::now() - ChronoDuration::days(1);
-                        self.repository.search_memories(crate::memory::SearchRequest {
-                            date_range: Some(DateRange {
-                                start: Some(since),
-                                end: None,
-                            }),
-                            limit: Some(200),
-                            ..Default::default()
-                        }).await
-                    },
+                        self.repository
+                            .search_memories(crate::memory::SearchRequest {
+                                date_range: Some(DateRange {
+                                    start: Some(since),
+                                    end: None,
+                                }),
+                                limit: Some(200),
+                                search_type: Some(crate::memory::SearchType::Temporal),
+                                ..Default::default()
+                            })
+                            .await
+                    }
                     "last_week" => {
                         let since = Utc::now() - ChronoDuration::weeks(1);
-                        self.repository.search_memories(crate::memory::SearchRequest {
-                            date_range: Some(DateRange {
-                                start: Some(since),
-                                end: None,
-                            }),
-                            limit: Some(500),
-                            ..Default::default()
-                        }).await
-                    },
+                        self.repository
+                            .search_memories(crate::memory::SearchRequest {
+                                date_range: Some(DateRange {
+                                    start: Some(since),
+                                    end: None,
+                                }),
+                                limit: Some(500),
+                                search_type: Some(crate::memory::SearchType::Temporal),
+                                ..Default::default()
+                            })
+                            .await
+                    }
                     "last_month" => {
                         let since = Utc::now() - ChronoDuration::days(30);
-                        self.repository.search_memories(crate::memory::SearchRequest {
-                            date_range: Some(DateRange {
-                                start: Some(since),
-                                end: None,
-                            }),
-                            limit: Some(1000),
-                            ..Default::default()
-                        }).await
-                    },
+                        self.repository
+                            .search_memories(crate::memory::SearchRequest {
+                                date_range: Some(DateRange {
+                                    start: Some(since),
+                                    end: None,
+                                }),
+                                limit: Some(1000),
+                                search_type: Some(crate::memory::SearchType::Temporal),
+                                ..Default::default()
+                            })
+                            .await
+                    }
                     _ => {
                         let since = Utc::now() - ChronoDuration::days(1);
-                        self.repository.search_memories(crate::memory::SearchRequest {
-                            date_range: Some(DateRange {
-                                start: Some(since),
-                                end: None,
-                            }),
-                            limit: Some(200),
-                            ..Default::default()
-                        }).await
+                        self.repository
+                            .search_memories(crate::memory::SearchRequest {
+                                date_range: Some(DateRange {
+                                    start: Some(since),
+                                    end: None,
+                                }),
+                                limit: Some(200),
+                                search_type: Some(crate::memory::SearchType::Temporal),
+                                ..Default::default()
+                            })
+                            .await
                     }
                 }?;
 
@@ -1176,8 +1203,15 @@ impl MCPHandlers {
 
                 // Filter by topic if specified (simple substring search)
                 let filtered_memories = if let Some(topic_filter) = topic {
-                    memories.results.into_iter()
-                        .filter(|m| m.memory.content.to_lowercase().contains(&topic_filter.to_lowercase()))
+                    memories
+                        .results
+                        .into_iter()
+                        .filter(|m| {
+                            m.memory
+                                .content
+                                .to_lowercase()
+                                .contains(&topic_filter.to_lowercase())
+                        })
                         .collect()
                 } else {
                     memories.results
@@ -1196,12 +1230,16 @@ impl MCPHandlers {
                 }
 
                 // Get memory IDs for batch processing
-                let memory_ids: Vec<Uuid> = filtered_memories.iter()
+                let memory_ids: Vec<Uuid> = filtered_memories
+                    .iter()
                     .take(max_insights * 10) // Get more memories than insights to have variety
                     .map(|m| m.memory.id)
                     .collect();
 
-                info!("Processing {} memories for insight generation", memory_ids.len());
+                info!(
+                    "Processing {} memories for insight generation",
+                    memory_ids.len()
+                );
 
                 // Use the insights processor to generate insights
                 match processor.process_batch(memory_ids).await {
@@ -1221,17 +1259,23 @@ impl MCPHandlers {
                             processing_result.insights.len(),
                             processing_result.report.success_rate * 100.0,
                             processing_result.report.duration_seconds,
-                            processing_result.insights
+                            processing_result
+                                .insights
                                 .iter()
                                 .take(3)
                                 .map(|insight| format!(
                                     "• {} (confidence: {:.0}%): {}",
                                     match insight.insight_type {
-                                        crate::insights::models::InsightType::Learning => "Learning",
-                                        crate::insights::models::InsightType::Connection => "Connection",
-                                        crate::insights::models::InsightType::Relationship => "Relationship",
-                                        crate::insights::models::InsightType::Assertion => "Assertion",
-                                        crate::insights::models::InsightType::MentalModel => "Mental Model",
+                                        crate::insights::models::InsightType::Learning =>
+                                            "Learning",
+                                        crate::insights::models::InsightType::Connection =>
+                                            "Connection",
+                                        crate::insights::models::InsightType::Relationship =>
+                                            "Relationship",
+                                        crate::insights::models::InsightType::Assertion =>
+                                            "Assertion",
+                                        crate::insights::models::InsightType::MentalModel =>
+                                            "Mental Model",
                                         crate::insights::models::InsightType::Pattern => "Pattern",
                                     },
                                     insight.confidence_score * 100.0,
@@ -1262,7 +1306,6 @@ impl MCPHandlers {
                         Ok(format_tool_response(&response_text))
                     }
                 }
-                
             } else {
                 let response_text = "★ Insights Generation\n\
                 ❌ Insights processor not available\n\
@@ -1300,10 +1343,7 @@ impl MCPHandlers {
     #[cfg(feature = "codex-dreams")]
     /// Execute show_insights tool
     async fn execute_show_insights(&self, args: &Value) -> Result<Value> {
-        let limit = args
-            .get("limit")
-            .and_then(|l| l.as_i64())
-            .unwrap_or(10) as usize;
+        let limit = args.get("limit").and_then(|l| l.as_i64()).unwrap_or(10) as usize;
         let insight_type = args
             .get("insight_type")
             .and_then(|t| t.as_str())
@@ -1330,7 +1370,11 @@ impl MCPHandlers {
             \n\
             ℹ️ Use 'generate_insights' to start creating insights from your memories.\n\
             Insights will be displayed here with ★ confidence scores and user feedback.",
-            if insight_type == "all" { "All Types" } else { insight_type },
+            if insight_type == "all" {
+                "All Types"
+            } else {
+                insight_type
+            },
             insight_type,
             min_confidence * 100.0,
             if include_feedback { "Yes" } else { "No" },
@@ -1347,10 +1391,7 @@ impl MCPHandlers {
             .get("query")
             .and_then(|q| q.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required 'query' parameter"))?;
-        let limit = args
-            .get("limit")
-            .and_then(|l| l.as_i64())
-            .unwrap_or(10) as usize;
+        let limit = args.get("limit").and_then(|l| l.as_i64()).unwrap_or(10) as usize;
         let similarity_threshold = args
             .get("similarity_threshold")
             .and_then(|t| t.as_f64())
@@ -1375,7 +1416,11 @@ impl MCPHandlers {
             Results will show matching insights with similarity scores and confidence ratings.",
             query,
             query,
-            if insight_type == "all" { "All types" } else { insight_type },
+            if insight_type == "all" {
+                "All types"
+            } else {
+                insight_type
+            },
             similarity_threshold * 100.0,
             limit
         );
@@ -1398,7 +1443,11 @@ impl MCPHandlers {
         let comment = args.get("comment").and_then(|c| c.as_str());
 
         // TODO: Store feedback using InsightStorage when available
-        let feedback_text = if helpful { "👍 Helpful" } else { "👎 Not helpful" };
+        let feedback_text = if helpful {
+            "👍 Helpful"
+        } else {
+            "👎 Not helpful"
+        };
         let response_text = format!(
             "★ Feedback Recorded\n\
             • Insight: {}\n\
@@ -1460,14 +1509,14 @@ impl MCPHandlers {
                     let matches_confidence = insight.confidence_score >= min_confidence as f32;
                     let insight_type_str = match &insight.insight_type {
                         crate::insights::models::InsightType::Learning => "learning",
-                        crate::insights::models::InsightType::Connection => "connection", 
+                        crate::insights::models::InsightType::Connection => "connection",
                         crate::insights::models::InsightType::Relationship => "relationship",
                         crate::insights::models::InsightType::Assertion => "assertion",
                         crate::insights::models::InsightType::MentalModel => "mentalmodel",
                         crate::insights::models::InsightType::Pattern => "pattern",
                     };
                     let matches_type = insight_type == "all" || insight_type_str == insight_type;
-                    
+
                     let matches_time = if time_period == "all" {
                         true
                     } else {
@@ -1485,18 +1534,22 @@ impl MCPHandlers {
                     if matches_confidence && matches_type && matches_time {
                         // Count by type
                         *type_counts.entry(insight_type_str.to_string()).or_insert(0) += 1;
-                        
+
                         // Count confidence ranges
                         let confidence_pct = (insight.confidence_score * 100.0) as usize;
                         let range_idx = std::cmp::min(confidence_pct / 20, 4);
                         confidence_ranges[range_idx] += 1;
-                        
+
                         filtered_insights.push(insight);
                     }
                 }
 
                 // Sort by confidence score descending
-                filtered_insights.sort_by(|a, b| b.confidence_score.partial_cmp(&a.confidence_score).unwrap_or(std::cmp::Ordering::Equal));
+                filtered_insights.sort_by(|a, b| {
+                    b.confidence_score
+                        .partial_cmp(&a.confidence_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
 
                 let summary = serde_json::json!({
                     "total_insights": filtered_insights.len(),
@@ -1512,11 +1565,14 @@ impl MCPHandlers {
 
                 (filtered_insights, summary)
             } else {
-                (Vec::new(), serde_json::json!({
-                    "total_insights": 0,
-                    "by_type": {},
-                    "confidence_distribution": {}
-                }))
+                (
+                    Vec::new(),
+                    serde_json::json!({
+                        "total_insights": 0,
+                        "by_type": {},
+                        "confidence_distribution": {}
+                    }),
+                )
             };
 
             let export_content = if format == "json" {
@@ -1534,7 +1590,7 @@ impl MCPHandlers {
                         "confidence_score": insight.confidence_score,
                         "insight_type": match &insight.insight_type {
                             crate::insights::models::InsightType::Learning => "learning",
-                            crate::insights::models::InsightType::Connection => "connection", 
+                            crate::insights::models::InsightType::Connection => "connection",
                             crate::insights::models::InsightType::Relationship => "relationship",
                             crate::insights::models::InsightType::Assertion => "assertion",
                             crate::insights::models::InsightType::MentalModel => "mentalmodel",
@@ -1545,17 +1601,24 @@ impl MCPHandlers {
                     if include_metadata {
                         insight_obj["metadata"] = insight.metadata.clone();
                         insight_obj["source_memory_ids"] = serde_json::Value::Array(
-                            insight.source_memory_ids.iter()
+                            insight
+                                .source_memory_ids
+                                .iter()
                                 .map(|id| serde_json::Value::String(id.to_string()))
-                                .collect()
+                                .collect(),
                         );
                         insight_obj["tags"] = serde_json::Value::Array(
-                            insight.tags.iter()
+                            insight
+                                .tags
+                                .iter()
                                 .map(|tag| serde_json::Value::String(tag.clone()))
-                                .collect()
+                                .collect(),
                         );
                         if insight.feedback_score > 0.0 {
-                            insight_obj["feedback_score"] = serde_json::Value::Number(serde_json::Number::from_f64(insight.feedback_score as f64).unwrap_or_else(|| serde_json::Number::from(0)));
+                            insight_obj["feedback_score"] = serde_json::Value::Number(
+                                serde_json::Number::from_f64(insight.feedback_score as f64)
+                                    .unwrap_or_else(|| serde_json::Number::from(0)),
+                            );
                         }
                     }
 
@@ -1601,7 +1664,11 @@ impl MCPHandlers {
 "#,
                     format,
                     time_period,
-                    if insight_type == "all" { "All types" } else { insight_type },
+                    if insight_type == "all" {
+                        "All types"
+                    } else {
+                        insight_type
+                    },
                     min_confidence * 100.0,
                     if include_metadata { "Yes" } else { "No" },
                     chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC"),
@@ -1612,7 +1679,8 @@ impl MCPHandlers {
                     markdown.push_str("## 📊 Distribution Summary\n\n");
                     if let Some(by_type) = summary["by_type"].as_object() {
                         for (insight_type, count) in by_type {
-                            markdown.push_str(&format!("- **{}**: {} insights\n", insight_type, count));
+                            markdown
+                                .push_str(&format!("- **{}**: {} insights\n", insight_type, count));
                         }
                     }
                     markdown.push_str("\n");
@@ -1624,8 +1692,9 @@ impl MCPHandlers {
                             idx + 1,
                             match &insight.insight_type {
                                 crate::insights::models::InsightType::Learning => "Learning",
-                                crate::insights::models::InsightType::Connection => "Connection", 
-                                crate::insights::models::InsightType::Relationship => "Relationship",
+                                crate::insights::models::InsightType::Connection => "Connection",
+                                crate::insights::models::InsightType::Relationship =>
+                                    "Relationship",
                                 crate::insights::models::InsightType::Assertion => "Assertion",
                                 crate::insights::models::InsightType::MentalModel => "Mental Model",
                                 crate::insights::models::InsightType::Pattern => "Pattern",
@@ -1644,11 +1713,17 @@ impl MCPHandlers {
                             ));
 
                             if !insight.tags.is_empty() {
-                                markdown.push_str(&format!("**Tags**: {}\n\n", insight.tags.join(", ")));
+                                markdown.push_str(&format!(
+                                    "**Tags**: {}\n\n",
+                                    insight.tags.join(", ")
+                                ));
                             }
 
                             if insight.feedback_score > 0.0 {
-                                markdown.push_str(&format!("**User Feedback**: {:.1}/5.0 ⭐\n\n", insight.feedback_score));
+                                markdown.push_str(&format!(
+                                    "**User Feedback**: {:.1}/5.0 ⭐\n\n",
+                                    insight.feedback_score
+                                ));
                             }
                         }
 

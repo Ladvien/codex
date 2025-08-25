@@ -48,7 +48,7 @@ use tracing::info;
 /// MCP Server configuration
 #[derive(Clone, Debug)]
 pub struct MCPServerConfig {
-    pub request_timeout_ms: u64,
+    pub request_timeout_ms: u64, // Timeout for MCP requests (600000ms = 10min for LLM operations)
     pub max_request_size: usize,
     pub enable_circuit_breaker: bool,
     pub circuit_breaker: CircuitBreakerConfig,
@@ -62,7 +62,7 @@ pub struct MCPServerConfig {
 impl Default for MCPServerConfig {
     fn default() -> Self {
         Self {
-            request_timeout_ms: 30000,
+            request_timeout_ms: 600000,         // 10 minutes for LLM operations
             max_request_size: 10 * 1024 * 1024, // 10MB
             enable_circuit_breaker: std::env::var("MCP_CIRCUIT_BREAKER_ENABLED")
                 .map(|s| s.parse().unwrap_or(true))
@@ -129,7 +129,13 @@ impl MCPServer {
         insights_processor: Option<Arc<InsightsProcessor>>,
         insight_storage: Option<Arc<crate::insights::storage::InsightStorage>>,
     ) -> Result<Self> {
-        Self::new_impl(repository, embedder, config, insights_processor, insight_storage)
+        Self::new_impl(
+            repository,
+            embedder,
+            config,
+            insights_processor,
+            insight_storage,
+        )
     }
 
     /// Internal implementation for creating MCP server
@@ -137,14 +143,12 @@ impl MCPServer {
         repository: Arc<MemoryRepository>,
         embedder: Arc<SimpleEmbedder>,
         config: MCPServerConfig,
-        #[cfg(feature = "codex-dreams")]
-        insights_processor: Option<Arc<InsightsProcessor>>,
-        #[cfg(feature = "codex-dreams")]
-        insight_storage: Option<Arc<crate::insights::storage::InsightStorage>>,
-        #[cfg(not(feature = "codex-dreams"))]
-        _insights_processor: Option<()>,
-        #[cfg(not(feature = "codex-dreams"))]
-        _insight_storage: Option<()>,
+        #[cfg(feature = "codex-dreams")] insights_processor: Option<Arc<InsightsProcessor>>,
+        #[cfg(feature = "codex-dreams")] insight_storage: Option<
+            Arc<crate::insights::storage::InsightStorage>,
+        >,
+        #[cfg(not(feature = "codex-dreams"))] _insights_processor: Option<()>,
+        #[cfg(not(feature = "codex-dreams"))] _insight_storage: Option<()>,
     ) -> Result<Self> {
         // Initialize audit logger
         let audit_logger = Arc::new(AuditLogger::new(config.audit.clone())?);

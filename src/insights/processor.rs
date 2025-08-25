@@ -12,18 +12,18 @@
 //! - Provides comprehensive error handling and recovery
 
 #[cfg(feature = "codex-dreams")]
-use super::models::{Insight, ProcessingReport, HealthStatus};
+use super::models::{HealthStatus, Insight, ProcessingReport};
 #[cfg(feature = "codex-dreams")]
 use super::ollama_client::{OllamaClient, OllamaClientError};
 #[cfg(feature = "codex-dreams")]
 use super::storage::InsightStorage;
 #[cfg(feature = "codex-dreams")]
-use crate::memory::{Memory, MemoryRepository, MemoryStatus};
-#[cfg(feature = "codex-dreams")]
 use crate::memory::error::{MemoryError, Result};
+#[cfg(feature = "codex-dreams")]
+use crate::memory::{Memory, MemoryRepository, MemoryStatus};
 
 #[cfg(feature = "codex-dreams")]
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
 #[cfg(feature = "codex-dreams")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "codex-dreams")]
@@ -33,7 +33,7 @@ use std::sync::Arc;
 #[cfg(feature = "codex-dreams")]
 use tokio::sync::Mutex;
 #[cfg(feature = "codex-dreams")]
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 #[cfg(feature = "codex-dreams")]
 use uuid::Uuid;
 
@@ -45,7 +45,7 @@ pub struct ProcessorConfig {
     pub batch_size: usize,
     /// Maximum number of retry attempts for failed operations
     pub max_retries: u32,
-    /// Timeout in seconds for individual operations
+    /// Timeout in seconds for individual operations (recommended: 900s+ for 20B models)
     pub timeout_seconds: u64,
     /// Circuit breaker: failures before opening circuit
     pub circuit_breaker_threshold: u32,
@@ -73,8 +73,8 @@ pub struct ProcessingResult {
 #[cfg(feature = "codex-dreams")]
 #[derive(Debug, Clone, PartialEq)]
 enum CircuitState {
-    Closed,  // Normal operation
-    Open,    // Failing, reject requests
+    Closed,   // Normal operation
+    Open,     // Failing, reject requests
     HalfOpen, // Testing recovery
 }
 
@@ -134,7 +134,7 @@ impl Default for ProcessorConfig {
         Self {
             batch_size: 10,
             max_retries: 3,
-            timeout_seconds: 300,
+            timeout_seconds: 900, // 15 minutes for large model processing
             circuit_breaker_threshold: 5,
             circuit_breaker_recovery_timeout: 60,
             min_confidence_threshold: 0.3,
@@ -270,7 +270,9 @@ impl InsightsProcessor {
             let mut circuit_breaker = self.circuit_breaker.lock().await;
             if !circuit_breaker.can_execute() {
                 warn!("Circuit breaker is open, rejecting batch processing request");
-                return Err(MemoryError::ServiceUnavailable("Circuit breaker is open".to_string()));
+                return Err(MemoryError::ServiceUnavailable(
+                    "Circuit breaker is open".to_string(),
+                ));
             }
         }
 
@@ -287,9 +289,12 @@ impl InsightsProcessor {
                     total_processed += chunk.len();
                     let insight_count = chunk_insights.len();
                     all_insights.append(&mut chunk_insights);
-                    
-                    debug!("Processed chunk of {} memories, generated {} insights", 
-                           chunk.len(), insight_count);
+
+                    debug!(
+                        "Processed chunk of {} memories, generated {} insights",
+                        chunk.len(),
+                        insight_count
+                    );
 
                     // Record success in circuit breaker
                     {
@@ -305,9 +310,9 @@ impl InsightsProcessor {
                         MemoryError::StorageExhausted { .. } => "storage_exhausted",
                         _ => "other_error",
                     };
-                    
+
                     *errors_by_type.entry(error_type.to_string()).or_insert(0) += 1;
-                    
+
                     warnings.push(format!("Failed to process chunk: {}", e));
                     error!("Chunk processing failed: {}", e);
 
@@ -334,14 +339,14 @@ impl InsightsProcessor {
 
         let duration = Utc::now() - start_time;
         let duration_seconds = duration.num_milliseconds() as f64 / 1000.0;
-        
+
         // Update statistics
         {
             let mut stats = self.stats.lock().await;
             stats.total_memories_processed += total_processed as u64;
             stats.total_insights_generated += all_insights.len() as u64;
             stats.last_processed_at = Some(Utc::now());
-            
+
             // Update success rate using exponential moving average
             let current_success_rate = if memory_ids.len() > 0 {
                 (total_processed as f32) / (memory_ids.len() as f32)
@@ -349,16 +354,16 @@ impl InsightsProcessor {
                 1.0
             };
             stats.success_rate = 0.9 * stats.success_rate + 0.1 * current_success_rate;
-            
+
             // Update average processing time
             let batch_time_ms = duration.num_milliseconds() as f64;
             if stats.total_memories_processed > 0 {
-                stats.avg_processing_time_ms = 0.9 * stats.avg_processing_time_ms + 
-                    0.1 * (batch_time_ms / total_processed as f64);
+                stats.avg_processing_time_ms = 0.9 * stats.avg_processing_time_ms
+                    + 0.1 * (batch_time_ms / total_processed as f64);
             } else {
                 stats.avg_processing_time_ms = batch_time_ms / total_processed as f64;
             }
-            
+
             // Update error counts
             for (error_type, count) in errors_by_type.iter() {
                 *stats.error_counts.entry(error_type.clone()).or_insert(0) += count;
@@ -385,8 +390,12 @@ impl InsightsProcessor {
             },
         };
 
-        info!("Batch processing completed: {} insights from {} memories in {:.2}s", 
-              all_insights.len(), total_processed, duration_seconds);
+        info!(
+            "Batch processing completed: {} insights from {} memories in {:.2}s",
+            all_insights.len(),
+            total_processed,
+            duration_seconds
+        );
 
         Ok(ProcessingResult {
             insights: all_insights,
@@ -405,7 +414,9 @@ impl InsightsProcessor {
             let mut circuit_breaker = self.circuit_breaker.lock().await;
             if !circuit_breaker.can_execute() {
                 warn!("Circuit breaker is open, rejecting real-time processing request");
-                return Err(MemoryError::ServiceUnavailable("Circuit breaker is open".to_string()));
+                return Err(MemoryError::ServiceUnavailable(
+                    "Circuit breaker is open".to_string(),
+                ));
             }
         }
 
@@ -447,15 +458,19 @@ impl InsightsProcessor {
     /// Get current health status of the processor and its components
     pub async fn health_check(&self) -> HealthStatus {
         let mut components = HashMap::new();
-        
+
         // Check memory repository
-        components.insert("memory_repository".to_string(), 
-            self.memory_repository.health_check().await.is_ok());
-        
+        components.insert(
+            "memory_repository".to_string(),
+            self.memory_repository.health_check().await.is_ok(),
+        );
+
         // Check ollama client
-        components.insert("ollama_client".to_string(), 
-            self.ollama_client.health_check().await);
-        
+        components.insert(
+            "ollama_client".to_string(),
+            self.ollama_client.health_check().await,
+        );
+
         // Check insight storage - for now assume healthy if we can create the component
         // In a full implementation, this would check database connectivity
         components.insert("insight_storage".to_string(), true);
@@ -487,7 +502,7 @@ impl InsightsProcessor {
     #[instrument(skip(self))]
     async fn process_memory_chunk(&self, memory_ids: &[Uuid]) -> Result<Vec<Insight>> {
         debug!("Processing chunk of {} memories", memory_ids.len());
-        
+
         // Fetch memories from repository
         let memories = self.fetch_memories(memory_ids).await?;
         if memories.is_empty() {
@@ -510,9 +525,11 @@ impl InsightsProcessor {
             .collect();
 
         if filtered_insights.len() < original_count {
-            debug!("Filtered {} insights below confidence threshold {}", 
-                   original_count - filtered_insights.len(), 
-                   self.config.min_confidence_threshold);
+            debug!(
+                "Filtered {} insights below confidence threshold {}",
+                original_count - filtered_insights.len(),
+                self.config.min_confidence_threshold
+            );
         }
 
         // Store insights
@@ -536,7 +553,7 @@ impl InsightsProcessor {
     /// Fetch memories from the repository with error handling
     async fn fetch_memories(&self, memory_ids: &[Uuid]) -> Result<Vec<Memory>> {
         let mut memories = Vec::new();
-        
+
         for &memory_id in memory_ids {
             match self.memory_repository.get_memory_by_id(memory_id).await {
                 Ok(memory) => {
@@ -562,22 +579,31 @@ impl InsightsProcessor {
         let mut insights = Vec::new();
 
         for memory in memories {
-            match self.ollama_client.generate_insights_batch(vec![memory.clone()]).await {
+            match self
+                .ollama_client
+                .generate_insights_batch(vec![memory.clone()])
+                .await
+            {
                 Ok(insight_response) => {
                     // Convert InsightResponse to Insight
-                    let insight = self.convert_insight_response_to_insight(insight_response, memory).await;
+                    let insight = self
+                        .convert_insight_response_to_insight(insight_response, memory)
+                        .await;
                     insights.push(insight);
                 }
                 Err(OllamaClientError::Timeout) => {
-                    warn!("Timeout generating insights for memory {}", memory.id);
-                    // Continue with other memories
+                    warn!("Timeout generating insights for memory {} (20B models require longer processing time)", memory.id);
+                    // Continue with other memories - don't fail the entire batch
                 }
                 Err(OllamaClientError::ServiceUnavailable(msg)) => {
                     error!("Ollama service unavailable: {}", msg);
                     return Err(MemoryError::ServiceUnavailable(msg));
                 }
                 Err(e) => {
-                    error!("Failed to generate insights for memory {}: {}", memory.id, e);
+                    error!(
+                        "Failed to generate insights for memory {}: {}",
+                        memory.id, e
+                    );
                     return Err(MemoryError::OllamaError(e.to_string()));
                 }
             }
@@ -586,15 +612,21 @@ impl InsightsProcessor {
         // Limit insights per batch to prevent overwhelming the system
         if insights.len() > self.config.max_insights_per_batch {
             insights.truncate(self.config.max_insights_per_batch);
-            warn!("Truncated insights to maximum batch size of {}", 
-                  self.config.max_insights_per_batch);
+            warn!(
+                "Truncated insights to maximum batch size of {}",
+                self.config.max_insights_per_batch
+            );
         }
 
         Ok(insights)
     }
 
     /// Convert InsightResponse from Ollama to Insight for storage
-    async fn convert_insight_response_to_insight(&self, response: super::ollama_client::InsightResponse, source_memory: &Memory) -> Insight {
+    async fn convert_insight_response_to_insight(
+        &self,
+        response: super::ollama_client::InsightResponse,
+        source_memory: &Memory,
+    ) -> Insight {
         Insight {
             id: response.id,
             content: response.content,
@@ -606,7 +638,7 @@ impl InsightsProcessor {
                 "source_tier": source_memory.tier,
                 "processing_version": "1.0"
             }),
-            tags: Vec::new(), // Could be extracted from content analysis
+            tags: Vec::new(),            // Could be extracted from content analysis
             tier: "working".to_string(), // Start in working tier
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -632,15 +664,15 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_basic_operation() {
         let mut breaker = CircuitBreaker::new(3, Duration::seconds(60));
-        
+
         // Should be closed initially
         assert!(breaker.can_execute());
         assert_eq!(breaker.state, CircuitState::Closed);
 
         // Record failures
         assert!(!breaker.record_failure()); // 1st failure
-        assert!(!breaker.record_failure()); // 2nd failure  
-        assert!(breaker.record_failure());  // 3rd failure - should open circuit
+        assert!(!breaker.record_failure()); // 2nd failure
+        assert!(breaker.record_failure()); // 3rd failure - should open circuit
 
         assert_eq!(breaker.state, CircuitState::Open);
         assert!(!breaker.can_execute());
@@ -649,7 +681,7 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_recovery() {
         let mut breaker = CircuitBreaker::new(2, Duration::seconds(1));
-        
+
         // Open the circuit
         breaker.record_failure();
         breaker.record_failure();
@@ -657,7 +689,7 @@ mod tests {
 
         // Wait for recovery period
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-        
+
         // Should transition to half-open
         assert!(breaker.can_execute());
         assert_eq!(breaker.state, CircuitState::HalfOpen);

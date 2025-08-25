@@ -12,9 +12,9 @@ use crate::{
 
 #[cfg(feature = "codex-dreams")]
 use crate::insights::{
+    ollama_client::{OllamaClient, OllamaConfig},
     processor::{InsightsProcessor, ProcessorConfig},
     storage::InsightStorage,
-    ollama_client::{OllamaClient, OllamaConfig},
 };
 use anyhow::Result;
 use sqlx::PgPool;
@@ -116,71 +116,77 @@ impl DependencyContainer {
         #[cfg(feature = "codex-dreams")]
         let (ollama_client, insight_storage, insights_processor) = {
             info!("🧠 Initializing Codex Dreams components...");
-            
+
             // Create Ollama client with configuration from environment
             let ollama_config = OllamaConfig {
                 base_url: std::env::var("OLLAMA_BASE_URL")
                     .unwrap_or_else(|_| "http://192.168.1.110:11434".to_string()),
-                model: std::env::var("OLLAMA_MODEL")
-                    .unwrap_or_else(|_| "gpt-oss:20b".to_string()),
+                model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "gpt-oss:20b".to_string()),
                 timeout_seconds: std::env::var("OLLAMA_TIMEOUT")
-                    .unwrap_or_else(|_| "30".to_string())
-                    .parse().unwrap_or(30),
+                    .unwrap_or_else(|_| "600".to_string()) // Use longer default for 20B model
+                    .parse()
+                    .unwrap_or(600),
                 max_retries: 3,
                 initial_retry_delay_ms: 1000,
                 max_retry_delay_ms: 10000,
+                enable_streaming: true, // Enable streaming for better responsiveness
             };
-            
+
             let ollama_client = match OllamaClient::new(ollama_config) {
                 Ok(client) => {
                     info!("✅ Ollama client initialized");
                     Some(Arc::new(client))
-                },
+                }
                 Err(e) => {
-                    info!("⚠️  Ollama client initialization failed: {}. Insights will be disabled.", e);
+                    info!(
+                        "⚠️  Ollama client initialization failed: {}. Insights will be disabled.",
+                        e
+                    );
                     None
                 }
             };
-            
+
             // Create insight storage
             let insight_storage = Some(Arc::new(InsightStorage::new(
                 db_pool.clone(),
                 embedder.clone(),
             )));
             info!("✅ Insight storage initialized");
-            
+
             // Create insights processor (only if Ollama client is available)
-            let insights_processor = if let (Some(ollama_client), Some(insight_storage)) = 
-                (ollama_client.as_ref(), insight_storage.as_ref()) {
-                
+            let insights_processor = if let (Some(ollama_client), Some(insight_storage)) =
+                (ollama_client.as_ref(), insight_storage.as_ref())
+            {
                 let processor_config = ProcessorConfig {
                     batch_size: std::env::var("INSIGHTS_BATCH_SIZE")
                         .unwrap_or_else(|_| "50".to_string())
-                        .parse().unwrap_or(50),
+                        .parse()
+                        .unwrap_or(50),
                     max_retries: 3,
-                    timeout_seconds: 120,
+                    timeout_seconds: 900, // 15 minutes for large model processing
                     circuit_breaker_threshold: 5,
                     circuit_breaker_recovery_timeout: 60,
                     min_confidence_threshold: std::env::var("INSIGHTS_MIN_CONFIDENCE")
                         .unwrap_or_else(|_| "0.6".to_string())
-                        .parse().unwrap_or(0.6),
+                        .parse()
+                        .unwrap_or(0.6),
                     max_insights_per_batch: 10,
                 };
-                
+
                 let processor = InsightsProcessor::new(
                     memory_repository.clone(),
                     ollama_client.clone(),
                     insight_storage.clone(),
                     processor_config,
                 );
-                
+
                 info!("✅ Insights processor initialized");
                 Some(Arc::new(processor))
             } else {
                 info!("⚠️  Insights processor disabled (missing dependencies)");
                 None
             };
-            
+
             (ollama_client, insight_storage, insights_processor)
         };
 

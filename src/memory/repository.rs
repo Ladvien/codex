@@ -2,6 +2,7 @@ use super::error::{MemoryError, Result};
 use super::event_triggers::EventTriggeredScoringEngine;
 use super::math_engine::constants;
 use super::models::*;
+use super::search_backend::SearchBackend;
 use crate::config::Config;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -685,7 +686,10 @@ impl MemoryRepository {
                 m.relevance_score,
                 COALESCE(m.access_count, 0) as access_count,
                 m.combined_score as combined_score,
-                0.0 as access_frequency_score
+                CASE 
+                    WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+                    ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+                END as access_frequency_score
             FROM memories m WHERE m.status = 'active'",
         );
 
@@ -790,7 +794,10 @@ impl MemoryRepository {
                 m.relevance_score,
                 COALESCE(m.access_count, 0) as access_count,
                 m.combined_score as combined_score,
-                0.0 as access_frequency_score
+                CASE 
+                    WHEN COALESCE(m.access_count, 0) <= 0 THEN 0.0 
+                    ELSE (LN(COALESCE(m.access_count, 0)::float + 1.0) * 0.1)::float4
+                END as access_frequency_score
             FROM memories m
             WHERE m.status = 'active'
                 AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $1)
@@ -837,6 +844,16 @@ impl MemoryRepository {
         rows: Vec<sqlx::postgres::PgRow>,
         request: &SearchRequest,
     ) -> Result<Vec<SearchResult>> {
+        // Validate that all required columns are present before processing rows
+        // This prevents runtime errors when trying to access missing columns
+        if let Err(validation_error) = self.validate_search_result_columns(&rows) {
+            warn!(
+                "Column validation failed in build_search_results: {}",
+                validation_error
+            );
+            return Err(validation_error);
+        }
+
         let mut results = Vec::new();
         let explain_score = request.explain_score.unwrap_or(false);
 
@@ -909,6 +926,28 @@ impl MemoryRepository {
 
         debug!("Built {} search results", results.len());
         Ok(results)
+    }
+
+    /// Validates that the database rows contain all columns required for build_search_results
+    /// This implements the SearchBackend trait's validation logic to catch column mismatches early
+    fn validate_search_result_columns(&self, rows: &[sqlx::postgres::PgRow]) -> Result<()> {
+        // Create a temporary backend instance to access validation logic
+        struct TempSearchBackend;
+
+        #[async_trait::async_trait]
+        impl SearchBackend for TempSearchBackend {
+            async fn execute_search(
+                &self,
+                _request: &SearchRequest,
+            ) -> Result<Vec<sqlx::postgres::PgRow>> {
+                unimplemented!("This is only used for validation")
+            }
+        }
+
+        let backend = TempSearchBackend;
+        backend.validate_columns(rows)?;
+
+        Ok(())
     }
 
     async fn count_search_results(&self, _request: &SearchRequest) -> Result<i64> {

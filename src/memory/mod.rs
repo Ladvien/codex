@@ -10,6 +10,7 @@ pub mod importance_assessment_config;
 pub mod math_engine;
 pub mod models;
 pub mod repository;
+pub mod search_backend;
 pub mod semantic_deduplication;
 pub mod simple_consolidation;
 pub mod testing_effect;

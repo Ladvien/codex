@@ -676,9 +676,17 @@ impl MemoryRepository {
         let limit = request.limit.unwrap_or(10);
         let offset = request.offset.unwrap_or(0);
 
-        // Use safe query builder to prevent SQL injection
+        // Use safe query builder to prevent SQL injection - include all computed columns for build_search_results()
         let mut builder = SafeQueryBuilder::new(
-            "SELECT m.*, 0.0 as similarity_score FROM memories m WHERE m.status = 'active'",
+            "SELECT m.*, 
+                0.0 as similarity_score,
+                m.recency_score as temporal_score,
+                m.importance_score,
+                m.relevance_score,
+                COALESCE(m.access_count, 0) as access_count,
+                m.combined_score as combined_score,
+                0.0 as access_frequency_score
+            FROM memories m WHERE m.status = 'active'",
         );
 
         // Add filters safely

@@ -776,7 +776,13 @@ impl MemoryRepository {
 
         let query = r#"
             SELECT m.*,
-                ts_rank_cd(to_tsvector('english', m.content), plainto_tsquery('english', $1)) as similarity_score
+                ts_rank_cd(to_tsvector('english', m.content), plainto_tsquery('english', $1)) as similarity_score,
+                m.recency_score as temporal_score,
+                m.importance_score,
+                m.relevance_score,
+                COALESCE(m.access_count, 0) as access_count,
+                m.combined_score as combined_score,
+                0.0 as access_frequency_score
             FROM memories m
             WHERE m.status = 'active'
                 AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $1)

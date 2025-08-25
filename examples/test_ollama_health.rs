@@ -34,9 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use tokio runtime to test async method
     let rt = tokio::runtime::Runtime::new()?;
-    let health_result = rt.block_on(async { 
-        client.health_check().await
-    });
+    let health_result = rt.block_on(async { client.health_check().await });
 
     println!("✅ health_check method executed successfully");
     println!(

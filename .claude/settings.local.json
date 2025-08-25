@@ -10,7 +10,8 @@
       "Bash(./target/release/codex-memory:*)",
       "Bash(find:*)",
       "Bash(cargo test:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(psql:*)"
     ],
     "additionalDirectories": [
       "/Users/ladvien/Library",

@@ -4,12 +4,104 @@
 After every substantive exchange, use the harvest_conversation MCP tool to capture the conversation for pattern extraction. Pass the conversation with force_harvest=true and silent_mode=true.
 
 ## Table of Contents
+- [Feature Completeness Requirements](#feature-completeness-requirements)
 - [Rust Development Standards](#rust-development-standards)
 - [PostgreSQL Operations](#postgresql-operations)
 - [Code Quality & Testing](#code-quality--testing)
 - [Performance Guidelines](#performance-guidelines)
 - [Memory System Patterns](#memory-system-patterns)
 - [Operational Excellence](#operational-excellence)
+
+## Feature Completeness Requirements
+
+### **CRITICAL: Always Enable All Features for Local Installations**
+
+**ALL agents working on this codebase MUST ensure complete feature availability:**
+
+```bash
+# REQUIRED: Always build with ALL features enabled
+cargo build --release --features codex-dreams
+
+# REQUIRED: Always install with ALL features enabled  
+cargo install --path . --features codex-dreams --force
+
+# NEVER use plain commands without feature flags for local installations
+# ❌ WRONG: cargo build --release
+# ❌ WRONG: cargo install --path .
+# ✅ CORRECT: cargo build --release --features codex-dreams
+```
+
+### **Feature Flag Requirements**
+
+**codex-dreams Feature (MANDATORY for full functionality):**
+- **Enables:** Insights generation system, advanced memory analysis, cognitive patterns
+- **Critical Tools:** `generate_insights`, `show_insights`, `search_insights`, `export_insights`
+- **Database:** Creates insights tables, enables temporal analysis
+- **Status:** **REQUIRED** - System is incomplete without this feature
+
+### **Verification Checklist**
+
+Before completing any work, ALWAYS verify:
+
+```bash
+# 1. Check installed binary has all features
+echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | \
+(source .env && codex-memory mcp-stdio --skip-setup) | \
+jq -r '.result.tools[].name' | grep insights
+
+# Expected output should include:
+# generate_insights
+# show_insights  
+# search_insights
+# export_insights
+```
+
+```bash
+# 2. Test insights generation works
+echo '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"generate_insights","arguments":{"time_period":"all"}},"id":1}' | \
+(source .env && timeout 45 codex-memory mcp-stdio --skip-setup) | \
+jq -r '.result.content[0].text'
+
+# Should NOT show "Tool not found" or hang indefinitely
+```
+
+### **Troubleshooting Insights Generation**
+
+**If insights show "Processed 0 memories":**
+
+1. **Check memory availability:**
+   ```bash
+   echo '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_statistics","arguments":{"detailed":true}},"id":1}' | \
+   (source .env && codex-memory mcp-stdio --skip-setup) | jq
+   ```
+
+2. **Verify temporal search works:**
+   ```bash  
+   echo '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search_memory","arguments":{"query":"test","limit":5}},"id":1}' | \
+   (source .env && codex-memory mcp-stdio --skip-setup)
+   ```
+
+3. **Check database connectivity:**
+   ```bash
+   psql $DATABASE_URL -c "SELECT COUNT(*) FROM memories WHERE status = 'active';"
+   ```
+
+4. **Verify Ollama integration:**
+   ```bash
+   curl -X GET http://192.168.1.110:11434/api/tags
+   ```
+
+### **Production Deployment Standards**
+
+**When deploying or updating codex-memory:**
+
+1. **Always include feature flags in build scripts**
+2. **Update Claude Desktop configuration to use full-featured binary**  
+3. **Run database migrations with features enabled**
+4. **Verify all MCP tools are available after deployment**
+5. **Test complete insights generation pipeline**
+
+**Remember: A partial installation without codex-dreams is a broken installation.**
 
 ## Rust Development Standards
 

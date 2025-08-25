@@ -1117,77 +1117,173 @@ impl MCPHandlers {
 
                 debug!("Insights processor available, starting memory retrieval process");
 
-                // Get memories based on time period
+                // Get memories based on time period using same approach as what_did_you_remember
+                // Generate embedding first, then use semantic search with date filter (proven to work)
                 let memories = match time_period {
                     "last_hour" => {
                         let since = Utc::now() - ChronoDuration::hours(1);
+                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
                         self.repository
-                            .search_memories(crate::memory::SearchRequest {
+                            .search_memories_simple(crate::memory::SearchRequest {
+                                query_text: Some("conversation memory".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(100),
+                                offset: None,
+                                tier: None,
+                                tags: None,
                                 date_range: Some(DateRange {
                                     start: Some(since),
-                                    end: None,
+                                    end: Some(Utc::now()),
                                 }),
-                                limit: Some(100),
-                                search_type: Some(crate::memory::SearchType::Temporal),
-                                ..Default::default()
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
                             })
-                            .await
+                            .await.map(|results| crate::memory::SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                            })
                     }
                     "last_day" => {
                         let since = Utc::now() - ChronoDuration::days(1);
+                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
                         self.repository
-                            .search_memories(crate::memory::SearchRequest {
+                            .search_memories_simple(crate::memory::SearchRequest {
+                                query_text: Some("conversation memory".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(200),
+                                offset: None,
+                                tier: None,
+                                tags: None,
                                 date_range: Some(DateRange {
                                     start: Some(since),
-                                    end: None,
+                                    end: Some(Utc::now()),
                                 }),
-                                limit: Some(200),
-                                search_type: Some(crate::memory::SearchType::Temporal),
-                                ..Default::default()
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
                             })
-                            .await
+                            .await.map(|results| crate::memory::SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                            })
                     }
                     "last_week" => {
                         let since = Utc::now() - ChronoDuration::weeks(1);
+                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
                         self.repository
-                            .search_memories(crate::memory::SearchRequest {
+                            .search_memories_simple(crate::memory::SearchRequest {
+                                query_text: Some("conversation memory".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(500),
+                                offset: None,
+                                tier: None,
+                                tags: None,
                                 date_range: Some(DateRange {
                                     start: Some(since),
-                                    end: None,
+                                    end: Some(Utc::now()),
                                 }),
-                                limit: Some(500),
-                                search_type: Some(crate::memory::SearchType::Temporal),
-                                ..Default::default()
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
                             })
-                            .await
+                            .await.map(|results| crate::memory::SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                            })
                     }
                     "last_month" => {
                         let since = Utc::now() - ChronoDuration::days(30);
+                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
                         self.repository
-                            .search_memories(crate::memory::SearchRequest {
+                            .search_memories_simple(crate::memory::SearchRequest {
+                                query_text: Some("conversation memory".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(1000),
+                                offset: None,
+                                tier: None,
+                                tags: None,
                                 date_range: Some(DateRange {
                                     start: Some(since),
-                                    end: None,
+                                    end: Some(Utc::now()),
                                 }),
-                                limit: Some(1000),
-                                search_type: Some(crate::memory::SearchType::Temporal),
-                                ..Default::default()
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
                             })
-                            .await
+                            .await.map(|results| crate::memory::SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                            })
                     }
                     _ => {
                         let since = Utc::now() - ChronoDuration::days(1);
+                        let embedding = self.embedder.generate_embedding("conversation memory").await?;
                         self.repository
-                            .search_memories(crate::memory::SearchRequest {
+                            .search_memories_simple(crate::memory::SearchRequest {
+                                query_text: Some("conversation memory".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(200),
+                                offset: None,
+                                tier: None,
+                                tags: None,
                                 date_range: Some(DateRange {
                                     start: Some(since),
-                                    end: None,
+                                    end: Some(Utc::now()),
                                 }),
-                                limit: Some(200),
-                                search_type: Some(crate::memory::SearchType::Temporal),
-                                ..Default::default()
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
                             })
-                            .await
+                            .await.map(|results| crate::memory::SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                            })
                     }
                 }?;
 

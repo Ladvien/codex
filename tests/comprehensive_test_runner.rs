@@ -198,6 +198,13 @@ async fn run_comprehensive_test_suite() -> Result<()> {
     let result = execute_test("error_handling", || async { test_error_handling().await }).await;
     summary.add_result(result);
 
+    // Test 8: Search Memory Regression Prevention (E2E)
+    let result = execute_test("search_memory_regression_prevention", || async {
+        test_search_memory_regression_prevention().await
+    })
+    .await;
+    summary.add_result(result);
+
     // Test 8: Data Persistence
     let result = execute_test("data_persistence", || async {
         test_data_persistence().await
@@ -606,5 +613,160 @@ async fn test_system_statistics() -> Result<()> {
 
     env.cleanup_test_data().await?;
     println!("✓ System statistics working correctly");
+    Ok(())
+}
+
+async fn test_search_memory_regression_prevention() -> Result<()> {
+    use codex_memory::mcp_server::handlers::MCPHandlers;
+    use codex_memory::mcp_server::logging::MCPLogger;
+    use codex_memory::mcp_server::progress::ProgressTracker;
+    use codex_memory::insights::processor::InsightProcessor;
+    use codex_memory::insights::scheduler::SchedulerService;
+    use codex_memory::insights::storage::InsightStorage;
+    use codex_memory::harvester::service::HarvesterService;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    println!("🔍 Testing search memory regression prevention (E2E)...");
+    
+    let env = TestEnvironment::new().await?;
+    
+    // Set up MCP handlers (this is what Claude Desktop uses)
+    let insight_storage = Arc::new(InsightStorage::new(
+        Arc::new(env.pool.clone()), 
+        env.embedding_provider.clone()
+    ));
+    let insight_processor = Arc::new(InsightProcessor::new(
+        env.repository.clone(),
+        insight_storage.clone(),
+        env.embedding_provider.clone(),
+        env.config.clone(),
+    ));
+    let scheduler_service = Arc::new(SchedulerService::new(
+        insight_processor.clone(),
+        env.repository.clone(),
+    ));
+    let harvester_service = Arc::new(HarvesterService::new(
+        env.repository.clone(),
+        env.embedding_provider.clone(),
+        env.config.clone(),
+    ));
+    let mcp_logger = Arc::new(MCPLogger::new());
+    let progress_tracker = Arc::new(ProgressTracker::new());
+
+    let handlers = MCPHandlers::new(
+        env.repository.clone(),
+        insight_storage,
+        insight_processor,
+        scheduler_service,
+        env.embedding_provider.clone(),
+        harvester_service,
+        mcp_logger,
+        progress_tracker,
+    );
+
+    // Create test memory to ensure we have searchable content
+    let memory = env
+        .create_test_memory(
+            "SEARCH_REGRESSION_TEST memory for E2E validation",
+            codex_memory::memory::models::MemoryTier::Working,
+            0.85,
+        )
+        .await?;
+
+    // Test 1: Fulltext search through MCP (the exact failure case from Claude Desktop)
+    println!("  Testing fulltext search through MCP handler...");
+    let fulltext_params = json!({
+        "query_text": "SEARCH_REGRESSION_TEST",
+        "search_type": "fulltext",
+        "limit": 5,
+        "explain_score": false
+    });
+
+    let fulltext_result = handlers.search_memory(&fulltext_params, None).await;
+    assert!(fulltext_result.is_ok(), "Fulltext search through MCP should not fail with column errors");
+    
+    let fulltext_response = fulltext_result.unwrap();
+    assert!(fulltext_response.get("results").is_some(), "Response should have results");
+    
+    let results = fulltext_response.get("results").unwrap().as_array().unwrap();
+    assert!(!results.is_empty(), "Should find the test memory");
+    
+    // Verify the result structure (this is what was broken before)
+    let first_result = &results[0];
+    assert!(first_result.get("memory").is_some(), "Result should have memory object");
+    assert!(first_result.get("similarity_score").is_some(), "Result should have similarity_score");
+    
+    let memory_obj = first_result.get("memory").unwrap();
+    
+    // These are the fields that were missing and causing the column mismatch error
+    let critical_fields = [
+        "id", "content", "importance_score", "recency_score", 
+        "relevance_score", "tier", "status", "created_at", "updated_at"
+    ];
+    
+    for field in critical_fields.iter() {
+        assert!(memory_obj.get(field).is_some(), 
+            "Memory object missing critical field '{}' - this was the regression bug!", field);
+    }
+    
+    println!("    ✓ Fulltext search structure validation passed");
+
+    // Test 2: Hybrid search consistency
+    println!("  Testing hybrid search consistency...");
+    let hybrid_params = json!({
+        "query_text": "SEARCH_REGRESSION_TEST",
+        "search_type": "hybrid",
+        "limit": 5,
+        "threshold": 0.0,
+        "explain_score": true
+    });
+
+    let hybrid_result = handlers.search_memory(&hybrid_params, None).await;
+    assert!(hybrid_result.is_ok(), "Hybrid search should work");
+    
+    let hybrid_response = hybrid_result.unwrap();
+    let hybrid_results = hybrid_response.get("results").unwrap().as_array().unwrap();
+    assert!(!hybrid_results.is_empty(), "Hybrid search should find results");
+    
+    // Compare field structure between fulltext and hybrid to ensure consistency
+    let hybrid_memory = hybrid_results[0].get("memory").unwrap();
+    
+    for field in critical_fields.iter() {
+        assert!(hybrid_memory.get(field).is_some(), 
+            "Hybrid search missing field '{}' - structure inconsistency!", field);
+    }
+    
+    println!("    ✓ Hybrid search structure validation passed");
+    
+    // Test 3: Edge case that might trigger column errors
+    println!("  Testing edge cases for column error prevention...");
+    let edge_params = json!({
+        "query_text": "",
+        "search_type": "fulltext",
+        "limit": 0
+    });
+
+    let edge_result = handlers.search_memory(&edge_params, None).await;
+    match edge_result {
+        Ok(_) => println!("    ✓ Edge case handled successfully"),
+        Err(e) => {
+            let error_msg = format!("{:?}", e);
+            assert!(!error_msg.contains("column"), 
+                "Edge case should not cause column-related errors: {}", error_msg);
+            assert!(!error_msg.contains("try_get"), 
+                "Edge case should not cause column mapping errors: {}", error_msg);
+            println!("    ✓ Edge case properly rejected with non-column error");
+        }
+    }
+
+    env.cleanup_test_data().await?;
+    
+    println!("✓ Search memory regression prevention tests passed");
+    println!("  - MCP fulltext search: ✓");
+    println!("  - MCP hybrid search: ✓");  
+    println!("  - Column structure consistency: ✓");
+    println!("  - Edge case handling: ✓");
+    
     Ok(())
 }

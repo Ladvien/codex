@@ -8,7 +8,9 @@ use crate::mcp_server::{handlers::MCPHandlers, rate_limiter::MCPRateLimiter};
 use crate::security::SecurityError;
 use anyhow::Result;
 use governor::{
-    clock::DefaultClock, middleware::NoOpMiddleware, state::{InMemoryState, NotKeyed}, 
+    clock::DefaultClock,
+    middleware::NoOpMiddleware,
+    state::{InMemoryState, NotKeyed},
     Quota, RateLimiter as GovernorRateLimiter,
 };
 use nonzero_ext::nonzero;
@@ -66,11 +68,11 @@ impl Default for TransportRateLimitConfig {
     fn default() -> Self {
         Self {
             max_malformed_requests: 5,
-            malformed_backoff_base_ms: 1000,     // Start with 1 second
-            max_backoff_duration_ms: 60_000,     // Max 1 minute
-            malformed_reset_period_ms: 300_000,  // Reset after 5 minutes
-            max_message_size: 1_048_576,         // 1MB
-            transport_requests_per_minute: 120,  // 2 per second at transport level
+            malformed_backoff_base_ms: 1000,    // Start with 1 second
+            max_backoff_duration_ms: 60_000,    // Max 1 minute
+            malformed_reset_period_ms: 300_000, // Reset after 5 minutes
+            max_message_size: 1_048_576,        // 1MB
+            transport_requests_per_minute: 120, // 2 per second at transport level
             transport_burst_size: 10,
         }
     }
@@ -81,14 +83,15 @@ pub struct StdioTransport {
     request_timeout: Duration,
     connection_state: Arc<RwLock<ConnectionState>>,
     transport_config: TransportRateLimitConfig,
-    transport_limiter: Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
+    transport_limiter:
+        Arc<GovernorRateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>,
 }
 
 impl StdioTransport {
     /// Create a new stdio transport with the specified timeout
     pub fn new(timeout_ms: u64) -> Result<Self> {
         let transport_config = TransportRateLimitConfig::default();
-        
+
         // Create transport-level rate limiter
         let rate = NonZeroU32::new(transport_config.transport_requests_per_minute)
             .ok_or_else(|| anyhow::anyhow!("Invalid transport rate limit"))?;
@@ -104,9 +107,12 @@ impl StdioTransport {
             transport_limiter,
         })
     }
-    
+
     /// Create a new stdio transport with custom configuration
-    pub fn new_with_config(timeout_ms: u64, transport_config: TransportRateLimitConfig) -> Result<Self> {
+    pub fn new_with_config(
+        timeout_ms: u64,
+        transport_config: TransportRateLimitConfig,
+    ) -> Result<Self> {
         // Create transport-level rate limiter
         let rate = NonZeroU32::new(transport_config.transport_requests_per_minute)
             .ok_or_else(|| anyhow::anyhow!("Invalid transport rate limit"))?;
@@ -170,7 +176,7 @@ impl StdioTransport {
     /// Check transport-level security before processing messages
     async fn check_transport_security(&self, message: &str) -> Result<()> {
         let now = Instant::now();
-        
+
         // Check transport-level rate limiting first
         if self.transport_limiter.check().is_err() {
             warn!("Transport-level rate limit exceeded");
@@ -195,8 +201,8 @@ impl StdioTransport {
         // Check message size limit
         if message.len() > self.transport_config.max_message_size {
             warn!(
-                "Message size {} exceeds limit {}", 
-                message.len(), 
+                "Message size {} exceeds limit {}",
+                message.len(),
                 self.transport_config.max_message_size
             );
             self.handle_malformed_request(&mut state, now).await?;
@@ -205,8 +211,9 @@ impl StdioTransport {
 
         // Reset malformed request counter if enough time has passed
         if let Some(last_malformed) = state.last_malformed {
-            if now.duration_since(last_malformed).as_millis() 
-                > self.transport_config.malformed_reset_period_ms as u128 {
+            if now.duration_since(last_malformed).as_millis()
+                > self.transport_config.malformed_reset_period_ms as u128
+            {
                 debug!("Resetting malformed request counter after timeout");
                 state.malformed_requests = 0;
                 state.last_malformed = None;
@@ -217,29 +224,34 @@ impl StdioTransport {
     }
 
     /// Handle malformed requests with exponential backoff
-    async fn handle_malformed_request(&self, state: &mut ConnectionState, now: Instant) -> Result<()> {
+    async fn handle_malformed_request(
+        &self,
+        state: &mut ConnectionState,
+        now: Instant,
+    ) -> Result<()> {
         state.malformed_requests += 1;
         state.last_malformed = Some(now);
 
         warn!(
             "Malformed request detected, count: {}/{}",
-            state.malformed_requests, 
-            self.transport_config.max_malformed_requests
+            state.malformed_requests, self.transport_config.max_malformed_requests
         );
 
         if state.malformed_requests >= self.transport_config.max_malformed_requests {
             // Calculate exponential backoff
-            let backoff_multiplier = 2_u64.pow((state.malformed_requests - self.transport_config.max_malformed_requests).min(10));
+            let backoff_multiplier = 2_u64.pow(
+                (state.malformed_requests - self.transport_config.max_malformed_requests).min(10),
+            );
             let backoff_ms = (self.transport_config.malformed_backoff_base_ms * backoff_multiplier)
                 .min(self.transport_config.max_backoff_duration_ms);
-            
+
             state.backoff_until = Some(now + Duration::from_millis(backoff_ms));
-            
+
             warn!(
                 "Too many malformed requests ({}), entering backoff for {}ms",
                 state.malformed_requests, backoff_ms
             );
-            
+
             return Err(SecurityError::RateLimitExceeded.into());
         }
 
@@ -271,15 +283,21 @@ impl StdioTransport {
             Ok(req) => req,
             Err(e) => {
                 error!("Failed to parse JSON-RPC request: {}", e);
-                
+
                 // SECURITY: Track malformed JSON requests
                 let mut state = self.connection_state.write().await;
-                if let Err(security_err) = self.handle_malformed_request(&mut state, Instant::now()).await {
-                    warn!("Malformed request triggered security backoff: {}", security_err);
+                if let Err(security_err) = self
+                    .handle_malformed_request(&mut state, Instant::now())
+                    .await
+                {
+                    warn!(
+                        "Malformed request triggered security backoff: {}",
+                        security_err
+                    );
                     // Don't send parse error response during backoff
                     return Ok(());
                 }
-                
+
                 self.send_parse_error(stdout, None).await?;
                 return Ok(());
             }
@@ -287,9 +305,11 @@ impl StdioTransport {
 
         // Handle batch requests (array) vs single requests (object)
         if request.is_array() {
-            self.process_batch_request(&request, handlers, stdout).await?;
+            self.process_batch_request(&request, handlers, stdout)
+                .await?;
         } else {
-            self.process_single_request(&request, handlers, stdout).await?;
+            self.process_single_request(&request, handlers, stdout)
+                .await?;
         }
 
         Ok(())
@@ -315,8 +335,10 @@ impl StdioTransport {
 
         for request in request_array {
             // Process each request in the batch
-            let response = self.process_single_request_internal(request, handlers).await;
-            
+            let response = self
+                .process_single_request_internal(request, handlers)
+                .await;
+
             // Only add non-notification responses to the batch
             if let Some(resp) = response {
                 responses.push(resp);
@@ -339,7 +361,10 @@ impl StdioTransport {
         handlers: &mut MCPHandlers,
         stdout: &mut tokio::io::Stdout,
     ) -> Result<()> {
-        if let Some(response) = self.process_single_request_internal(request, handlers).await {
+        if let Some(response) = self
+            .process_single_request_internal(request, handlers)
+            .await
+        {
             self.send_response(stdout, &response).await?;
         }
         Ok(())
@@ -373,7 +398,8 @@ impl StdioTransport {
         // Handle notifications (no response needed) - proper JSON-RPC 2.0 notification detection
         if id.is_none() {
             debug!("Received JSON-RPC notification: {}", method);
-            self.handle_notification(method, request.get("params")).await;
+            self.handle_notification(method, request.get("params"))
+                .await;
             return None;
         }
 
@@ -406,8 +432,11 @@ impl StdioTransport {
 
     /// Handle JSON-RPC 2.0 notifications (no response expected)
     async fn handle_notification(&self, method: &str, params: Option<&Value>) {
-        debug!("Processing notification: {} with params: {:?}", method, params);
-        
+        debug!(
+            "Processing notification: {} with params: {:?}",
+            method, params
+        );
+
         match method {
             "notifications/initialized" => {
                 debug!("Client initialized notification received");
@@ -602,11 +631,11 @@ pub fn create_error_response_with_data(
         "code": code,
         "message": message
     });
-    
+
     if let Some(error_data) = data {
         error["data"] = error_data;
     }
-    
+
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -634,50 +663,55 @@ pub fn create_text_content(text: &str, annotations: Option<Value>) -> Value {
         "type": "text",
         "text": text
     });
-    
+
     if let Some(annotations) = annotations {
         content["annotations"] = annotations;
     }
-    
+
     content
 }
 
 /// Helper function to create MCP image content
 pub fn create_image_content(data: &str, mime_type: &str, annotations: Option<Value>) -> Value {
     let mut content = serde_json::json!({
-        "type": "image", 
+        "type": "image",
         "data": data,
         "mimeType": mime_type
     });
-    
+
     if let Some(annotations) = annotations {
         content["annotations"] = annotations;
     }
-    
+
     content
 }
 
 /// Helper function to create MCP resource content
-pub fn create_resource_content(uri: &str, mime_type: Option<&str>, text: Option<&str>, annotations: Option<Value>) -> Value {
+pub fn create_resource_content(
+    uri: &str,
+    mime_type: Option<&str>,
+    text: Option<&str>,
+    annotations: Option<Value>,
+) -> Value {
     let mut content = serde_json::json!({
         "type": "resource",
         "resource": {
             "uri": uri
         }
     });
-    
+
     if let Some(mime_type) = mime_type {
         content["resource"]["mimeType"] = mime_type.into();
     }
-    
+
     if let Some(text) = text {
         content["resource"]["text"] = text.into();
     }
-    
+
     if let Some(annotations) = annotations {
         content["annotations"] = annotations;
     }
-    
+
     content
 }
 
@@ -749,7 +783,7 @@ mod tests {
     #[test]
     fn test_validate_jsonrpc_request_valid() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "initialize",
@@ -762,7 +796,7 @@ mod tests {
     #[test]
     fn test_validate_jsonrpc_request_missing_jsonrpc() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "method": "initialize",
             "id": 1
@@ -770,13 +804,15 @@ mod tests {
 
         let result = transport.validate_jsonrpc_request(&invalid_request);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required 'jsonrpc' field"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required 'jsonrpc' field"));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_wrong_version() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "jsonrpc": "1.0",
             "method": "initialize",
@@ -791,7 +827,7 @@ mod tests {
     #[test]
     fn test_validate_jsonrpc_request_missing_method() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1
@@ -799,13 +835,15 @@ mod tests {
 
         let result = transport.validate_jsonrpc_request(&invalid_request);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required 'method' field"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing required 'method' field"));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_method_type() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": 123,
@@ -814,13 +852,15 @@ mod tests {
 
         let result = transport.validate_jsonrpc_request(&invalid_request);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Method field must be a string"));
+        assert!(result
+            .unwrap_err()
+            .contains("Method field must be a string"));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_id_type() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "initialize",
@@ -829,13 +869,15 @@ mod tests {
 
         let result = transport.validate_jsonrpc_request(&invalid_request);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("ID field must be a string, number, or null"));
+        assert!(result
+            .unwrap_err()
+            .contains("ID field must be a string, number, or null"));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_invalid_params_type() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let invalid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "initialize",
@@ -845,13 +887,15 @@ mod tests {
 
         let result = transport.validate_jsonrpc_request(&invalid_request);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Params field must be an object or array"));
+        assert!(result
+            .unwrap_err()
+            .contains("Params field must be an object or array"));
     }
 
     #[test]
     fn test_validate_jsonrpc_request_valid_with_object_params() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "tools/call",
@@ -865,7 +909,7 @@ mod tests {
     #[test]
     fn test_validate_jsonrpc_request_valid_with_array_params() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let valid_request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "batch_call",
@@ -879,7 +923,7 @@ mod tests {
     #[test]
     fn test_extract_headers_from_request() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "initialize",
@@ -893,18 +937,27 @@ mod tests {
         });
 
         let headers = transport.extract_headers_from_request(&request);
-        
-        assert_eq!(headers.get("Content-Type"), Some(&"application/json".to_string()));
+
+        assert_eq!(
+            headers.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
         assert_eq!(headers.get("Transport"), Some(&"stdio".to_string()));
         assert_eq!(headers.get("JSON-RPC-Version"), Some(&"2.0".to_string()));
-        assert_eq!(headers.get("Authorization"), Some(&"Bearer token123".to_string()));
-        assert_eq!(headers.get("User-Agent"), Some(&"TestClient/1.0".to_string()));
+        assert_eq!(
+            headers.get("Authorization"),
+            Some(&"Bearer token123".to_string())
+        );
+        assert_eq!(
+            headers.get("User-Agent"),
+            Some(&"TestClient/1.0".to_string())
+        );
     }
 
     #[test]
     fn test_extract_headers_defaults_only() {
         let transport = StdioTransport::new(5000).unwrap();
-        
+
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "initialize",
@@ -912,8 +965,11 @@ mod tests {
         });
 
         let headers = transport.extract_headers_from_request(&request);
-        
-        assert_eq!(headers.get("Content-Type"), Some(&"application/json".to_string()));
+
+        assert_eq!(
+            headers.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
         assert_eq!(headers.get("Transport"), Some(&"stdio".to_string()));
         assert_eq!(headers.get("JSON-RPC-Version"), Some(&"2.0".to_string()));
         assert_eq!(headers.len(), 3);

@@ -60,15 +60,27 @@ impl MCPLogger {
     /// Log a message at the specified level
     pub fn log(&self, level: LogLevel, logger: Option<String>, data: Value) {
         if level >= self.min_level {
-            let message = LogMessage { level, logger, data };
-            
+            let message = LogMessage {
+                level,
+                logger,
+                data,
+            };
+
             // Also log through tracing for local debugging
             let tracing_level = message.level.clone().into();
             match tracing_level {
-                tracing::Level::DEBUG => debug!(logger = ?message.logger, data = %message.data, "MCP Log"),
-                tracing::Level::INFO => info!(logger = ?message.logger, data = %message.data, "MCP Log"),
-                tracing::Level::WARN => warn!(logger = ?message.logger, data = %message.data, "MCP Log"),
-                tracing::Level::ERROR => error!(logger = ?message.logger, data = %message.data, "MCP Log"),
+                tracing::Level::DEBUG => {
+                    debug!(logger = ?message.logger, data = %message.data, "MCP Log")
+                }
+                tracing::Level::INFO => {
+                    info!(logger = ?message.logger, data = %message.data, "MCP Log")
+                }
+                tracing::Level::WARN => {
+                    warn!(logger = ?message.logger, data = %message.data, "MCP Log")
+                }
+                tracing::Level::ERROR => {
+                    error!(logger = ?message.logger, data = %message.data, "MCP Log")
+                }
                 _ => trace!(logger = ?message.logger, data = %message.data, "MCP Log"),
             }
 
@@ -177,7 +189,10 @@ mod tests {
         assert_eq!(notification["method"], "notifications/message");
         assert_eq!(notification["params"]["level"], "error");
         assert_eq!(notification["params"]["logger"], "memory");
-        assert_eq!(notification["params"]["data"]["error"], "Failed to store memory");
+        assert_eq!(
+            notification["params"]["data"]["error"],
+            "Failed to store memory"
+        );
     }
 
     #[tokio::test]
@@ -187,7 +202,7 @@ mod tests {
 
         // Debug message should be filtered out
         logger.debug(None, json!({"message": "debug"}));
-        
+
         // Warning message should go through
         logger.warning(None, json!({"message": "warning"}));
 
@@ -198,7 +213,7 @@ mod tests {
 
         // No more messages should be available
         match receiver.try_recv() {
-            Err(broadcast::error::TryRecvError::Empty) => {}, // Expected
+            Err(broadcast::error::TryRecvError::Empty) => {} // Expected
             other => panic!("Expected empty channel, got: {:?}", other),
         }
     }

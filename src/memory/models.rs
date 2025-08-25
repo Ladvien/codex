@@ -428,7 +428,7 @@ impl Default for Memory {
             last_retrieval_success: None,
             next_review_at: None,
             current_interval_days: Some(1.0), // Start with 1 day interval (Pimsleur spacing)
-            ease_factor: 2.5, // Default ease factor from SuperMemo2 algorithm
+            ease_factor: 2.5,                 // Default ease factor from SuperMemo2 algorithm
         }
     }
 }
@@ -464,7 +464,7 @@ impl Memory {
     /// Calculate next spaced repetition interval (based on Pimsleur method)
     pub fn calculate_next_spaced_interval(&self, retrieval_success: bool, difficulty: f64) -> f64 {
         let current_interval = self.current_interval_days.unwrap_or(1.0);
-        
+
         if retrieval_success {
             // Successful retrieval: increase interval using ease factor
             let ease = self.ease_factor;

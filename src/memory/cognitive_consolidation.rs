@@ -199,7 +199,7 @@ impl CognitiveConsolidationEngine {
         let cognitive_multiplier = (1.0 + clustering_bonus + context_boost - interference_penalty)
             .max(0.1) // Prevent negative multipliers
             .min(2.0); // Cap enhancement
-            
+
         let enhanced_retention = (base_recall.recall_probability * cognitive_multiplier)
             .max(0.0)
             .min(1.0);
@@ -276,14 +276,14 @@ impl CognitiveConsolidationEngine {
 
     /// Calculate testing effect based on retrieval difficulty
     ///
-    /// Implements findings from Roediger & Karpicke (2008) and Bjork (1994) that desirable 
+    /// Implements findings from Roediger & Karpicke (2008) and Bjork (1994) that desirable
     /// difficulties during retrieval enhance long-term retention. Now integrated with
     /// dedicated testing effect implementation for research compliance.
     pub(crate) fn calculate_testing_effect(&self, context: &RetrievalContext) -> Result<f64> {
         // Enhanced testing effect calculation based on research
         let difficulty = match context.retrieval_latency_ms {
-            0..=500 => 0.2,     // Too easy - minimal benefit (automatic recall)
-            501..=1500 => 0.8,  // Easy - some benefit
+            0..=500 => 0.2,      // Too easy - minimal benefit (automatic recall)
+            501..=1500 => 0.8,   // Easy - some benefit
             1501..=3000 => 1.5, // Optimal difficulty - maximum testing effect (Roediger & Karpicke)
             3001..=6000 => 1.2, // Hard - good benefit but effortful
             6001..=10000 => 0.9, // Very hard - some benefit but approaching failure
@@ -294,9 +294,16 @@ impl CognitiveConsolidationEngine {
         let confidence_factor = 1.0 + (1.0 - context.confidence_score) * 0.4;
 
         // Apply research-backed multipliers (1.5x for successful retrieval as per Karpicke & Roediger 2008)
-        let testing_effect_multiplier = if context.confidence_score > 0.7 { 1.5 } else { 1.2 };
+        let testing_effect_multiplier = if context.confidence_score > 0.7 {
+            1.5
+        } else {
+            1.2
+        };
 
-        let testing_effect = difficulty * confidence_factor * testing_effect_multiplier * self.config.difficulty_scaling;
+        let testing_effect = difficulty
+            * confidence_factor
+            * testing_effect_multiplier
+            * self.config.difficulty_scaling;
 
         // Ensure testing effect stays within research-validated bounds
         Ok(testing_effect.max(0.2).min(2.5))

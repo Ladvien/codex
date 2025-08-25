@@ -1,3 +1,4 @@
+pub mod auto_tiering;
 pub mod compression;
 pub mod connection;
 pub mod consolidation_job;
@@ -13,7 +14,6 @@ pub mod semantic_deduplication;
 pub mod simple_consolidation;
 pub mod testing_effect;
 pub mod tier_manager;
-pub mod auto_tiering;
 
 // Cognitive enhancement modules
 pub mod background_reflection_service;
@@ -132,7 +132,7 @@ pub use tier_manager::{
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]  
+#[cfg(test)]
 mod ebbinghaus_tests;
 
 #[cfg(test)]

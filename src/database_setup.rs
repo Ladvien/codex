@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use regex::Regex;
 use tokio_postgres::{Config as PgConfig, NoTls};
 use tracing::{error, info};
 use url::Url;
-use regex::Regex;
 
 /// Database setup and validation utilities
 pub struct DatabaseSetup {
@@ -35,7 +35,7 @@ impl DatabaseSetup {
         // Check for valid PostgreSQL identifier pattern
         let identifier_regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_$]*$")
             .expect("Invalid regex for database identifier validation");
-        
+
         if !identifier_regex.is_match(identifier) {
             return Err(anyhow::anyhow!(
                 "Invalid database identifier '{}': must start with letter/underscore and contain only letters, digits, underscores, and dollar signs", 
@@ -45,19 +45,106 @@ impl DatabaseSetup {
 
         // Check against PostgreSQL reserved keywords
         let reserved_keywords = [
-            "ALL", "ANALYSE", "ANALYZE", "AND", "ANY", "ARRAY", "AS", "ASC", "ASYMMETRIC",
-            "AUTHORIZATION", "BINARY", "BOTH", "CASE", "CAST", "CHECK", "COLLATE", "COLLATION",
-            "COLUMN", "CONCURRENTLY", "CONSTRAINT", "CREATE", "CROSS", "CURRENT_CATALOG",
-            "CURRENT_DATE", "CURRENT_ROLE", "CURRENT_SCHEMA", "CURRENT_TIME", "CURRENT_TIMESTAMP",
-            "CURRENT_USER", "DEFAULT", "DEFERRABLE", "DESC", "DISTINCT", "DO", "ELSE", "END",
-            "EXCEPT", "FALSE", "FETCH", "FOR", "FOREIGN", "FREEZE", "FROM", "FULL", "GRANT",
-            "GROUP", "HAVING", "ILIKE", "IN", "INITIALLY", "INNER", "INTERSECT", "INTO", "IS",
-            "ISNULL", "JOIN", "LATERAL", "LEADING", "LEFT", "LIKE", "LIMIT", "LOCALTIME",
-            "LOCALTIMESTAMP", "NATURAL", "NOT", "NOTNULL", "NULL", "OFFSET", "ON", "ONLY",
-            "OR", "ORDER", "OUTER", "OVERLAPS", "PLACING", "PRIMARY", "REFERENCES", "RETURNING",
-            "RIGHT", "SELECT", "SESSION_USER", "SIMILAR", "SOME", "SYMMETRIC", "TABLE", "TABLESAMPLE",
-            "THEN", "TO", "TRAILING", "TRUE", "UNION", "UNIQUE", "USER", "USING", "VARIADIC",
-            "VERBOSE", "WHEN", "WHERE", "WINDOW", "WITH"
+            "ALL",
+            "ANALYSE",
+            "ANALYZE",
+            "AND",
+            "ANY",
+            "ARRAY",
+            "AS",
+            "ASC",
+            "ASYMMETRIC",
+            "AUTHORIZATION",
+            "BINARY",
+            "BOTH",
+            "CASE",
+            "CAST",
+            "CHECK",
+            "COLLATE",
+            "COLLATION",
+            "COLUMN",
+            "CONCURRENTLY",
+            "CONSTRAINT",
+            "CREATE",
+            "CROSS",
+            "CURRENT_CATALOG",
+            "CURRENT_DATE",
+            "CURRENT_ROLE",
+            "CURRENT_SCHEMA",
+            "CURRENT_TIME",
+            "CURRENT_TIMESTAMP",
+            "CURRENT_USER",
+            "DEFAULT",
+            "DEFERRABLE",
+            "DESC",
+            "DISTINCT",
+            "DO",
+            "ELSE",
+            "END",
+            "EXCEPT",
+            "FALSE",
+            "FETCH",
+            "FOR",
+            "FOREIGN",
+            "FREEZE",
+            "FROM",
+            "FULL",
+            "GRANT",
+            "GROUP",
+            "HAVING",
+            "ILIKE",
+            "IN",
+            "INITIALLY",
+            "INNER",
+            "INTERSECT",
+            "INTO",
+            "IS",
+            "ISNULL",
+            "JOIN",
+            "LATERAL",
+            "LEADING",
+            "LEFT",
+            "LIKE",
+            "LIMIT",
+            "LOCALTIME",
+            "LOCALTIMESTAMP",
+            "NATURAL",
+            "NOT",
+            "NOTNULL",
+            "NULL",
+            "OFFSET",
+            "ON",
+            "ONLY",
+            "OR",
+            "ORDER",
+            "OUTER",
+            "OVERLAPS",
+            "PLACING",
+            "PRIMARY",
+            "REFERENCES",
+            "RETURNING",
+            "RIGHT",
+            "SELECT",
+            "SESSION_USER",
+            "SIMILAR",
+            "SOME",
+            "SYMMETRIC",
+            "TABLE",
+            "TABLESAMPLE",
+            "THEN",
+            "TO",
+            "TRAILING",
+            "TRUE",
+            "UNION",
+            "UNIQUE",
+            "USER",
+            "USING",
+            "VARIADIC",
+            "VERBOSE",
+            "WHEN",
+            "WHERE",
+            "WINDOW",
+            "WITH",
         ];
 
         let upper_identifier = identifier.to_uppercase();
@@ -556,9 +643,9 @@ impl DatabaseSetup {
 
         // Insert a test memory using 768-dimensional vector (matching schema)
         let test_vector = vec![0.1f32; 768];
-        let validated_vector = Self::validate_and_format_vector(&test_vector)
-            .context("Invalid test vector format")?;
-        
+        let validated_vector =
+            Self::validate_and_format_vector(&test_vector).context("Invalid test vector format")?;
+
         // Use parameterized query with vector cast - the validation ensures safe formatting
         client
             .execute(
@@ -572,7 +659,7 @@ impl DatabaseSetup {
         let query_vector = vec![0.1f32; 768];
         let validated_query_vector = Self::validate_and_format_vector(&query_vector)
             .context("Invalid query vector format")?;
-            
+
         // Use parameterized query for vector similarity search
         client
             .query(

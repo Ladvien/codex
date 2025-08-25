@@ -5,11 +5,12 @@
 
 #[cfg(test)]
 mod tests {
-    use super::super::testing_effect::{
-        DifficultyThresholds, RetrievalAttempt, RetrievalType, TestingEffectConfig, TestingEffectEngine,
-    };
     use super::super::models::Memory;
     use super::super::repository::MemoryRepository;
+    use super::super::testing_effect::{
+        DifficultyThresholds, RetrievalAttempt, RetrievalType, TestingEffectConfig,
+        TestingEffectEngine,
+    };
     use chrono::{Duration, Utc};
     use std::sync::Arc;
     use uuid::Uuid;
@@ -44,25 +45,25 @@ mod tests {
     fn test_roediger_karpicke_consolidation_boost() {
         let config = create_test_config();
         // Note: This test validates the algorithm without requiring database connection
-        
+
         // Verify research-backed multipliers
         assert_eq!(config.successful_retrieval_multiplier, 1.5); // Roediger & Karpicke finding
-        assert_eq!(config.failed_retrieval_multiplier, 0.8);     // Partial benefit
-        
+        assert_eq!(config.failed_retrieval_multiplier, 0.8); // Partial benefit
+
         // Test difficulty thresholds match cognitive research
         assert_eq!(config.difficulty_thresholds.moderate_ms, 3000); // 3-second optimal difficulty
-        assert_eq!(config.difficulty_thresholds.very_easy_ms, 500);  // Immediate recognition
+        assert_eq!(config.difficulty_thresholds.very_easy_ms, 500); // Immediate recognition
     }
 
     /// Test Pimsleur spaced intervals are correctly implemented
     #[test]
     fn test_pimsleur_spaced_intervals() {
         let config = create_test_config();
-        
+
         // Validate research-backed Pimsleur intervals
         let expected_intervals = vec![1.0, 7.0, 16.0, 35.0];
         assert_eq!(config.pimsleur_intervals, expected_intervals);
-        
+
         // Test interval bounds are reasonable
         assert_eq!(config.min_interval_days, 1.0);
         assert_eq!(config.max_interval_days, 365.0);
@@ -72,7 +73,7 @@ mod tests {
     #[test]
     fn test_supermemo2_ease_factors() {
         let config = create_test_config();
-        
+
         // Validate SuperMemo2 default parameters
         assert_eq!(config.default_ease_factor, 2.5);
         assert_eq!(config.min_ease_factor, 1.3);
@@ -88,22 +89,32 @@ mod tests {
 
         // Test immediate recognition (very easy)
         let difficulty_very_easy = engine.calculate_difficulty_score(300, 0.95);
-        assert!(difficulty_very_easy < 0.1, "Immediate recognition should be very easy");
+        assert!(
+            difficulty_very_easy < 0.1,
+            "Immediate recognition should be very easy"
+        );
 
         // Test optimal difficulty range (1.5-3 seconds)
         let difficulty_optimal = engine.calculate_difficulty_score(2500, 0.8);
-        assert!(difficulty_optimal >= 0.4 && difficulty_optimal <= 0.6, 
-                "2.5 second retrieval should be optimal difficulty");
+        assert!(
+            difficulty_optimal >= 0.4 && difficulty_optimal <= 0.6,
+            "2.5 second retrieval should be optimal difficulty"
+        );
 
         // Test very hard retrieval (approaching failure)
         let difficulty_very_hard = engine.calculate_difficulty_score(9000, 0.3);
-        assert!(difficulty_very_hard > 0.8, "9 second retrieval should be very hard");
+        assert!(
+            difficulty_very_hard > 0.8,
+            "9 second retrieval should be very hard"
+        );
 
         // Test confidence adjustment (lower confidence = higher difficulty)
         let difficulty_low_confidence = engine.calculate_difficulty_score(2000, 0.2);
         let difficulty_high_confidence = engine.calculate_difficulty_score(2000, 0.9);
-        assert!(difficulty_low_confidence > difficulty_high_confidence,
-                "Lower confidence should increase difficulty score");
+        assert!(
+            difficulty_low_confidence > difficulty_high_confidence,
+            "Lower confidence should increase difficulty score"
+        );
     }
 
     /// Test consolidation boost calculation follows research bounds
@@ -114,32 +125,36 @@ mod tests {
         let engine = TestingEffectEngine::new(config.clone(), repository);
 
         // Test successful retrieval with optimal difficulty
-        let boost_success_optimal = engine.calculate_consolidation_boost(
-            true, 0.5, &RetrievalType::CuedRecall
+        let boost_success_optimal =
+            engine.calculate_consolidation_boost(true, 0.5, &RetrievalType::CuedRecall);
+        assert!(
+            boost_success_optimal >= 1.5 && boost_success_optimal <= 2.0,
+            "Successful optimal retrieval should give 1.5-2.0x boost (research range)"
         );
-        assert!(boost_success_optimal >= 1.5 && boost_success_optimal <= 2.0,
-                "Successful optimal retrieval should give 1.5-2.0x boost (research range)");
 
         // Test failed retrieval gives partial benefit
-        let boost_failure = engine.calculate_consolidation_boost(
-            false, 0.5, &RetrievalType::CuedRecall
+        let boost_failure =
+            engine.calculate_consolidation_boost(false, 0.5, &RetrievalType::CuedRecall);
+        assert!(
+            boost_failure < 1.0 && boost_failure >= 0.5,
+            "Failed retrieval should give 0.5-1.0x boost (partial benefit)"
         );
-        assert!(boost_failure < 1.0 && boost_failure >= 0.5,
-                "Failed retrieval should give 0.5-1.0x boost (partial benefit)");
 
         // Test very easy retrieval gives reduced benefit
-        let boost_too_easy = engine.calculate_consolidation_boost(
-            true, 0.1, &RetrievalType::CuedRecall
+        let boost_too_easy =
+            engine.calculate_consolidation_boost(true, 0.1, &RetrievalType::CuedRecall);
+        assert!(
+            boost_too_easy < boost_success_optimal,
+            "Very easy retrieval should give less benefit than optimal difficulty"
         );
-        assert!(boost_too_easy < boost_success_optimal,
-                "Very easy retrieval should give less benefit than optimal difficulty");
 
         // Test very hard retrieval gives reduced benefit
-        let boost_too_hard = engine.calculate_consolidation_boost(
-            true, 0.9, &RetrievalType::CuedRecall
+        let boost_too_hard =
+            engine.calculate_consolidation_boost(true, 0.9, &RetrievalType::CuedRecall);
+        assert!(
+            boost_too_hard < boost_success_optimal,
+            "Very hard retrieval should give less benefit than optimal difficulty"
         );
-        assert!(boost_too_hard < boost_success_optimal,
-                "Very hard retrieval should give less benefit than optimal difficulty");
     }
 
     /// Test retrieval type effects match research findings
@@ -153,23 +168,22 @@ mod tests {
         let success = true;
 
         // Test free recall gives strongest effect (research finding)
-        let boost_free_recall = engine.calculate_consolidation_boost(
-            success, difficulty, &RetrievalType::FreeRecall
-        );
+        let boost_free_recall =
+            engine.calculate_consolidation_boost(success, difficulty, &RetrievalType::FreeRecall);
 
         // Test cued recall gives strong effect
-        let boost_cued_recall = engine.calculate_consolidation_boost(
-            success, difficulty, &RetrievalType::CuedRecall
-        );
+        let boost_cued_recall =
+            engine.calculate_consolidation_boost(success, difficulty, &RetrievalType::CuedRecall);
 
         // Test recognition gives weaker effect
-        let boost_recognition = engine.calculate_consolidation_boost(
-            success, difficulty, &RetrievalType::Recognition
-        );
+        let boost_recognition =
+            engine.calculate_consolidation_boost(success, difficulty, &RetrievalType::Recognition);
 
         // Test similarity search gives minimal effect
         let boost_similarity = engine.calculate_consolidation_boost(
-            success, difficulty, &RetrievalType::SimilaritySearch
+            success,
+            difficulty,
+            &RetrievalType::SimilaritySearch,
         );
 
         // Validate hierarchy: Free Recall > Cued Recall > Recognition > Similarity
@@ -184,24 +198,30 @@ mod tests {
         let config = create_test_config();
         let repository = create_mock_repository();
         let engine = TestingEffectEngine::new(config.clone(), repository);
-        
+
         let memory = create_test_memory_with_history();
 
         // Test successful retrieval expands interval
         let next_interval_success = engine.calculate_next_interval(&memory, true, 0.5);
-        assert!(next_interval_success > memory.current_interval_days.unwrap(),
-                "Successful retrieval should expand interval");
+        assert!(
+            next_interval_success > memory.current_interval_days.unwrap(),
+            "Successful retrieval should expand interval"
+        );
 
         // Test failed retrieval resets interval
         let next_interval_failure = engine.calculate_next_interval(&memory, false, 0.5);
-        assert_eq!(next_interval_failure, config.min_interval_days,
-                  "Failed retrieval should reset to minimum interval");
+        assert_eq!(
+            next_interval_failure, config.min_interval_days,
+            "Failed retrieval should reset to minimum interval"
+        );
 
         // Test very easy retrieval expands interval more
         let next_interval_easy = engine.calculate_next_interval(&memory, true, 0.2);
         let next_interval_optimal = engine.calculate_next_interval(&memory, true, 0.5);
-        assert!(next_interval_easy > next_interval_optimal,
-                "Easier retrieval should expand interval more (Pimsleur principle)");
+        assert!(
+            next_interval_easy > next_interval_optimal,
+            "Easier retrieval should expand interval more (Pimsleur principle)"
+        );
 
         // Test interval bounds are respected
         assert!(next_interval_success >= config.min_interval_days);
@@ -217,17 +237,25 @@ mod tests {
 
         // Test successful retrieval increases ease factor
         let ease_change_success = engine.calculate_ease_factor_change(true, 0.5);
-        assert!(ease_change_success > 0.0, "Successful retrieval should increase ease factor");
+        assert!(
+            ease_change_success > 0.0,
+            "Successful retrieval should increase ease factor"
+        );
 
         // Test failed retrieval decreases ease factor
         let ease_change_failure = engine.calculate_ease_factor_change(false, 0.5);
-        assert!(ease_change_failure < 0.0, "Failed retrieval should decrease ease factor");
+        assert!(
+            ease_change_failure < 0.0,
+            "Failed retrieval should decrease ease factor"
+        );
 
         // Test optimal difficulty gives bonus
         let ease_change_optimal = engine.calculate_ease_factor_change(true, 0.5);
         let ease_change_suboptimal = engine.calculate_ease_factor_change(true, 0.8);
-        assert!(ease_change_optimal > ease_change_suboptimal,
-                "Optimal difficulty should give larger ease factor increase");
+        assert!(
+            ease_change_optimal > ease_change_suboptimal,
+            "Optimal difficulty should give larger ease factor increase"
+        );
     }
 
     /// Test memory model helper methods for testing effect
@@ -302,14 +330,12 @@ mod tests {
         assert!(difficulty_no_confidence > difficulty_full_confidence);
 
         // Test consolidation boost bounds
-        let boost_extreme_success = engine.calculate_consolidation_boost(
-            true, 1.0, &RetrievalType::FreeRecall
-        );
+        let boost_extreme_success =
+            engine.calculate_consolidation_boost(true, 1.0, &RetrievalType::FreeRecall);
         assert!(boost_extreme_success >= 0.5 && boost_extreme_success <= 2.0);
 
-        let boost_extreme_failure = engine.calculate_consolidation_boost(
-            false, 0.0, &RetrievalType::SimilaritySearch
-        );
+        let boost_extreme_failure =
+            engine.calculate_consolidation_boost(false, 0.0, &RetrievalType::SimilaritySearch);
         assert!(boost_extreme_failure >= 0.5 && boost_extreme_failure <= 2.0);
     }
 
@@ -318,7 +344,7 @@ mod tests {
     fn test_memory_system_integration() {
         // Test that new fields are properly initialized in Memory::default()
         let memory = Memory::default();
-        
+
         assert_eq!(memory.successful_retrievals, 0);
         assert_eq!(memory.failed_retrievals, 0);
         assert_eq!(memory.total_retrieval_attempts, 0);
@@ -327,7 +353,7 @@ mod tests {
         assert_eq!(memory.next_review_at, None);
         assert_eq!(memory.current_interval_days, Some(1.0)); // Pimsleur starting interval
         assert_eq!(memory.ease_factor, 2.5); // SuperMemo2 default
-        
+
         // Test that testing effect methods work with default memory
         assert_eq!(memory.testing_effect_success_rate(), 0.5); // Neutral starting point
         assert_eq!(memory.retrieval_confidence(), 0.15); // Low confidence with no attempts
@@ -337,11 +363,13 @@ mod tests {
     /// Integration test for cognitive consolidation testing effect
     #[test]
     fn test_cognitive_consolidation_integration() {
-        use super::super::cognitive_consolidation::{CognitiveConsolidationConfig, CognitiveConsolidationEngine};
-        
+        use super::super::cognitive_consolidation::{
+            CognitiveConsolidationConfig, CognitiveConsolidationEngine,
+        };
+
         let config = CognitiveConsolidationConfig::default();
         let engine = CognitiveConsolidationEngine::new(config);
-        
+
         // Verify that the testing effect calculation in cognitive consolidation
         // uses research-backed parameters similar to dedicated testing effect
         let context = super::super::cognitive_consolidation::RetrievalContext {
@@ -351,9 +379,9 @@ mod tests {
             confidence_score: 0.8,      // High confidence (successful)
             related_memories: Vec::new(),
         };
-        
+
         let testing_effect = engine.calculate_testing_effect(&context).unwrap();
-        
+
         // Should be within research bounds for successful optimal retrieval
         assert!(testing_effect >= 1.0 && testing_effect <= 2.5);
     }

@@ -218,7 +218,7 @@ impl MCPTools {
                     },
                     "required": ["memory_id", "confirm"]
                 }
-            })
+            }),
         ];
 
         // Add Codex Dreams insight tools if feature is enabled
@@ -554,18 +554,30 @@ impl MCPTools {
             "generate_insights" => {
                 // Validate time_period if provided
                 if let Some(period) = args.get("time_period").and_then(|p| p.as_str()) {
-                    if !["last_hour", "last_day", "last_week", "last_month", "all"].contains(&period) {
+                    if !["last_hour", "last_day", "last_week", "last_month", "all"]
+                        .contains(&period)
+                    {
                         return Err("Invalid time period".to_string());
                     }
                 }
-                
+
                 // Validate insight_type if provided
                 if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
-                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                    if ![
+                        "learning",
+                        "connection",
+                        "relationship",
+                        "assertion",
+                        "mental_model",
+                        "pattern",
+                        "all",
+                    ]
+                    .contains(&itype)
+                    {
                         return Err("Invalid insight type".to_string());
                     }
                 }
-                
+
                 // Validate max_insights if provided
                 if let Some(max) = args.get("max_insights").and_then(|m| m.as_i64()) {
                     if !(1..=20).contains(&max) {
@@ -581,17 +593,27 @@ impl MCPTools {
                         return Err("Limit must be between 1 and 50".to_string());
                     }
                 }
-                
+
                 // Validate min_confidence if provided
                 if let Some(conf) = args.get("min_confidence").and_then(|c| c.as_f64()) {
                     if !(0.0..=1.0).contains(&conf) {
                         return Err("Minimum confidence must be between 0.0 and 1.0".to_string());
                     }
                 }
-                
+
                 // Validate insight_type if provided
                 if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
-                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                    if ![
+                        "learning",
+                        "connection",
+                        "relationship",
+                        "assertion",
+                        "mental_model",
+                        "pattern",
+                        "all",
+                    ]
+                    .contains(&itype)
+                    {
                         return Err("Invalid insight type".to_string());
                     }
                 }
@@ -605,24 +627,34 @@ impl MCPTools {
                 {
                     return Err("Query is required and cannot be empty".to_string());
                 }
-                
+
                 // Validate limit if provided
                 if let Some(limit) = args.get("limit").and_then(|l| l.as_i64()) {
                     if !(1..=50).contains(&limit) {
                         return Err("Limit must be between 1 and 50".to_string());
                     }
                 }
-                
+
                 // Validate similarity_threshold if provided
                 if let Some(threshold) = args.get("similarity_threshold").and_then(|t| t.as_f64()) {
                     if !(0.0..=1.0).contains(&threshold) {
                         return Err("Similarity threshold must be between 0.0 and 1.0".to_string());
                     }
                 }
-                
+
                 // Validate insight_type if provided
                 if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
-                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                    if ![
+                        "learning",
+                        "connection",
+                        "relationship",
+                        "assertion",
+                        "mental_model",
+                        "pattern",
+                        "all",
+                    ]
+                    .contains(&itype)
+                    {
                         return Err("Invalid insight type".to_string());
                     }
                 }
@@ -636,7 +668,7 @@ impl MCPTools {
                 {
                     return Err("Insight ID is required".to_string());
                 }
-                
+
                 if args.get("helpful").and_then(|h| h.as_bool()).is_none() {
                     return Err("Helpful flag is required (true/false)".to_string());
                 }
@@ -649,21 +681,33 @@ impl MCPTools {
                         return Err("Invalid format. Must be 'markdown' or 'json'".to_string());
                     }
                 }
-                
+
                 // Validate time_period if provided
                 if let Some(period) = args.get("time_period").and_then(|p| p.as_str()) {
-                    if !["last_hour", "last_day", "last_week", "last_month", "all"].contains(&period) {
+                    if !["last_hour", "last_day", "last_week", "last_month", "all"]
+                        .contains(&period)
+                    {
                         return Err("Invalid time period".to_string());
                     }
                 }
-                
+
                 // Validate insight_type if provided
                 if let Some(itype) = args.get("insight_type").and_then(|t| t.as_str()) {
-                    if !["learning", "connection", "relationship", "assertion", "mental_model", "pattern", "all"].contains(&itype) {
+                    if ![
+                        "learning",
+                        "connection",
+                        "relationship",
+                        "assertion",
+                        "mental_model",
+                        "pattern",
+                        "all",
+                    ]
+                    .contains(&itype)
+                    {
                         return Err("Invalid insight type".to_string());
                     }
                 }
-                
+
                 // Validate min_confidence if provided
                 if let Some(conf) = args.get("min_confidence").and_then(|c| c.as_f64()) {
                     if !(0.0..=1.0).contains(&conf) {
@@ -743,11 +787,21 @@ mod tests {
         let tools_array = tools["tools"].as_array().unwrap();
 
         // Check that insight tools are included when feature is enabled
-        let insight_tools = ["generate_insights", "show_insights", "search_insights", "insight_feedback", "export_insights"];
-        
+        let insight_tools = [
+            "generate_insights",
+            "show_insights",
+            "search_insights",
+            "insight_feedback",
+            "export_insights",
+        ];
+
         for tool_name in &insight_tools {
             let found = tools_array.iter().any(|t| t["name"] == *tool_name);
-            assert!(found, "Insight tool {} should be available when codex-dreams feature is enabled", tool_name);
+            assert!(
+                found,
+                "Insight tool {} should be available when codex-dreams feature is enabled",
+                tool_name
+            );
         }
     }
 

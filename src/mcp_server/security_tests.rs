@@ -77,7 +77,8 @@ fn create_secure_test_config() -> MCPAuthConfig {
 
     MCPAuthConfig {
         enabled: true,
-        jwt_secret: "secure-test-jwt-secret-key-minimum-32-characters-long-for-security".to_string(),
+        jwt_secret: "secure-test-jwt-secret-key-minimum-32-characters-long-for-security"
+            .to_string(),
         jwt_expiry_seconds: 3600,
         api_keys,
         allowed_certificates: certs,
@@ -97,7 +98,8 @@ async fn create_secure_test_auth() -> MCPAuth {
         log_auth_events: true,
         retention_days: 30,
     };
-    let audit_logger = std::sync::Arc::new(crate::security::AuditLogger::new(audit_config).unwrap());
+    let audit_logger =
+        std::sync::Arc::new(crate::security::AuditLogger::new(audit_config).unwrap());
     MCPAuth::new(config, audit_logger).unwrap()
 }
 
@@ -107,25 +109,39 @@ async fn test_authentication_bypass_attempts() {
 
     // Test 1: No authentication headers provided
     let headers = HashMap::new();
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "Should reject requests without authentication");
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "Should reject requests without authentication"
+    );
 
     // Test 2: Invalid authorization header format
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "Invalid format".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "Should reject invalid authorization formats");
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "Should reject invalid authorization formats"
+    );
 
     // Test 3: Empty bearer token
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "Bearer ".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Should reject empty bearer tokens");
 
     // Test 4: Empty API key
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "ApiKey ".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Should reject empty API keys");
 }
 
@@ -137,7 +153,7 @@ async fn test_jwt_token_security() {
     let valid_token = auth
         .generate_token(
             "test-client",
-            "test-user", 
+            "test-user",
             vec!["mcp:read".to_string(), "mcp:write".to_string()],
         )
         .await
@@ -145,26 +161,43 @@ async fn test_jwt_token_security() {
 
     // Test valid token works
     let mut headers = HashMap::new();
-    headers.insert("authorization".to_string(), format!("Bearer {}", valid_token));
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    headers.insert(
+        "authorization".to_string(),
+        format!("Bearer {}", valid_token),
+    );
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_ok(), "Valid token should be accepted");
 
     // Test token revocation
     auth.revoke_token(&valid_token).await.unwrap();
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Revoked token should be rejected");
 
     // Test malformed JWT
     let mut headers = HashMap::new();
-    headers.insert("authorization".to_string(), "Bearer malformed.jwt.token".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    headers.insert(
+        "authorization".to_string(),
+        "Bearer malformed.jwt.token".to_string(),
+    );
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Malformed JWT should be rejected");
 
     // Test JWT with wrong signature
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.eoaDVGTClRdfxUZXiPs3f8FmJDkDE_VCQBNn-JPub6I".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "JWT with wrong signature should be rejected");
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "JWT with wrong signature should be rejected"
+    );
 }
 
 #[tokio::test]
@@ -177,16 +210,20 @@ async fn test_api_key_security() {
         "authorization".to_string(),
         "ApiKey secure-test-key-123456789".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_ok(), "Valid API key should be accepted");
 
     // Test invalid API key
     let mut headers = HashMap::new();
     headers.insert(
-        "authorization".to_string(), 
+        "authorization".to_string(),
         "ApiKey invalid-key".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Invalid API key should be rejected");
 
     // Test API key with special characters (injection attempt)
@@ -195,14 +232,21 @@ async fn test_api_key_security() {
         "authorization".to_string(),
         "ApiKey '; DROP TABLE users; --".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "API key with injection attempt should be rejected");
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "API key with injection attempt should be rejected"
+    );
 
     // Test very long API key (DoS attempt)
     let long_key = "a".repeat(10000);
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), format!("ApiKey {}", long_key));
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Very long API key should be rejected");
 }
 
@@ -216,7 +260,9 @@ async fn test_certificate_validation_security() {
         "x-client-cert-thumbprint".to_string(),
         "valid-cert-thumbprint".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_ok(), "Valid certificate should be accepted");
 
     // Test expired certificate
@@ -225,7 +271,9 @@ async fn test_certificate_validation_security() {
         "x-client-cert-thumbprint".to_string(),
         "expired-cert-thumbprint".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Expired certificate should be rejected");
 
     // Test revoked certificate
@@ -234,7 +282,9 @@ async fn test_certificate_validation_security() {
         "x-client-cert-thumbprint".to_string(),
         "revoked-cert-thumbprint".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Revoked certificate should be rejected");
 
     // Test unknown certificate
@@ -243,7 +293,9 @@ async fn test_certificate_validation_security() {
         "x-client-cert-thumbprint".to_string(),
         "unknown-cert-thumbprint".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Unknown certificate should be rejected");
 
     // Test malicious certificate thumbprint
@@ -252,7 +304,9 @@ async fn test_certificate_validation_security() {
         "x-client-cert-thumbprint".to_string(),
         "../../../etc/passwd".to_string(),
     );
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Path traversal attempt should be rejected");
 }
 
@@ -271,13 +325,23 @@ async fn test_scope_validation_security() {
     };
 
     // Test read operation (should succeed)
-    assert!(auth.validate_tool_access(&limited_context, "search_memory").is_ok());
-    assert!(auth.validate_tool_access(&limited_context, "get_statistics").is_ok());
+    assert!(auth
+        .validate_tool_access(&limited_context, "search_memory")
+        .is_ok());
+    assert!(auth
+        .validate_tool_access(&limited_context, "get_statistics")
+        .is_ok());
 
     // Test write operation (should fail)
-    assert!(auth.validate_tool_access(&limited_context, "store_memory").is_err());
-    assert!(auth.validate_tool_access(&limited_context, "delete_memory").is_err());
-    assert!(auth.validate_tool_access(&limited_context, "migrate_memory").is_err());
+    assert!(auth
+        .validate_tool_access(&limited_context, "store_memory")
+        .is_err());
+    assert!(auth
+        .validate_tool_access(&limited_context, "delete_memory")
+        .is_err());
+    assert!(auth
+        .validate_tool_access(&limited_context, "migrate_memory")
+        .is_err());
 
     // Test with no scopes
     let no_scope_context = AuthContext {
@@ -289,8 +353,12 @@ async fn test_scope_validation_security() {
         request_id: Uuid::new_v4().to_string(),
     };
 
-    assert!(auth.validate_tool_access(&no_scope_context, "search_memory").is_err());
-    assert!(auth.validate_tool_access(&no_scope_context, "store_memory").is_err());
+    assert!(auth
+        .validate_tool_access(&no_scope_context, "search_memory")
+        .is_err());
+    assert!(auth
+        .validate_tool_access(&no_scope_context, "store_memory")
+        .is_err());
 }
 
 #[tokio::test]
@@ -299,14 +367,16 @@ async fn test_authentication_timing_attacks() {
 
     // Test that invalid authentication attempts take similar time
     // This helps prevent timing attacks to enumerate valid credentials
-    
+
     let start_valid = std::time::Instant::now();
     let mut headers = HashMap::new();
     headers.insert(
         "authorization".to_string(),
         "ApiKey secure-test-key-123456789".to_string(),
     );
-    let _ = auth.authenticate_request("tools/call", None, &headers).await;
+    let _ = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     let valid_duration = start_valid.elapsed();
 
     let start_invalid = std::time::Instant::now();
@@ -315,7 +385,9 @@ async fn test_authentication_timing_attacks() {
         "authorization".to_string(),
         "ApiKey invalid-key-same-length-12".to_string(),
     );
-    let _ = auth.authenticate_request("tools/call", None, &headers).await;
+    let _ = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     let invalid_duration = start_invalid.elapsed();
 
     // The timing difference should be minimal (within reasonable bounds)
@@ -336,12 +408,12 @@ async fn test_authentication_timing_attacks() {
 #[tokio::test]
 async fn test_concurrent_authentication() {
     use futures::future::join_all;
-    
+
     let auth = std::sync::Arc::new(create_secure_test_auth().await);
 
     // Test concurrent authentication requests don't interfere
     let mut handles = Vec::new();
-    
+
     for i in 0..10 {
         let auth = auth.clone();
         let handle = tokio::spawn(async move {
@@ -350,13 +422,14 @@ async fn test_concurrent_authentication() {
                 "authorization".to_string(),
                 "ApiKey secure-test-key-123456789".to_string(),
             );
-            auth.authenticate_request(&format!("test-method-{}", i), None, &headers).await
+            auth.authenticate_request(&format!("test-method-{}", i), None, &headers)
+                .await
         });
         handles.push(handle);
     }
 
     let results = join_all(handles).await;
-    
+
     // All requests should succeed
     for (i, result) in results.into_iter().enumerate() {
         assert!(
@@ -380,14 +453,18 @@ async fn test_session_management() {
     // Use token successfully
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), format!("Bearer {}", token));
-    let result1 = auth.authenticate_request("tools/call", None, &headers).await;
+    let result1 = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result1.is_ok());
 
     // Revoke token
     auth.revoke_token(&token).await.unwrap();
 
     // Token should no longer work
-    let result2 = auth.authenticate_request("tools/call", None, &headers).await;
+    let result2 = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result2.is_err());
 
     // Double revocation should not error
@@ -402,21 +479,36 @@ async fn test_malformed_requests() {
     // Test with null bytes in headers (could cause issues in C libraries)
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), "ApiKey test\0key".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "Headers with null bytes should be rejected");
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "Headers with null bytes should be rejected"
+    );
 
     // Test with extremely long headers
     let long_auth = format!("ApiKey {}", "a".repeat(100000));
     let mut headers = HashMap::new();
     headers.insert("authorization".to_string(), long_auth);
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
     assert!(result.is_err(), "Extremely long headers should be rejected");
 
     // Test with unicode manipulation attempts
     let mut headers = HashMap::new();
-    headers.insert("authorization".to_string(), "ApiKey test\u{200E}key".to_string());
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    assert!(result.is_err(), "Headers with unicode manipulation should be rejected");
+    headers.insert(
+        "authorization".to_string(),
+        "ApiKey test\u{200E}key".to_string(),
+    );
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+    assert!(
+        result.is_err(),
+        "Headers with unicode manipulation should be rejected"
+    );
 }
 
 #[tokio::test]
@@ -434,12 +526,15 @@ async fn test_disabled_authentication() {
         log_auth_events: true,
         retention_days: 30,
     };
-    let audit_logger = std::sync::Arc::new(crate::security::AuditLogger::new(audit_config).unwrap());
+    let audit_logger =
+        std::sync::Arc::new(crate::security::AuditLogger::new(audit_config).unwrap());
     let auth = MCPAuth::new(config, audit_logger).unwrap();
 
     let headers = HashMap::new();
-    let result = auth.authenticate_request("tools/call", None, &headers).await;
-    
+    let result = auth
+        .authenticate_request("tools/call", None, &headers)
+        .await;
+
     // Should succeed but return None (no authentication context)
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
@@ -451,7 +546,7 @@ async fn test_disabled_authentication() {
 async fn create_test_security_rate_limiter() -> MCPRateLimiter {
     let config = MCPRateLimitConfig {
         enabled: true,
-        global_requests_per_minute: 60,  // 1 per second
+        global_requests_per_minute: 60, // 1 per second
         global_burst_size: 3,
         per_client_requests_per_minute: 30, // 0.5 per second
         per_client_burst_size: 2,
@@ -470,7 +565,7 @@ async fn create_test_security_rate_limiter() -> MCPRateLimiter {
         silent_mode_multiplier: 0.5,
         whitelist_clients: vec!["system-test".to_string()],
         performance_target_ms: 5,
-        client_ttl_minutes: 1, // Short TTL for testing
+        client_ttl_minutes: 1,       // Short TTL for testing
         cleanup_interval_minutes: 1, // Frequent cleanup for testing
     };
 
@@ -527,10 +622,13 @@ async fn test_rate_limiter_panic_prevention() {
         retention_days: 1,
     };
     let audit_logger = Arc::new(crate::security::AuditLogger::new(audit_config).unwrap());
-    
+
     // Should not panic, should handle gracefully
     let rate_limiter = MCPRateLimiter::new(config, audit_logger);
-    assert!(rate_limiter.is_ok(), "Rate limiter creation should handle edge cases gracefully");
+    assert!(
+        rate_limiter.is_ok(),
+        "Rate limiter creation should handle edge cases gracefully"
+    );
 }
 
 #[tokio::test]
@@ -577,7 +675,7 @@ async fn test_malformed_request_exponential_backoff() {
     //     let _ = transport.handle_malformed_request(&mut state, now).await; // First malformed
     //     let result = transport.handle_malformed_request(&mut state, now).await; // Second malformed
     //     assert!(result.is_ok(), "Should not trigger backoff yet");
-    //     
+    //
     //     let result = transport.handle_malformed_request(&mut state, now).await; // Third - should trigger backoff
     //     assert!(result.is_err(), "Should trigger backoff after max malformed requests");
     // }
@@ -586,34 +684,41 @@ async fn test_malformed_request_exponential_backoff() {
 #[tokio::test]
 async fn test_silent_mode_bypass_prevention() {
     let limiter = create_test_security_rate_limiter().await;
-    
+
     // Test 1: Client without silent scope cannot use silent mode
-    let auth_no_scope = create_rate_limit_auth_context("regular-client", vec!["mcp:read".to_string()]);
-    
+    let auth_no_scope =
+        create_rate_limit_auth_context("regular-client", vec!["mcp:read".to_string()]);
+
     let result = limiter
         .check_rate_limit(Some(&auth_no_scope), "harvest_conversation", true)
         .await;
     // Should use regular rate limits, not silent mode reduced limits
-    assert!(result.is_ok(), "Should allow request but not apply silent mode");
+    assert!(
+        result.is_ok(),
+        "Should allow request but not apply silent mode"
+    );
 
     // Test 2: Client with silent scope but not in whitelist
     let auth_with_scope = create_rate_limit_auth_context(
-        "unauthorized-client", 
-        vec!["mcp:silent".to_string(), "mcp:read".to_string()]
+        "unauthorized-client",
+        vec!["mcp:silent".to_string(), "mcp:read".to_string()],
     );
-    
+
     let result = limiter
         .check_rate_limit(Some(&auth_with_scope), "harvest_conversation", true)
         .await;
     // Should not get silent mode benefits
-    assert!(result.is_ok(), "Should allow but not apply silent mode for non-whitelisted client");
+    assert!(
+        result.is_ok(),
+        "Should allow but not apply silent mode for non-whitelisted client"
+    );
 
     // Test 3: Authorized client should get silent mode
     let auth_authorized = create_rate_limit_auth_context(
-        "harvester-service", 
-        vec!["mcp:silent".to_string(), "mcp:read".to_string()]
+        "harvester-service",
+        vec!["mcp:silent".to_string(), "mcp:read".to_string()],
     );
-    
+
     let result = limiter
         .check_rate_limit(Some(&auth_authorized), "harvest_conversation", true)
         .await;
@@ -623,7 +728,10 @@ async fn test_silent_mode_bypass_prevention() {
     let result = limiter
         .check_rate_limit(Some(&auth_authorized), "store_memory", true)
         .await;
-    assert!(result.is_ok(), "Should allow but not apply silent mode for non-eligible method");
+    assert!(
+        result.is_ok(),
+        "Should allow but not apply silent mode for non-eligible method"
+    );
 }
 
 #[tokio::test]
@@ -639,7 +747,7 @@ async fn test_rate_limit_exhaustion_attack() {
         let result = limiter
             .check_rate_limit(Some(&auth_context), "store_memory", false)
             .await;
-        
+
         if result.is_ok() {
             successful_requests += 1;
         } else {
@@ -671,7 +779,7 @@ async fn test_memory_leak_prevention() {
     for i in 0..50 {
         let client_id = format!("client-{}", i);
         let auth_context = create_rate_limit_auth_context(&client_id, vec!["mcp:read".to_string()]);
-        
+
         let _ = limiter
             .check_rate_limit(Some(&auth_context), "store_memory", false)
             .await;
@@ -687,7 +795,7 @@ async fn test_memory_leak_prevention() {
 
     // Check that cleanup occurred
     let final_count = limiter.get_client_limiter_count().await;
-    
+
     // Due to timing, some limiters might still be present, but there should be significant cleanup
     assert!(
         final_count < initial_count,
@@ -700,14 +808,17 @@ async fn test_memory_leak_prevention() {
 #[tokio::test]
 async fn test_concurrent_rate_limit_checks() {
     let limiter = Arc::new(create_test_security_rate_limiter().await);
-    let auth_context = Arc::new(create_rate_limit_auth_context("concurrent-test", vec!["mcp:read".to_string()]));
+    let auth_context = Arc::new(create_rate_limit_auth_context(
+        "concurrent-test",
+        vec!["mcp:read".to_string()],
+    ));
 
     // Spawn multiple concurrent rate limit checks
     let mut handles = Vec::new();
     for i in 0..20 {
         let limiter_clone = limiter.clone();
         let auth_clone = auth_context.clone();
-        
+
         handles.push(tokio::spawn(async move {
             let result = limiter_clone
                 .check_rate_limit(Some(&*auth_clone), "store_memory", false)
@@ -719,7 +830,7 @@ async fn test_concurrent_rate_limit_checks() {
     // Collect results
     let mut successful = 0;
     let mut failed = 0;
-    
+
     for handle in handles {
         let (_, success) = handle.await.unwrap();
         if success {
@@ -743,21 +854,26 @@ async fn test_concurrent_rate_limit_checks() {
 #[tokio::test]
 async fn test_whitelist_bypass_verification() {
     let limiter = create_test_security_rate_limiter().await;
-    
+
     // Whitelisted client should bypass rate limits
-    let whitelisted_auth = create_rate_limit_auth_context("system-test", vec!["mcp:read".to_string()]);
-    
+    let whitelisted_auth =
+        create_rate_limit_auth_context("system-test", vec!["mcp:read".to_string()]);
+
     // Make many requests that would normally be rate limited
     for _ in 0..20 {
         let result = limiter
             .check_rate_limit(Some(&whitelisted_auth), "store_memory", false)
             .await;
-        assert!(result.is_ok(), "Whitelisted client should bypass rate limits");
+        assert!(
+            result.is_ok(),
+            "Whitelisted client should bypass rate limits"
+        );
     }
-    
+
     // Non-whitelisted client should be rate limited
-    let regular_auth = create_rate_limit_auth_context("regular-client", vec!["mcp:read".to_string()]);
-    
+    let regular_auth =
+        create_rate_limit_auth_context("regular-client", vec!["mcp:read".to_string()]);
+
     let mut rate_limited = false;
     for _ in 0..10 {
         let result = limiter
@@ -768,7 +884,10 @@ async fn test_whitelist_bypass_verification() {
             break;
         }
     }
-    assert!(rate_limited, "Non-whitelisted client should eventually be rate limited");
+    assert!(
+        rate_limited,
+        "Non-whitelisted client should eventually be rate limited"
+    );
 }
 
 #[tokio::test]
@@ -788,26 +907,30 @@ async fn test_performance_requirement_monitoring() {
         "Rate limit check should complete quickly: took {:?}",
         duration
     );
-    
+
     // Verify performance stats are tracked
     let stats = limiter.get_stats().await;
-    assert!(stats.avg_check_duration_ms >= 0.0, "Should track performance metrics");
+    assert!(
+        stats.avg_check_duration_ms >= 0.0,
+        "Should track performance metrics"
+    );
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_error_handling_robustness() {
     let limiter = create_test_security_rate_limiter().await;
-    
+
     // Test with None auth context
-    let result = limiter
-        .check_rate_limit(None, "store_memory", false)
-        .await;
+    let result = limiter.check_rate_limit(None, "store_memory", false).await;
     assert!(result.is_ok(), "Should handle None auth context gracefully");
-    
+
     // Test with invalid tool name
     let auth_context = create_rate_limit_auth_context("test-client", vec!["mcp:read".to_string()]);
     let result = limiter
         .check_rate_limit(Some(&auth_context), "nonexistent_tool", false)
         .await;
-    assert!(result.is_ok(), "Should handle unknown tool names gracefully");
+    assert!(
+        result.is_ok(),
+        "Should handle unknown tool names gracefully"
+    );
 }

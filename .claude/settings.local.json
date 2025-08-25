@@ -14,7 +14,8 @@
     ],
     "additionalDirectories": [
       "/Users/ladvien/Library",
-      "/Users/ladvien/.config"
+      "/Users/ladvien/.config",
+      "/Users/ladvien/.codex"
     ]
   },
   "outputStyle": "Explanatory"

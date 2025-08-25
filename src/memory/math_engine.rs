@@ -258,7 +258,8 @@ impl MathEngine {
         let normalized_time = time_since_access / consolidation_strength;
 
         // Calculate recall probability using Ebbinghaus forgetting curve: R(t) = e^(-t/S)
-        let probability = self.ebbinghaus_forgetting_curve(time_since_access, consolidation_strength)?;
+        let probability =
+            self.ebbinghaus_forgetting_curve(time_since_access, consolidation_strength)?;
 
         let calculation_time = start_time.elapsed().as_millis() as u64;
 
@@ -504,7 +505,7 @@ impl MathEngine {
 
     /// Implement the standard Ebbinghaus forgetting curve
     /// R(t) = e^(-t/S)
-    /// 
+    ///
     /// This is the foundational memory decay formula from cognitive science research.
     fn ebbinghaus_forgetting_curve(&self, time_hours: f64, strength: f64) -> Result<f64> {
         // Validate inputs
@@ -523,13 +524,13 @@ impl MathEngine {
 
         // Calculate Ebbinghaus forgetting curve: R(t) = e^(-t/S)
         let exponent = -time_hours / strength;
-        
+
         // Check for mathematical overflow
         if exponent < -700.0 {
             // exp(-700) approaches machine epsilon, return near-zero
             return Ok(f64::EPSILON);
         }
-        
+
         if exponent > 700.0 {
             return Err(MathEngineError::MathematicalOverflow {
                 operation: "Ebbinghaus curve exponent calculation".to_string(),
@@ -537,7 +538,7 @@ impl MathEngine {
         }
 
         let retention = exponent.exp();
-        
+
         if !retention.is_finite() {
             return Err(MathEngineError::MathematicalOverflow {
                 operation: "Ebbinghaus curve retention calculation".to_string(),

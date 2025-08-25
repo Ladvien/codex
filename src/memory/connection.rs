@@ -112,23 +112,29 @@ impl ConnectionPool {
     pub async fn monitor_pool_health(&self) -> Result<PoolHealthStatus> {
         let stats = self.get_pool_stats().await;
         let utilization = stats.utilization_percentage();
-        
+
         let status = if utilization >= 90.0 {
             tracing::error!(
                 "CRITICAL: Connection pool utilization at {:.1}% ({}/{} connections active)",
-                utilization, stats.active_connections, stats.max_size
+                utilization,
+                stats.active_connections,
+                stats.max_size
             );
             PoolHealthStatus::Critical
         } else if utilization >= 70.0 {
             tracing::warn!(
                 "WARNING: Connection pool utilization at {:.1}% ({}/{} connections active)",
-                utilization, stats.active_connections, stats.max_size
+                utilization,
+                stats.active_connections,
+                stats.max_size
             );
             PoolHealthStatus::Warning
         } else {
             tracing::debug!(
                 "Connection pool healthy: {:.1}% utilization ({}/{} connections active)",
-                utilization, stats.active_connections, stats.max_size
+                utilization,
+                stats.active_connections,
+                stats.max_size
             );
             PoolHealthStatus::Healthy
         };
@@ -262,13 +268,17 @@ pub async fn create_pool(database_url: &str, max_connections: u32) -> Result<PgP
     // Use a timeout to prevent hanging if the database is unavailable
     match tokio::time::timeout(
         Duration::from_secs(5),
-        sqlx::query("SELECT vector_dims('[1,2,3]'::vector)").fetch_one(&pool)
+        sqlx::query("SELECT vector_dims('[1,2,3]'::vector)").fetch_one(&pool),
     )
     .await
     {
-        Ok(Ok(_)) => {},
+        Ok(Ok(_)) => {}
         Ok(Err(e)) => return Err(anyhow::anyhow!("Vector capability test failed: {}", e)),
-        Err(_) => return Err(anyhow::anyhow!("Vector capability test timed out after 5 seconds")),
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "Vector capability test timed out after 5 seconds"
+            ))
+        }
     }
 
     info!(
@@ -287,8 +297,12 @@ pub async fn monitor_vector_pool_health(pool: &PgPool, pool_name: &str) -> Resul
     let size = pool.size();
     let idle = pool.num_idle() as u32;
     let active = size - idle;
-    let utilization = if size > 0 { (active as f32 / size as f32) * 100.0 } else { 0.0 };
-    
+    let utilization = if size > 0 {
+        (active as f32 / size as f32) * 100.0
+    } else {
+        0.0
+    };
+
     // Vector-specific monitoring: check for connection saturation patterns
     let is_healthy = if utilization >= 90.0 {
         tracing::error!(
@@ -299,22 +313,35 @@ pub async fn monitor_vector_pool_health(pool: &PgPool, pool_name: &str) -> Resul
     } else if utilization >= 70.0 {
         tracing::warn!(
             "WARNING: Vector pool '{}' at {:.1}% utilization ({}/{} active) - scaling recommended",
-            pool_name, utilization, active, size
+            pool_name,
+            utilization,
+            active,
+            size
         );
         true
     } else {
         tracing::debug!(
             "Vector pool '{}' healthy: {:.1}% utilization ({}/{} active)",
-            pool_name, utilization, active, size
+            pool_name,
+            utilization,
+            active,
+            size
         );
         true
     };
 
     // Test vector capability is still available
-    match sqlx::query("SELECT vector_dims('[1,2,3]'::vector)").fetch_one(pool).await {
+    match sqlx::query("SELECT vector_dims('[1,2,3]'::vector)")
+        .fetch_one(pool)
+        .await
+    {
         Ok(_) => Ok(is_healthy),
         Err(e) => {
-            tracing::error!("Vector capability test failed for pool '{}': {}", pool_name, e);
+            tracing::error!(
+                "Vector capability test failed for pool '{}': {}",
+                pool_name,
+                e
+            );
             Ok(false)
         }
     }

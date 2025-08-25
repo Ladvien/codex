@@ -98,7 +98,7 @@ async fn test_mcp_handlers_initialization() -> anyhow::Result<()> {
 
     let mcp_logger = Arc::new(MCPLogger::new(None));
     let progress_tracker = Arc::new(ProgressTracker::new());
-    
+
     let mut handlers = MCPHandlers::new(
         repository,
         embedder,
@@ -537,7 +537,7 @@ async fn create_test_handlers(
 
     let mcp_logger = Arc::new(MCPLogger::new(None));
     let progress_tracker = Arc::new(ProgressTracker::new());
-    
+
     Ok(MCPHandlers::new(
         repository,
         embedder,

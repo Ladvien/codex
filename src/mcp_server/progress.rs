@@ -46,11 +46,14 @@ impl ProgressTracker {
             message,
         };
 
-        self.operations.write().await.insert(token.clone(), report.clone());
-        
+        self.operations
+            .write()
+            .await
+            .insert(token.clone(), report.clone());
+
         // Send initial progress notification
         let _ = self.sender.send(report);
-        
+
         token
     }
 
@@ -64,7 +67,7 @@ impl ProgressTracker {
         message: Option<String>,
     ) -> Result<(), String> {
         let mut operations = self.operations.write().await;
-        
+
         if let Some(report) = operations.get_mut(token) {
             report.progress = progress.clamp(0.0, 1.0);
             report.current = current;
@@ -84,11 +87,11 @@ impl ProgressTracker {
     /// Complete an operation and remove it from tracking
     pub async fn complete_operation(&self, token: &str) -> Result<(), String> {
         let mut operations = self.operations.write().await;
-        
+
         if let Some(mut report) = operations.remove(token) {
             report.progress = 1.0;
             report.message = Some("Operation completed".to_string());
-            
+
             // Send completion notification
             let _ = self.sender.send(report);
             Ok(())
@@ -98,12 +101,16 @@ impl ProgressTracker {
     }
 
     /// Cancel an operation and remove it from tracking
-    pub async fn cancel_operation(&self, token: &str, reason: Option<String>) -> Result<(), String> {
+    pub async fn cancel_operation(
+        &self,
+        token: &str,
+        reason: Option<String>,
+    ) -> Result<(), String> {
         let mut operations = self.operations.write().await;
-        
+
         if let Some(mut report) = operations.remove(token) {
             report.message = reason.or_else(|| Some("Operation cancelled".to_string()));
-            
+
             // Send cancellation notification
             let _ = self.sender.send(report);
             Ok(())
@@ -216,20 +223,31 @@ mod tests {
     #[tokio::test]
     async fn test_operation_lifecycle() {
         let tracker = ProgressTracker::new();
-        
+
         // Start operation
-        let token = tracker.start_operation(Some("Test operation".to_string())).await;
+        let token = tracker
+            .start_operation(Some("Test operation".to_string()))
+            .await;
         assert_eq!(tracker.list_operations().await.len(), 1);
-        
+
         // Update progress
-        tracker.update_progress(&token, 0.5, Some(50), Some(100), Some("Half done".to_string())).await.unwrap();
-        
+        tracker
+            .update_progress(
+                &token,
+                0.5,
+                Some(50),
+                Some(100),
+                Some("Half done".to_string()),
+            )
+            .await
+            .unwrap();
+
         let progress = tracker.get_progress(&token).await.unwrap();
         assert_eq!(progress.progress, 0.5);
         assert_eq!(progress.current, Some(50));
         assert_eq!(progress.total, Some(100));
         assert_eq!(progress.message, Some("Half done".to_string()));
-        
+
         // Complete operation
         tracker.complete_operation(&token).await.unwrap();
         assert_eq!(tracker.list_operations().await.len(), 0);
@@ -239,18 +257,21 @@ mod tests {
     async fn test_progress_notifications() {
         let tracker = ProgressTracker::new();
         let mut receiver = tracker.subscribe();
-        
+
         // Start operation
         let token = tracker.start_operation(Some("Test".to_string())).await;
-        
+
         // Should receive initial progress
         let report = receiver.recv().await.unwrap();
         assert_eq!(report.progress, 0.0);
         assert_eq!(report.message, Some("Test".to_string()));
-        
+
         // Update progress
-        tracker.update_progress(&token, 0.8, None, None, Some("Almost done".to_string())).await.unwrap();
-        
+        tracker
+            .update_progress(&token, 0.8, None, None, Some("Almost done".to_string()))
+            .await
+            .unwrap();
+
         // Should receive update
         let report = receiver.recv().await.unwrap();
         assert_eq!(report.progress, 0.8);
@@ -260,16 +281,21 @@ mod tests {
     #[tokio::test]
     async fn test_progress_handle() {
         let tracker = Arc::new(ProgressTracker::new());
-        let token = tracker.start_operation(Some("Handle test".to_string())).await;
-        
+        let token = tracker
+            .start_operation(Some("Handle test".to_string()))
+            .await;
+
         let handle = ProgressHandle::new(tracker.clone(), token.clone());
-        
+
         // Update through handle
-        handle.update(0.3, Some(3), Some(10), Some("Progress".to_string())).await.unwrap();
-        
+        handle
+            .update(0.3, Some(3), Some(10), Some("Progress".to_string()))
+            .await
+            .unwrap();
+
         let progress = tracker.get_progress(&token).await.unwrap();
         assert_eq!(progress.progress, 0.3);
-        
+
         // Complete through handle
         handle.complete().await.unwrap();
         assert!(tracker.get_progress(&token).await.is_none());
@@ -298,16 +324,16 @@ mod tests {
     async fn test_handle_drop_completion() {
         let tracker = Arc::new(ProgressTracker::new());
         let token = tracker.start_operation(Some("Drop test".to_string())).await;
-        
+
         {
             let handle = ProgressHandle::new(tracker.clone(), token.clone());
             handle.update(0.5, None, None, None).await.unwrap();
             // Handle goes out of scope here
         }
-        
+
         // Give the async drop some time to complete
         sleep(Duration::from_millis(10)).await;
-        
+
         // Operation should be completed
         assert!(tracker.get_progress(&token).await.is_none());
     }
@@ -316,13 +342,19 @@ mod tests {
     async fn test_progress_clamping() {
         let tracker = ProgressTracker::new();
         let token = tracker.start_operation(None).await;
-        
+
         // Test progress is clamped to valid range
-        tracker.update_progress(&token, -0.5, None, None, None).await.unwrap();
+        tracker
+            .update_progress(&token, -0.5, None, None, None)
+            .await
+            .unwrap();
         let progress = tracker.get_progress(&token).await.unwrap();
         assert_eq!(progress.progress, 0.0);
-        
-        tracker.update_progress(&token, 1.5, None, None, None).await.unwrap();
+
+        tracker
+            .update_progress(&token, 1.5, None, None, None)
+            .await
+            .unwrap();
         let progress = tracker.get_progress(&token).await.unwrap();
         assert_eq!(progress.progress, 1.0);
     }

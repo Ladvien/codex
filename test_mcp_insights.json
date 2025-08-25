@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "generate_insights",
+    "arguments": {
+      "time_period": "last_hour",
+      "max_insights": 3,
+      "insight_type": "pattern"
+    }
+  }
+}

@@ -1022,6 +1022,7 @@ impl MemoryRepository {
         .ok_or_else(|| MemoryError::NotFound { id: id.to_string() })?;
 
         if current.tier == to_tier {
+            tx.rollback().await?;
             return Ok(current);
         }
 
@@ -1036,6 +1037,7 @@ impl MemoryRepository {
         };
 
         if !valid_transition {
+            tx.rollback().await?;
             return Err(MemoryError::InvalidTierTransition {
                 from: format!("{:?}", current.tier),
                 to: format!("{to_tier:?}"),
@@ -1387,7 +1389,7 @@ impl MemoryRepository {
 
         // Get current memory state
         let memory = sqlx::query_as::<_, Memory>(
-            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'",
         )
         .bind(memory_id)
         .fetch_one(&mut *tx)
@@ -1397,7 +1399,7 @@ impl MemoryRepository {
         let testing_effect_multiplier = if success { 1.5 } else { 0.8 };
         let difficulty_factor = 1.0 + (difficulty - 0.5) * 0.3; // Desirable difficulty
         let consolidation_boost = testing_effect_multiplier * difficulty_factor;
-        
+
         // Apply boost to consolidation strength
         let new_strength = (memory.consolidation_strength * consolidation_boost)
             .min(15.0) // Cap at reasonable maximum
@@ -1479,9 +1481,10 @@ impl MemoryRepository {
             new_strength,
             memory.recall_probability,
             memory.recall_probability, // Recall prob updated separately by consolidation engine
-            None, // We're not using recall_interval for testing effect
+            None,                      // We're not using recall_interval for testing effect
             log_context,
-        ).await?;
+        )
+        .await?;
 
         tx.commit().await?;
 
@@ -1494,12 +1497,9 @@ impl MemoryRepository {
     }
 
     /// Get memories due for testing effect review (spaced repetition)
-    pub async fn get_memories_due_for_review(
-        &self, 
-        limit: Option<i32>
-    ) -> Result<Vec<Memory>> {
+    pub async fn get_memories_due_for_review(&self, limit: Option<i32>) -> Result<Vec<Memory>> {
         let limit = limit.unwrap_or(100);
-        
+
         let memories = sqlx::query_as::<_, Memory>(
             r#"
             SELECT * FROM memories 
@@ -1577,6 +1577,7 @@ impl MemoryRepository {
 
         // Ensure we only freeze cold memories with P(r) < 0.2
         if memory.tier != MemoryTier::Cold {
+            tx.rollback().await?;
             return Err(MemoryError::InvalidRequest {
                 message: format!(
                     "Can only freeze memories in cold tier, found {:?}",
@@ -1587,6 +1588,7 @@ impl MemoryRepository {
 
         let recall_probability = memory.recall_probability.unwrap_or(0.0);
         if recall_probability >= 0.2 {
+            tx.rollback().await?;
             return Err(MemoryError::InvalidRequest {
                 message: format!(
                     "Can only freeze memories with P(r) < 0.2, found {recall_probability:.3}"
@@ -2134,7 +2136,7 @@ impl MemoryRepository {
         }
 
         let mut tx = self.pool.begin().await?;
-        
+
         // Extract vectors for UNNEST operation
         let ids: Vec<Uuid> = updates.iter().map(|(id, _, _)| *id).collect();
         let strengths: Vec<f64> = updates.iter().map(|(_, strength, _)| *strength).collect();
@@ -3228,12 +3230,12 @@ impl MemoryRepository {
     #[cfg(feature = "codex-dreams")]
     pub async fn get_memory_by_id(&self, id: Uuid) -> Result<Memory> {
         let memory = sqlx::query_as::<_, Memory>(
-            "SELECT * FROM memories WHERE id = $1 AND status = 'active'"
+            "SELECT * FROM memories WHERE id = $1 AND status = 'active'",
         )
         .bind(id)
         .fetch_one(&self.pool)
         .await?;
-        
+
         Ok(memory)
     }
 }
@@ -3366,7 +3368,7 @@ mod tests {
         assert!(!query.contains("0.5"));
         assert!(!query.contains("0.9"));
         assert!(!query.contains("Working"));
-        
+
         Ok(())
     }
 
@@ -3519,7 +3521,7 @@ mod tests {
         assert!(!query.contains("UNION"));
         assert!(!query.contains("--"));
         assert!(!query.contains("/*"));
-        
+
         Ok(())
     }
 

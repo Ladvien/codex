@@ -1,6 +1,6 @@
 //! Vector Performance Tests for HNSW Optimization
 //! CODEX-006: Optimize HNSW Vector Parameters
-//! 
+//!
 //! Tests validate that HNSW parameters (m=48, ef_construction=200, ef_search=64)
 //! provide optimal performance for 1536-dimensional vectors.
 //!
@@ -159,7 +159,7 @@ mod vector_performance_tests {
             }
             let insert_duration = start.elapsed();
 
-            // Batch search performance  
+            // Batch search performance
             let start = Instant::now();
             let _results = repository
                 .search_similar_memories(&test_vector, 10, 0.8, None)
@@ -241,22 +241,20 @@ mod vector_performance_tests {
     // Helper functions
 
     async fn setup_test_db() -> Result<PgPool> {
-        let database_url = std::env::var("DATABASE_URL")
-            .map_err(|_| anyhow::anyhow!("DATABASE_URL not set"))?;
-        
+        let database_url =
+            std::env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL not set"))?;
+
         let pool = sqlx::PgPool::connect(&database_url).await?;
-        
+
         // Test connection
         sqlx::query("SELECT 1").fetch_one(&pool).await?;
-        
+
         Ok(pool)
     }
 
     fn create_test_vector_1536() -> Vec<f32> {
         // Create a reproducible test vector with 1536 dimensions
-        (0..1536)
-            .map(|i| (i as f32 / 1536.0).sin())
-            .collect()
+        (0..1536).map(|i| (i as f32 / 1536.0).sin()).collect()
     }
 
     fn create_similar_vector(base: &[f32], variation: f32) -> Vec<f32> {
@@ -270,8 +268,8 @@ mod vector_performance_tests {
     }
 
     async fn create_test_memories_with_vectors(
-        count: usize, 
-        base_vector: &[f32]
+        count: usize,
+        base_vector: &[f32],
     ) -> Vec<crate::memory::Memory> {
         (0..count)
             .map(|i| {
@@ -304,7 +302,7 @@ mod vector_performance_tests {
     }
 
     /// Specific test for CODEX-006 acceptance criteria
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_codex_006_acceptance_criteria() -> Result<()> {
         let Ok(pool) = setup_test_db().await else {
             println!("Skipping CODEX-006 acceptance test - no database connection");
@@ -313,7 +311,7 @@ mod vector_performance_tests {
 
         println!("🎯 Testing CODEX-006 Acceptance Criteria:");
         println!("   - HNSW parameters: m=48, ef_construction=200");
-        println!("   - Query-time: ef_search=64");  
+        println!("   - Query-time: ef_search=64");
         println!("   - Memory: maintenance_work_mem=4GB");
         println!("   - Performance: <50ms P99 latency");
 
@@ -347,7 +345,7 @@ mod vector_performance_tests {
         // 3. Check maintenance_work_mem (if available)
         if let Ok(work_mem) = sqlx::query_scalar::<_, String>("SHOW maintenance_work_mem")
             .fetch_one(&pool)
-            .await 
+            .await
         {
             println!("📋 Current maintenance_work_mem: {}", work_mem);
             if work_mem.contains("GB") || work_mem.contains("4096MB") {
@@ -360,7 +358,7 @@ mod vector_performance_tests {
         // 4. Performance validation
         let repository = MemoryRepository::new(pool);
         let test_vector = create_test_vector_1536();
-        
+
         let start = Instant::now();
         let _results = repository
             .search_similar_memories(&test_vector, 10, 0.8, None)
@@ -369,15 +367,24 @@ mod vector_performance_tests {
 
         let latency_ms = duration.as_millis();
         if latency_ms < 50 {
-            println!("✅ Performance target achieved: {}ms (target <50ms)", latency_ms);
+            println!(
+                "✅ Performance target achieved: {}ms (target <50ms)",
+                latency_ms
+            );
         } else if latency_ms < 100 {
-            println!("⚠️  Performance close to target: {}ms (target <50ms)", latency_ms);
+            println!(
+                "⚠️  Performance close to target: {}ms (target <50ms)",
+                latency_ms
+            );
         } else {
-            println!("❌ Performance target missed: {}ms (target <50ms)", latency_ms);
+            println!(
+                "❌ Performance target missed: {}ms (target <50ms)",
+                latency_ms
+            );
         }
 
         println!("🎉 CODEX-006 validation completed");
-        
+
         Ok(())
     }
 }

@@ -62,6 +62,5 @@ pub use manager::{ManagerPaths, ServerManager};
 #[cfg(feature = "codex-dreams")]
 pub use insights::{
     ExportFilter, ExportFormat, ExportMetadata, HealthStatus as InsightHealthStatus, Insight,
-    InsightExport, InsightFeedback, InsightType, InsightUpdate, ProcessingReport,
-    ProcessingStatus,
+    InsightExport, InsightFeedback, InsightType, InsightUpdate, ProcessingReport, ProcessingStatus,
 };

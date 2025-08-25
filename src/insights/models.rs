@@ -1,19 +1,19 @@
 //! Core data models and types for the Codex Dreams insights feature.
-//! 
+//!
 //! This module contains all the Rust data structures needed for automated
 //! insight generation, storage, and management. All types are feature-gated
 //! behind the `codex-dreams` feature flag.
 
 #[cfg(feature = "codex-dreams")]
+use chrono::{DateTime, Utc};
+#[cfg(feature = "codex-dreams")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "codex-dreams")]
 use sqlx::FromRow;
 #[cfg(feature = "codex-dreams")]
-use uuid::Uuid;
-#[cfg(feature = "codex-dreams")]
-use chrono::{DateTime, Utc};
-#[cfg(feature = "codex-dreams")]
 use std::collections::HashMap;
+#[cfg(feature = "codex-dreams")]
+use uuid::Uuid;
 
 /// Represents different types of insights that can be generated
 #[cfg(feature = "codex-dreams")]
@@ -203,7 +203,7 @@ pub struct HealthStatus {
 impl From<sqlx::postgres::PgRow> for Insight {
     fn from(row: sqlx::postgres::PgRow) -> Self {
         use sqlx::Row;
-        
+
         Self {
             id: row.get("id"),
             content: row.get("content"),
@@ -229,7 +229,7 @@ impl From<sqlx::postgres::PgRow> for Insight {
 impl From<sqlx::postgres::PgRow> for InsightFeedback {
     fn from(row: sqlx::postgres::PgRow) -> Self {
         use sqlx::Row;
-        
+
         Self {
             id: row.get("id"),
             insight_id: row.get("insight_id"),
@@ -246,15 +246,18 @@ impl InsightExport {
     /// Generate Markdown representation of the export
     pub fn to_markdown(&self) -> String {
         let mut markdown = String::new();
-        
+
         // Header
         markdown.push_str("# Codex Dreams Insights Export\n\n");
         markdown.push_str(&format!(
-            "Generated: {}\n", 
+            "Generated: {}\n",
             self.metadata.generated_at.format("%Y-%m-%d %H:%M:%S UTC")
         ));
-        markdown.push_str(&format!("Total Insights: {}\n\n", self.metadata.total_insights));
-        
+        markdown.push_str(&format!(
+            "Total Insights: {}\n\n",
+            self.metadata.total_insights
+        ));
+
         // Insights
         for insight in &self.insights {
             markdown.push_str(&format!(
@@ -262,28 +265,28 @@ impl InsightExport {
                 format!("{:?}", insight.insight_type),
                 insight.confidence_score * 100.0
             ));
-            
+
             markdown.push_str(&insight.content);
             markdown.push_str("\n\n");
-            
+
             if !insight.tags.is_empty() {
                 markdown.push_str("**Tags:** ");
                 markdown.push_str(&insight.tags.join(", "));
                 markdown.push_str("\n\n");
             }
-            
+
             markdown.push_str(&format!(
                 "*Created: {} | Feedback: {:.1}*\n\n",
                 insight.created_at.format("%Y-%m-%d"),
                 insight.feedback_score
             ));
-            
+
             markdown.push_str("---\n\n");
         }
-        
+
         markdown
     }
-    
+
     /// Generate JSON-LD representation with Schema.org vocabulary
     pub fn to_json_ld(&self) -> serde_json::Value {
         serde_json::json!({
@@ -338,35 +341,35 @@ mod tests {
         let json = serde_json::to_string(&insight_type).unwrap();
         // Note: sqlx::Type serialization uses PascalCase, not lowercase
         assert_eq!(json, "\"Learning\"");
-        
+
         let deserialized: InsightType = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, insight_type);
     }
-    
+
     #[test]
     fn test_processing_status_serialization() {
         let status = ProcessingStatus::Processing;
         let json = serde_json::to_string(&status).unwrap();
         // Note: sqlx::Type serialization uses PascalCase, not lowercase
         assert_eq!(json, "\"Processing\"");
-        
+
         let deserialized: ProcessingStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, status);
     }
-    
+
     #[test]
     fn test_insight_serialization() {
         let insight = create_test_insight();
-        
+
         // Test JSON serialization
         let json = serde_json::to_string(&insight).unwrap();
         let deserialized: Insight = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.id, insight.id);
         assert_eq!(deserialized.content, insight.content);
         assert_eq!(deserialized.insight_type, insight.insight_type);
     }
-    
+
     #[test]
     fn test_insight_feedback_serialization() {
         let feedback = InsightFeedback {
@@ -377,15 +380,15 @@ mod tests {
             created_at: Utc::now(),
             user_id: Some("user123".to_string()),
         };
-        
+
         let json = serde_json::to_string(&feedback).unwrap();
         let deserialized: InsightFeedback = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.id, feedback.id);
         assert_eq!(deserialized.rating, feedback.rating);
         assert_eq!(deserialized.comment, feedback.comment);
     }
-    
+
     #[test]
     fn test_export_filter_default() {
         let filter = ExportFilter::default();
@@ -395,33 +398,33 @@ mod tests {
         assert!(filter.min_confidence.is_none());
         assert!(filter.tags.is_none());
     }
-    
+
     #[test]
     fn test_insight_export_markdown() {
         let export = create_test_export();
         let markdown = export.to_markdown();
-        
+
         assert!(markdown.contains("# Codex Dreams Insights Export"));
         assert!(markdown.contains("Learning Insight"));
         assert!(markdown.contains("This is a test insight"));
         assert!(markdown.contains("test, learning"));
     }
-    
+
     #[test]
     fn test_insight_export_json_ld() {
         let export = create_test_export();
         let json_ld = export.to_json_ld();
-        
+
         assert_eq!(json_ld["@type"], "Dataset");
         assert_eq!(json_ld["name"], "Codex Dreams Insights");
         assert!(json_ld["hasPart"].is_array());
-        
+
         let parts = json_ld["hasPart"].as_array().unwrap();
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0]["@type"], "CreativeWork");
         assert_eq!(parts[0]["text"], "This is a test insight");
     }
-    
+
     #[test]
     fn test_processing_report_calculation() {
         let report = ProcessingReport {
@@ -431,28 +434,28 @@ mod tests {
             errors: vec!["Minor timeout".to_string()],
             success_rate: 0.8,
         };
-        
+
         assert_eq!(report.success_rate, 0.8);
         assert_eq!(report.errors.len(), 1);
     }
-    
+
     #[test]
     fn test_health_status_healthy() {
         let mut components = HashMap::new();
         components.insert("ollama".to_string(), true);
         components.insert("database".to_string(), true);
-        
+
         let health = HealthStatus {
             healthy: true,
             components,
             last_processed: Some(Utc::now()),
             next_scheduled: Some(Utc::now()),
         };
-        
+
         assert!(health.healthy);
         assert_eq!(health.components.len(), 2);
     }
-    
+
     #[test]
     fn test_insight_update_partial() {
         let update = InsightUpdate {
@@ -461,12 +464,12 @@ mod tests {
             metadata: None,
             tags: Some(vec!["updated".to_string()]),
         };
-        
+
         assert!(update.content.is_some());
         assert!(update.confidence_score.is_none());
         assert!(update.tags.is_some());
     }
-    
+
     // Helper functions for tests
     fn create_test_insight() -> Insight {
         Insight {
@@ -488,7 +491,7 @@ mod tests {
             embedding: None,
         }
     }
-    
+
     fn create_test_export() -> InsightExport {
         InsightExport {
             insights: vec![create_test_insight()],

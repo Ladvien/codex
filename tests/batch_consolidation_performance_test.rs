@@ -16,7 +16,8 @@ use uuid::Uuid;
 /// Tests the batch_update_consolidation method performance improvements
 /// Expected >10x improvement over the previous N+1 loop-based implementation
 
-async fn create_test_repository_with_consolidation_data() -> Result<(Arc<MemoryRepository>, Vec<Uuid>)> {
+async fn create_test_repository_with_consolidation_data(
+) -> Result<(Arc<MemoryRepository>, Vec<Uuid>)> {
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
         "postgresql://codex_user:MZSfXiLr5uR3QYbRwv2vTzi22SvFkj4a@192.168.1.104:5432/codex_db"
             .to_string()
@@ -150,7 +151,7 @@ async fn test_large_batch_consolidation_performance() -> Result<()> {
     // Verify all updates succeeded
     assert_eq!(large_updated_count, 100, "Should update all 100 memories");
 
-    // Performance target: <50ms for large batches  
+    // Performance target: <50ms for large batches
     // With the old N+1 approach, this would take 500ms-1000ms
     // This represents a >10x improvement
     assert!(
@@ -175,7 +176,10 @@ async fn test_empty_batch_consolidation() -> Result<()> {
         .await?;
     let duration = start_time.elapsed();
 
-    println!("Empty batch consolidation update: {:?}, updated {} memories", duration, updated_count);
+    println!(
+        "Empty batch consolidation update: {:?}, updated {} memories",
+        duration, updated_count
+    );
 
     // Verify empty batch returns 0 and completes quickly
     assert_eq!(updated_count, 0, "Empty batch should update 0 memories");
@@ -213,7 +217,7 @@ async fn test_concurrent_batch_consolidation_updates() -> Result<()> {
                     (
                         id,
                         0.5 + (chunk_idx as f64 * 0.1) + (i as f64 * 0.01),
-                        0.7 + (chunk_idx as f64 * 0.05) + (i as f64 * 0.005)
+                        0.7 + (chunk_idx as f64 * 0.05) + (i as f64 * 0.005),
                     )
                 })
                 .collect();
@@ -224,7 +228,11 @@ async fn test_concurrent_batch_consolidation_updates() -> Result<()> {
                 .await?;
             let duration = start_time.elapsed();
 
-            Ok::<(std::time::Duration, usize, usize), anyhow::Error>((duration, updated_count, chunk_idx))
+            Ok::<(std::time::Duration, usize, usize), anyhow::Error>((
+                duration,
+                updated_count,
+                chunk_idx,
+            ))
         });
         handles.push(handle);
     }
@@ -257,7 +265,10 @@ async fn test_concurrent_batch_consolidation_updates() -> Result<()> {
     );
 
     // Verify all memories were updated across all concurrent batches
-    assert_eq!(total_updated, 100, "Should update all 100 memories across concurrent batches");
+    assert_eq!(
+        total_updated, 100,
+        "Should update all 100 memories across concurrent batches"
+    );
 
     // Overall concurrent performance should still be reasonable
     assert!(
@@ -288,30 +299,32 @@ async fn test_consolidation_update_data_integrity() -> Result<()> {
         .collect();
 
     // Perform batch update
-    let updated_count = repository
-        .batch_update_consolidation(&test_updates)
-        .await?;
+    let updated_count = repository.batch_update_consolidation(&test_updates).await?;
 
     assert_eq!(updated_count, 10, "Should update all 10 memories");
 
     // Verify each memory was updated with correct values
     for (i, &memory_id) in test_ids.iter().enumerate() {
         let memory = repository.get_memory(memory_id).await?;
-        
+
         let expected_strength = 0.123 + (i as f64 * 0.111);
         let expected_recall_prob = 0.456 + (i as f64 * 0.222);
 
         assert!(
             (memory.consolidation_strength - expected_strength).abs() < 0.001,
             "Memory {} consolidation_strength should be {}, got {}",
-            i, expected_strength, memory.consolidation_strength
+            i,
+            expected_strength,
+            memory.consolidation_strength
         );
 
         if let Some(actual_recall_prob) = memory.recall_probability {
             assert!(
                 (actual_recall_prob - expected_recall_prob).abs() < 0.001,
                 "Memory {} recall_probability should be {}, got {}",
-                i, expected_recall_prob, actual_recall_prob
+                i,
+                expected_recall_prob,
+                actual_recall_prob
             );
         } else {
             panic!("Memory {} should have recall_probability set", i);
@@ -330,23 +343,21 @@ async fn test_consolidation_update_data_integrity() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_batch_update_transaction_safety() -> Result<()> {
     let (repository, memory_ids) = create_test_repository_with_consolidation_data().await?;
 
     // Create updates with one invalid ID to test transaction rollback
     let valid_id = memory_ids[0];
     let invalid_id = Uuid::new_v4(); // This ID doesn't exist
-    
+
     let mixed_updates = vec![
         (valid_id, 0.999, 0.999),
         (invalid_id, 0.888, 0.888), // This should cause the transaction to roll back
     ];
 
     // The batch update should handle the error gracefully
-    let result = repository
-        .batch_update_consolidation(&mixed_updates)
-        .await;
+    let result = repository.batch_update_consolidation(&mixed_updates).await;
 
     // Either it should succeed updating only the valid one, or fail completely
     // The important thing is no partial updates occur
@@ -354,18 +365,18 @@ async fn test_batch_update_transaction_safety() -> Result<()> {
         Ok(count) => {
             // If it succeeds, it should only update the valid memory
             assert_eq!(count, 1, "Should update only the valid memory");
-            
+
             // Verify the valid memory was updated
             let memory = repository.get_memory(valid_id).await?;
             assert!(
                 (memory.consolidation_strength - 0.999).abs() < 0.001,
                 "Valid memory should be updated"
             );
-        },
+        }
         Err(_) => {
             // If it fails, no memories should be updated (transaction rollback)
             let memory = repository.get_memory(valid_id).await?;
-            
+
             // The consolidation_strength should not be 0.999 (our test value)
             assert!(
                 (memory.consolidation_strength - 0.999).abs() > 0.001,

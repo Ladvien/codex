@@ -1,8 +1,8 @@
+use super::auto_tiering::AutoTieringEngine;
 use super::error::{MemoryError, Result};
 use super::math_engine::{MathEngine, MemoryParameters};
 use super::models::{Memory, MemoryTier};
 use super::repository::MemoryRepository;
-use super::auto_tiering::AutoTieringEngine;
 use crate::config::TierManagerConfig;
 use chrono::{DateTime, Duration, Utc};
 use prometheus::{register_counter, register_gauge, register_histogram, Counter, Gauge, Histogram};
@@ -223,7 +223,7 @@ impl TierManager {
         let scan_time = Utc::now();
 
         debug!("Starting tier management scan");
-        
+
         // First, run auto-tiering to clean up test data and dev artifacts
         match self.auto_tiering.apply_auto_tiering().await {
             Ok(report) => {

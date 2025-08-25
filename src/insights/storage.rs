@@ -1,5 +1,5 @@
 //! Insight Storage Layer
-//! 
+//!
 //! This module implements the storage layer for the Codex Dreams insights feature.
 //! It provides CRUD operations, vector embeddings, versioning, and feedback tracking.
 //!
@@ -68,22 +68,18 @@ pub struct InsightStorage {
 #[cfg(feature = "codex-dreams")]
 impl InsightStorage {
     /// Create a new InsightStorage instance
-    pub fn new(
-        pool: Arc<PgPool>,
-        embedder: Arc<dyn EmbeddingService>,
-    ) -> Self {
+    pub fn new(pool: Arc<PgPool>, embedder: Arc<dyn EmbeddingService>) -> Self {
         Self {
             pool,
             embedder,
             min_feedback_score: 0.3, // Configurable threshold for pruning
-            max_versions_to_keep: 2,  // Current + previous only
+            max_versions_to_keep: 2, // Current + previous only
         }
     }
 
     /// Store a new insight with vector embedding generation
     pub async fn store(&self, mut insight: Insight) -> Result<Uuid> {
-        let mut tx = self.pool.begin().await
-            .map_err(MemoryError::Database)?;
+        let mut tx = self.pool.begin().await.map_err(MemoryError::Database)?;
 
         // Generate embedding for the insight content
         let embedding = self.generate_embedding(&insight.content).await?;
@@ -105,8 +101,8 @@ impl InsightStorage {
         "#;
 
         let insight_type_str = self.insight_type_to_string(&insight.insight_type);
-        let tags_json = serde_json::to_value(&insight.tags)
-            .map_err(|e| MemoryError::Serialization(e))?;
+        let tags_json =
+            serde_json::to_value(&insight.tags).map_err(|e| MemoryError::Serialization(e))?;
         let source_ids_json = serde_json::to_value(&insight.source_memory_ids)
             .map_err(|e| MemoryError::Serialization(e))?;
 
@@ -129,8 +125,7 @@ impl InsightStorage {
             .await
             .map_err(MemoryError::Database)?;
 
-        tx.commit().await
-            .map_err(MemoryError::Database)?;
+        tx.commit().await.map_err(MemoryError::Database)?;
 
         info!("Stored new insight with ID: {}", insight.id);
         Ok(insight.id)
@@ -138,8 +133,7 @@ impl InsightStorage {
 
     /// Update an existing insight with versioning support
     pub async fn update_with_version(&self, id: Uuid, updates: InsightUpdate) -> Result<()> {
-        let mut tx = self.pool.begin().await
-            .map_err(MemoryError::Database)?;
+        let mut tx = self.pool.begin().await.map_err(MemoryError::Database)?;
 
         // First, get the current insight to create a version
         let current = self.get_by_id_tx(&mut tx, id).await?;
@@ -150,7 +144,7 @@ impl InsightStorage {
             SET tier = 'archived', updated_at = $1
             WHERE id = $2
         "#;
-        
+
         sqlx::query(archive_query)
             .bind(Utc::now())
             .bind(id)
@@ -194,8 +188,8 @@ impl InsightStorage {
         "#;
 
         let insight_type_str = self.insight_type_to_string(&new_version.insight_type);
-        let tags_json = serde_json::to_value(&new_version.tags)
-            .map_err(|e| MemoryError::Serialization(e))?;
+        let tags_json =
+            serde_json::to_value(&new_version.tags).map_err(|e| MemoryError::Serialization(e))?;
         let source_ids_json = serde_json::to_value(&new_version.source_memory_ids)
             .map_err(|e| MemoryError::Serialization(e))?;
 
@@ -218,8 +212,7 @@ impl InsightStorage {
             .await
             .map_err(MemoryError::Database)?;
 
-        tx.commit().await
-            .map_err(MemoryError::Database)?;
+        tx.commit().await.map_err(MemoryError::Database)?;
 
         info!("Updated insight {} to version {}", id, new_version.version);
         Ok(())
@@ -227,17 +220,27 @@ impl InsightStorage {
 
     /// Get insight by ID
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Insight>> {
-        let mut tx = self.pool.begin().await
+        let query = r#"
+            SELECT id, content, insight_type, confidence_score, source_memory_ids,
+                   metadata, tags, tier, created_at, updated_at, version,
+                   previous_version_id, feedback_score, embedding
+            FROM insights
+            WHERE id = $1 AND tier != 'archived'
+            ORDER BY version DESC
+            LIMIT 1
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(id)
+            .fetch_optional(&*self.pool)
+            .await
             .map_err(MemoryError::Database)?;
-        
-        let result = self.get_by_id_tx(&mut tx, id).await;
-        tx.rollback().await
-            .map_err(MemoryError::Database)?;
-        
-        match result {
-            Ok(insight) => Ok(Some(insight)),
-            Err(MemoryError::NotFound { .. }) => Ok(None),
-            Err(e) => Err(e),
+
+        if let Some(row) = row {
+            let insight = self.row_to_insight(&row)?;
+            Ok(Some(insight))
+        } else {
+            Ok(None)
         }
     }
 
@@ -292,7 +295,8 @@ impl InsightStorage {
         let mut results = Vec::new();
         for (rank, row) in rows.iter().enumerate() {
             let insight = self.row_to_insight(row)?;
-            let similarity_score: f64 = row.try_get("similarity_score")
+            let similarity_score: f64 = row
+                .try_get("similarity_score")
                 .map_err(MemoryError::Database)?;
 
             results.push(SearchResult {
@@ -308,8 +312,7 @@ impl InsightStorage {
 
     /// Record user feedback for an insight
     pub async fn record_feedback(&self, insight_id: Uuid, feedback: Feedback) -> Result<()> {
-        let mut tx = self.pool.begin().await
-            .map_err(MemoryError::Database)?;
+        let mut tx = self.pool.begin().await.map_err(MemoryError::Database)?;
 
         // Store the feedback
         let feedback_query = r#"
@@ -332,17 +335,19 @@ impl InsightStorage {
         // Recalculate feedback score
         self.update_feedback_score_tx(&mut tx, insight_id).await?;
 
-        tx.commit().await
-            .map_err(MemoryError::Database)?;
+        tx.commit().await.map_err(MemoryError::Database)?;
 
-        info!("Recorded feedback for insight {}: {:?}", insight_id, feedback.rating);
+        info!(
+            "Recorded feedback for insight {}: {:?}",
+            insight_id, feedback.rating
+        );
         Ok(())
     }
 
     /// Prune insights with poor feedback scores
     pub async fn prune_poor_insights(&self, threshold: f32) -> Result<usize> {
         let threshold = threshold as f64;
-        
+
         let query = r#"
             UPDATE insights
             SET tier = 'archived', updated_at = $1
@@ -361,7 +366,10 @@ impl InsightStorage {
             .map_err(MemoryError::Database)?;
 
         let pruned_count = result.rows_affected() as usize;
-        info!("Pruned {} insights with feedback score below {}", pruned_count, threshold);
+        info!(
+            "Pruned {} insights with feedback score below {}",
+            pruned_count, threshold
+        );
         Ok(pruned_count)
     }
 
@@ -391,15 +399,21 @@ impl InsightStorage {
 
     /// Generate embedding for text using the configured embedder
     async fn generate_embedding(&self, text: &str) -> Result<Vector> {
-        let embedding_vec = self.embedder.generate_embedding(text)
+        let embedding_vec = self
+            .embedder
+            .generate_embedding(text)
             .await
             .map_err(|e| MemoryError::EmbeddingGenerationError(e.to_string()))?;
-        
+
         Ok(Vector::from(embedding_vec))
     }
 
     /// Update feedback score for an insight based on all its feedback
-    async fn update_feedback_score_tx(&self, tx: &mut Transaction<'_, Postgres>, insight_id: Uuid) -> Result<()> {
+    async fn update_feedback_score_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        insight_id: Uuid,
+    ) -> Result<()> {
         let score_query = r#"
             SELECT 
                 COUNT(*) as total_feedback,
@@ -417,10 +431,10 @@ impl InsightStorage {
             .await
             .map_err(MemoryError::Database)?;
 
-        let total_feedback: i64 = row.try_get("total_feedback")
+        let total_feedback: i64 = row
+            .try_get("total_feedback")
             .map_err(MemoryError::Database)?;
-        let score_sum: Option<f64> = row.try_get("score_sum")
-            .map_err(MemoryError::Database)?;
+        let score_sum: Option<f64> = row.try_get("score_sum").map_err(MemoryError::Database)?;
 
         let feedback_score = if total_feedback > 0 {
             let raw_score = score_sum.unwrap_or(0.0);
@@ -449,37 +463,87 @@ impl InsightStorage {
 
     /// Convert database row to Insight struct
     fn row_to_insight(&self, row: &sqlx::postgres::PgRow) -> Result<Insight> {
-        let source_memory_ids_json: serde_json::Value = row.try_get("source_memory_ids")
+        let source_memory_ids_json: serde_json::Value = row
+            .try_get("source_memory_ids")
             .map_err(MemoryError::Database)?;
         let source_memory_ids: Vec<Uuid> = serde_json::from_value(source_memory_ids_json)
             .map_err(|e| MemoryError::DeserializationError(e.to_string()))?;
 
-        let tags_json: serde_json::Value = row.try_get("tags")
-            .map_err(MemoryError::Database)?;
+        let tags_json: serde_json::Value = row.try_get("tags").map_err(MemoryError::Database)?;
         let tags: Vec<String> = serde_json::from_value(tags_json)
             .map_err(|e| MemoryError::DeserializationError(e.to_string()))?;
 
-        let insight_type_str: String = row.try_get("insight_type")
-            .map_err(MemoryError::Database)?;
+        let insight_type_str: String =
+            row.try_get("insight_type").map_err(MemoryError::Database)?;
         let insight_type = self.string_to_insight_type(&insight_type_str)?;
 
         Ok(Insight {
-            id: row.try_get("id").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            content: row.try_get("content").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            id: row.try_get("id").map_err(|e| MemoryError::DatabaseError {
+                message: e.to_string(),
+            })?,
+            content: row
+                .try_get("content")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
             insight_type,
-            confidence_score: row.try_get("confidence_score").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            confidence_score: row.try_get("confidence_score").map_err(|e| {
+                MemoryError::DatabaseError {
+                    message: e.to_string(),
+                }
+            })?,
             source_memory_ids,
-            metadata: row.try_get("metadata").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            metadata: row
+                .try_get("metadata")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
             tags,
-            tier: row.try_get("tier").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            created_at: row.try_get("created_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            updated_at: row.try_get("updated_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            last_accessed_at: row.try_get("last_accessed_at").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            version: row.try_get("version").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            previous_version: row.try_get("previous_version").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            previous_version_id: row.try_get("previous_version_id").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            feedback_score: row.try_get("feedback_score").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
-            embedding: row.try_get("embedding").map_err(|e| MemoryError::DatabaseError { message: e.to_string() })?,
+            tier: row
+                .try_get("tier")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
+            created_at: row
+                .try_get("created_at")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
+            updated_at: row
+                .try_get("updated_at")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
+            last_accessed_at: row.try_get("last_accessed_at").map_err(|e| {
+                MemoryError::DatabaseError {
+                    message: e.to_string(),
+                }
+            })?,
+            version: row
+                .try_get("version")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
+            previous_version: row.try_get("previous_version").map_err(|e| {
+                MemoryError::DatabaseError {
+                    message: e.to_string(),
+                }
+            })?,
+            previous_version_id: row.try_get("previous_version_id").map_err(|e| {
+                MemoryError::DatabaseError {
+                    message: e.to_string(),
+                }
+            })?,
+            feedback_score: row.try_get("feedback_score").map_err(|e| {
+                MemoryError::DatabaseError {
+                    message: e.to_string(),
+                }
+            })?,
+            embedding: row
+                .try_get("embedding")
+                .map_err(|e| MemoryError::DatabaseError {
+                    message: e.to_string(),
+                })?,
         })
     }
 

@@ -167,7 +167,7 @@ impl ScopedRateLimiter {
             .ok_or_else(|| anyhow::anyhow!("Invalid rate limit: {}", requests_per_minute))?;
         let burst = NonZeroU32::new(burst_size.max(1))
             .ok_or_else(|| anyhow::anyhow!("Invalid burst size: {}", burst_size))?;
-        
+
         let quota = Quota::per_minute(rate).allow_burst(burst);
         let limiter = Arc::new(GovernorRateLimiter::direct(quota));
 
@@ -182,7 +182,9 @@ impl ScopedRateLimiter {
         })
     }
 
-    async fn check_rate_limit(&self) -> Result<(), governor::NotUntil<governor::clock::QuantaInstant>> {
+    async fn check_rate_limit(
+        &self,
+    ) -> Result<(), governor::NotUntil<governor::clock::QuantaInstant>> {
         let result = self.limiter.check();
         if result.is_ok() {
             // Update last used timestamp when rate limit check succeeds
@@ -249,7 +251,7 @@ impl MCPRateLimiter {
         }));
 
         let client_limiters = Arc::new(RwLock::new(HashMap::new()));
-        
+
         // Create rate limiter instance
         let rate_limiter = Self {
             config: config.clone(),
@@ -274,21 +276,23 @@ impl MCPRateLimiter {
         config: MCPRateLimitConfig,
     ) {
         tokio::spawn(async move {
-            let mut cleanup_interval = interval(Duration::from_secs(config.cleanup_interval_minutes as u64 * 60));
+            let mut cleanup_interval = interval(Duration::from_secs(
+                config.cleanup_interval_minutes as u64 * 60,
+            ));
             let ttl_duration = Duration::from_secs(config.client_ttl_minutes as u64 * 60);
 
             loop {
                 cleanup_interval.tick().await;
-                
+
                 let start_cleanup = Instant::now();
                 let initial_count;
                 let expired_clients;
-                
+
                 // Collect expired clients
                 {
                     let limiters = client_limiters.read().await;
                     initial_count = limiters.len();
-                    
+
                     let mut expired = Vec::new();
                     for (client_id, limiter) in limiters.iter() {
                         if limiter.is_expired(ttl_duration).await {
@@ -304,17 +308,17 @@ impl MCPRateLimiter {
                     for client_id in &expired_clients {
                         limiters.remove(client_id);
                     }
-                    
+
                     let final_count = limiters.len();
                     let cleanup_duration = start_cleanup.elapsed();
-                    
+
                     debug!(
                         "Rate limiter TTL cleanup completed: {} expired clients removed, {} active clients remain, cleanup took {}ms",
                         expired_clients.len(),
                         final_count,
                         cleanup_duration.as_millis()
                     );
-                    
+
                     if expired_clients.len() > 100 {
                         warn!(
                             "Large number of expired clients ({}) suggests possible memory leak or aggressive cleanup needed",
@@ -322,7 +326,10 @@ impl MCPRateLimiter {
                         );
                     }
                 } else {
-                    debug!("Rate limiter TTL cleanup: no expired clients found ({})", initial_count);
+                    debug!(
+                        "Rate limiter TTL cleanup: no expired clients found ({})",
+                        initial_count
+                    );
                 }
             }
         });
@@ -388,7 +395,7 @@ impl MCPRateLimiter {
                 return Err(SecurityError::RateLimitExceeded.into());
             }
         };
-        
+
         if client_limiter.check_rate_limit().await.is_err() {
             self.handle_rate_limit_violation("client", client_id, tool_name)
                 .await;

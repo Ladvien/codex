@@ -33,23 +33,8 @@ fi
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 echo "[$TIMESTAMP] Starting automated insight generation..."
 
-# Create the MCP request
-MCP_REQUEST=$(cat <<EOF
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "generate_insights",
-    "arguments": {
-      "time_period": "$TIME_PERIOD",
-      "insight_type": "$INSIGHT_TYPE",
-      "max_insights": $MAX_INSIGHTS
-    }
-  }
-}
-EOF
-)
+# Create the MCP request as a single line JSON
+MCP_REQUEST='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"generate_insights","arguments":{"time_period":"'$TIME_PERIOD'","insight_type":"'$INSIGHT_TYPE'","max_insights":'$MAX_INSIGHTS'}}}'
 
 # Execute the insight generation
 echo "[$TIMESTAMP] Generating insights for period: $TIME_PERIOD, type: $INSIGHT_TYPE"
@@ -79,22 +64,7 @@ fi
 # Optional: Export insights after generation
 if [ "$EXPORT_AFTER_GENERATION" = "true" ]; then
     echo "[$TIMESTAMP] Exporting insights..."
-    EXPORT_REQUEST=$(cat <<EOF
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "tools/call",
-  "params": {
-    "name": "export_insights",
-    "arguments": {
-      "format": "markdown",
-      "time_period": "$TIME_PERIOD",
-      "min_confidence": 0.6
-    }
-  }
-}
-EOF
-)
+    EXPORT_REQUEST='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"export_insights","arguments":{"format":"markdown","time_period":"'$TIME_PERIOD'","min_confidence":0.6}}}'
     
     EXPORT_RESPONSE=$(echo "$EXPORT_REQUEST" | $CODEX_BINARY mcp-stdio --skip-setup 2>/dev/null)
     

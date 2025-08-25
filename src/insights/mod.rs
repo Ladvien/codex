@@ -26,16 +26,18 @@ pub mod scheduler;
 pub use models::*;
 
 #[cfg(feature = "codex-dreams")]
-pub use ollama_client::{OllamaClient, OllamaConfig, OllamaClientError};
+pub use ollama_client::{OllamaClient, OllamaClientError, OllamaConfig};
 
 #[cfg(feature = "codex-dreams")]
 pub use storage::InsightStorage;
 
 #[cfg(feature = "codex-dreams")]
-pub use processor::{InsightsProcessor, ProcessorConfig, ProcessingResult, ProcessingStats};
+pub use processor::{InsightsProcessor, ProcessingResult, ProcessingStats, ProcessorConfig};
 
 #[cfg(feature = "codex-dreams")]
 pub use export::InsightExporter;
 
 #[cfg(feature = "codex-dreams")]
-pub use scheduler::{InsightScheduler, SchedulerConfig, SchedulerStatistics, SchedulerStatus, SchedulerRunResult};
+pub use scheduler::{
+    InsightScheduler, SchedulerConfig, SchedulerRunResult, SchedulerStatistics, SchedulerStatus,
+};

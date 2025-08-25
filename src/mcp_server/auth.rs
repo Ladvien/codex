@@ -347,7 +347,8 @@ impl MCPAuth {
         if let Some(jsonrpc_version) = headers.get("JSON-RPC-Version") {
             if jsonrpc_version != "2.0" {
                 return Err(anyhow::anyhow!(
-                    "Invalid JSON-RPC version: {}. Expected '2.0'", jsonrpc_version
+                    "Invalid JSON-RPC version: {}. Expected '2.0'",
+                    jsonrpc_version
                 ));
             }
         } else {

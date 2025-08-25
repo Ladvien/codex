@@ -487,9 +487,8 @@ impl InsightScheduler {
             // For now, we'll process a small batch of recent memories
             // In a production system, this would be configurable
             // and potentially fetch candidate memories from the repository
-            // Placeholder: process empty batch to test integration
-            // TODO: Integrate with memory repository to fetch candidate memories
-            let memory_ids = Vec::new(); // Would fetch from repository
+            // Fetch candidate memories for insights generation  
+            let memory_ids = Self::fetch_candidate_memory_ids().await?;
             match processor.process_batch(memory_ids).await {
                 Ok(processing_result) => {
                     info!(
@@ -654,6 +653,57 @@ impl InsightScheduler {
     pub async fn update_config(&mut self, new_config: SchedulerConfig) {
         info!("Updating scheduler configuration (restart required for changes to take effect)");
         self.config = new_config;
+    }
+
+    /// Fetch candidate memory IDs for insights generation
+    /// 
+    /// This function retrieves memories that are suitable for insights generation
+    /// based on various criteria including recency, importance, and processing status.
+    async fn fetch_candidate_memory_ids() -> Result<Vec<uuid::Uuid>, anyhow::Error> {
+        use crate::memory::{MemoryRepository, SearchRequest, SearchType};
+        
+        // For now, implement a simple strategy: get recent memories from the last day
+        // In production, this would be more sophisticated with tier-based selection
+        let database_url = std::env::var("DATABASE_URL")
+            .map_err(|_| anyhow::anyhow!("DATABASE_URL environment variable not set"))?;
+        
+        // Create database pool
+        let pool = sqlx::PgPool::connect(&database_url).await
+            .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
+        
+        let repository = MemoryRepository::new(pool);
+        
+        let search_request = SearchRequest {
+            query_text: None,
+            query_embedding: None,
+            search_type: Some(SearchType::Temporal),
+            hybrid_weights: None,
+            tier: None,
+            date_range: None,
+            importance_range: None,
+            metadata_filters: None,
+            tags: None,
+            limit: Some(50), // Process up to 50 memories at a time
+            offset: Some(0),
+            cursor: None,
+            similarity_threshold: None,
+            include_metadata: Some(false),
+            include_facets: Some(false),
+            ranking_boost: None,
+            explain_score: Some(false),
+        };
+        
+        debug!("Fetching candidate memories for insights generation");
+        let search_results = repository.search_memories(search_request).await
+            .map_err(|e| anyhow::anyhow!("Failed to search for candidate memories: {}", e))?;
+        
+        let memory_ids: Vec<uuid::Uuid> = search_results.results
+            .into_iter()
+            .map(|result| result.memory.id)
+            .collect();
+        
+        info!("Found {} candidate memories for insights generation", memory_ids.len());
+        Ok(memory_ids)
     }
 }
 #[cfg(all(feature = "codex-dreams", test))]

@@ -108,6 +108,8 @@ struct OllamaOptions {
 #[derive(Debug, Deserialize)]
 struct OllamaResponse {
     response: String,
+    #[serde(default)]
+    thinking: String,  // Some models (like gpt-oss) use this field for Chain-of-Thought
     done: bool,
 }
 
@@ -421,7 +423,19 @@ impl OllamaClientTrait for OllamaClient {
                     ));
                 }
 
-                Ok(ollama_response.response)
+                // Use response field if available, otherwise fall back to thinking field
+                // Some models (like gpt-oss) use "thinking" for Chain-of-Thought reasoning
+                let response_text = if !ollama_response.response.is_empty() {
+                    ollama_response.response
+                } else if !ollama_response.thinking.is_empty() {
+                    ollama_response.thinking
+                } else {
+                    return Err(OllamaClientError::MalformedResponse(
+                        "Received empty response from Ollama (both response and thinking fields are empty)".to_string(),
+                    ));
+                };
+
+                Ok(response_text)
             })
             .await?;
 

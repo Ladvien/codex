@@ -1115,6 +1115,8 @@ impl MCPHandlers {
                     time_period, topic, insight_type, max_insights
                 );
 
+                debug!("Insights processor available, starting memory retrieval process");
+
                 // Get memories based on time period
                 let memories = match time_period {
                     "last_hour" => {
@@ -1188,6 +1190,12 @@ impl MCPHandlers {
                             .await
                     }
                 }?;
+
+                debug!(
+                    "Memory search completed: found {} results, execution_time={}ms",
+                    memories.results.len(),
+                    memories.execution_time_ms
+                );
 
                 if memories.results.is_empty() {
                     let response_text = format!(

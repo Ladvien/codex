@@ -2,7 +2,7 @@
 name = "codex-memory"
 version = "0.1.52"
 edition = "2021"
-authors = ["Ladvien <your-email@example.com>"]
+authors = ["C. Thomas Brittain, aka, Ladvien <cthomasbrittain@hotmail.com>"]
 description = "An advanced hierarchical memory system for AI agents with MCP integration"
 repository = "https://github.com/Ladvien/codex"
 license = "GPL-3.0"

@@ -1747,29 +1747,13 @@ impl MCPHandlers {
             Ok(format_tool_response(response_text))
         }
     }
-}
-
-/// Format duration for human-readable display
-fn format_duration(duration: ChronoDuration) -> String {
-    let total_seconds = duration.num_seconds();
-
-    if total_seconds < 60 {
-        format!("{total_seconds}s")
-    } else if total_seconds < 3600 {
-        format!("{}m", total_seconds / 60)
-    } else if total_seconds < 86400 {
-        format!("{}h", total_seconds / 3600)
-    } else {
-        format!("{}d", total_seconds / 86400)
-    }
-}
 
     /// Execute reset_circuit_breaker tool - diagnostic and recovery for insights generation
     #[cfg(feature = "codex-dreams")]
     async fn execute_reset_circuit_breaker(&self, _args: &Value) -> Result<Value> {
         if let Some(processor) = &self.insights_processor {
             // Get current circuit breaker stats
-            let stats = processor.get_statistics().await;
+            let stats = processor.get_stats().await;
             let current_state = &stats.circuit_breaker_state;
             let trip_count = stats.circuit_breaker_trips;
             
@@ -1830,7 +1814,7 @@ fn format_duration(duration: ChronoDuration) -> String {
             Ok(format_tool_response(error_text))
         }
     }
-    
+
     /// Test Ollama connectivity for circuit breaker diagnostics
     #[cfg(feature = "codex-dreams")]
     async fn test_ollama_connectivity(&self) -> Result<()> {
@@ -1850,6 +1834,22 @@ fn format_duration(duration: ChronoDuration) -> String {
             Err(anyhow::anyhow!("Ollama returned status: {}", response.status()))
         }
     }
+}
+
+/// Format duration for human-readable display
+fn format_duration(duration: ChronoDuration) -> String {
+    let total_seconds = duration.num_seconds();
+
+    if total_seconds < 60 {
+        format!("{total_seconds}s")
+    } else if total_seconds < 3600 {
+        format!("{}m", total_seconds / 60)
+    } else if total_seconds < 86400 {
+        format!("{}h", total_seconds / 3600)
+    } else {
+        format!("{}d", total_seconds / 86400)
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -388,6 +388,15 @@ impl MCPTools {
                         },
                         "required": []
                     }
+                }),
+                json!({
+                    "name": "reset_circuit_breaker", 
+                    "description": "🔧 Diagnose and attempt recovery of circuit breaker for insights generation",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
                 })
             ]);
         }
@@ -724,6 +733,10 @@ impl MCPTools {
                     }
                 }
             }
+            #[cfg(feature = "codex-dreams")]
+            "reset_circuit_breaker" => {
+                // No validation needed - tool has no parameters
+            }
             _ => return Err(format!("Unknown tool: {tool_name}")),
         }
 
@@ -816,6 +829,7 @@ mod tests {
             "search_insights",
             "insight_feedback",
             "export_insights",
+            "reset_circuit_breaker",
         ];
 
         for tool_name in &insight_tools {

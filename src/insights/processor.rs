@@ -261,7 +261,7 @@ impl InsightsProcessor {
 
     /// Process a batch of memories to generate insights
     #[instrument(skip(self), fields(batch_size = memory_ids.len()))]
-    pub async fn process_batch(&mut self, memory_ids: Vec<Uuid>) -> Result<ProcessingResult> {
+    pub async fn process_batch(&self, memory_ids: Vec<Uuid>) -> Result<ProcessingResult> {
         let start_time = Utc::now();
         info!("Starting batch processing of {} memories", memory_ids.len());
 
@@ -397,7 +397,7 @@ impl InsightsProcessor {
 
     /// Process a single memory in real-time mode
     #[instrument(skip(self))]
-    pub async fn process_realtime(&mut self, memory_id: Uuid) -> Result<Vec<Insight>> {
+    pub async fn process_realtime(&self, memory_id: Uuid) -> Result<Vec<Insight>> {
         info!("Processing memory {} in real-time mode", memory_id);
 
         // Check circuit breaker

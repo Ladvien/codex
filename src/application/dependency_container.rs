@@ -120,9 +120,9 @@ impl DependencyContainer {
             // Create Ollama client with configuration from environment
             let ollama_config = OllamaConfig {
                 base_url: std::env::var("OLLAMA_BASE_URL")
-                    .unwrap_or_else(|_| "http://localhost:11434".to_string()),
+                    .unwrap_or_else(|_| "http://192.168.1.110:11434".to_string()),
                 model: std::env::var("OLLAMA_MODEL")
-                    .unwrap_or_else(|_| "llama2:latest".to_string()),
+                    .unwrap_or_else(|_| "gpt-oss:20b".to_string()),
                 timeout_seconds: std::env::var("OLLAMA_TIMEOUT")
                     .unwrap_or_else(|_| "30".to_string())
                     .parse().unwrap_or(30),

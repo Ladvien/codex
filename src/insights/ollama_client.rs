@@ -63,7 +63,7 @@ impl Default for OllamaConfig {
     fn default() -> Self {
         Self {
             base_url: "http://localhost:11434".to_string(),
-            model: "llama2".to_string(),
+            model: "gpt-oss:20b".to_string(), // Changed from llama2 to available model
             timeout_seconds: 30,
             max_retries: 3,
             initial_retry_delay_ms: 100,

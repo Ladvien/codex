@@ -1204,24 +1204,64 @@ impl MCPHandlers {
                 info!("Processing {} memories for insight generation", memory_ids.len());
 
                 // Use the insights processor to generate insights
-                // TODO: InsightsProcessor requires mutable access - need to refactor for Arc usage
-                let response_text = format!(
-                    "★ Insights Generation Queued\n\
-                    📊 Found {} memories in time period: {}\n\
-                    🔍 Topic filter: {}\n\
-                    🎯 Target insights: {} ({})\n\
-                    \n\
-                    ⚠️ Insight processing is being redesigned for better concurrency.\n\
-                    The insights will be generated in the background and stored in the database.\n\
-                    \n\
-                    💡 Use 'export_insights' to view any existing generated insights.",
-                    filtered_memories.len(),
-                    time_period,
-                    topic.unwrap_or("none"),
-                    max_insights,
-                    insight_type
-                );
-                Ok(format_tool_response(&response_text))
+                match processor.process_batch(memory_ids).await {
+                    Ok(processing_result) => {
+                        let response_text = format!(
+                            "★ Insights Generated Successfully\n\
+                            📊 Processed {} memories from time period: {}\n\
+                            🔍 Topic filter: {}\n\
+                            💡 Generated {} insights\n\
+                            ⚡ Success rate: {:.1}%\n\
+                            ⏱️ Processing time: {:.2}s\n\
+                            \n\
+                            Insights summary:\n{}",
+                            processing_result.report.memories_processed,
+                            time_period,
+                            topic.unwrap_or("none"),
+                            processing_result.insights.len(),
+                            processing_result.report.success_rate * 100.0,
+                            processing_result.report.duration_seconds,
+                            processing_result.insights
+                                .iter()
+                                .take(3)
+                                .map(|insight| format!(
+                                    "• {} (confidence: {:.0}%): {}",
+                                    match insight.insight_type {
+                                        crate::insights::models::InsightType::Learning => "Learning",
+                                        crate::insights::models::InsightType::Connection => "Connection",
+                                        crate::insights::models::InsightType::Relationship => "Relationship",
+                                        crate::insights::models::InsightType::Assertion => "Assertion",
+                                        crate::insights::models::InsightType::MentalModel => "Mental Model",
+                                        crate::insights::models::InsightType::Pattern => "Pattern",
+                                    },
+                                    insight.confidence_score * 100.0,
+                                    insight.content.chars().take(100).collect::<String>()
+                                ))
+                                .collect::<Vec<String>>()
+                                .join("\n")
+                        );
+                        Ok(format_tool_response(&response_text))
+                    }
+                    Err(e) => {
+                        let response_text = format!(
+                            "★ Insights Generation Failed\n\
+                            📊 Found {} memories in time period: {}\n\
+                            ❌ Error: {}\n\
+                            \n\
+                            💡 Try:\n\
+                            • Check if Ollama service is running at {}\n\
+                            • Verify the model '{}' is available\n\
+                            • Check database connectivity\n\
+                            • Use 'export_insights' to view any existing insights",
+                            filtered_memories.len(),
+                            time_period,
+                            e,
+                            "http://192.168.1.110:11434",
+                            "gpt-oss:20b"
+                        );
+                        Ok(format_tool_response(&response_text))
+                    }
+                }
                 
             } else {
                 let response_text = "★ Insights Generation\n\

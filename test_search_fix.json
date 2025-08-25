@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search_memory","arguments":{"query":"test search functionality","limit":3}},"id":1}

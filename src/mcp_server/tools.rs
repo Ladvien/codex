@@ -494,6 +494,15 @@ impl MCPTools {
                         return Err("Similarity threshold must be between 0.0 and 1.0".to_string());
                     }
                 }
+
+                // Validate tier if provided
+                if let Some(tier) = args.get("tier").and_then(|t| t.as_str()) {
+                    if !["working", "warm", "cold"].contains(&tier) {
+                        return Err(
+                            "Invalid tier. Must be 'working', 'warm', or 'cold'".to_string()
+                        );
+                    }
+                }
             }
             "migrate_memory" => {
                 if args
@@ -767,6 +776,20 @@ mod tests {
             "tier": "invalid"
         });
         assert!(MCPTools::validate_tool_args("store_memory", &invalid_tier).is_err());
+
+        // Test search_memory with valid tier
+        let valid_search = json!({
+            "query": "test",
+            "tier": "working"
+        });
+        assert!(MCPTools::validate_tool_args("search_memory", &valid_search).is_ok());
+
+        // Test search_memory with invalid tier
+        let invalid_search_tier = json!({
+            "query": "test",
+            "tier": "invalid"
+        });
+        assert!(MCPTools::validate_tool_args("search_memory", &invalid_search_tier).is_err());
 
         // Test unknown tool
         assert!(MCPTools::validate_tool_args("unknown_tool", &valid_args).is_err());

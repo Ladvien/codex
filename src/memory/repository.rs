@@ -735,8 +735,7 @@ impl MemoryRepository {
         .await?;
 
         // Use the generated combined_score column for optimal P99 <1ms performance
-        let query = format!(
-            r#"
+        let query = r#"
             SELECT m.*,
                 1 - (m.embedding <=> $1) as similarity_score,
                 m.recency_score as temporal_score,
@@ -747,14 +746,16 @@ impl MemoryRepository {
             FROM memories m
             WHERE m.status = 'active'
                 AND m.embedding IS NOT NULL
-                AND 1 - (m.embedding <=> $1) >= {threshold}
+                AND 1 - (m.embedding <=> $1) >= $2
             ORDER BY m.combined_score DESC, similarity_score DESC
-            LIMIT {limit} OFFSET {offset}
-            "#
-        );
+            LIMIT $3 OFFSET $4
+            "#;
 
-        let rows = sqlx::query(&query)
+        let rows = sqlx::query(query)
             .bind(&query_embedding)
+            .bind(threshold)
+            .bind(limit as i64)
+            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await?;
 
@@ -773,20 +774,20 @@ impl MemoryRepository {
         let limit = request.limit.unwrap_or(10);
         let offset = request.offset.unwrap_or(0);
 
-        let query = format!(
-            r#"
+        let query = r#"
             SELECT m.*,
                 ts_rank_cd(to_tsvector('english', m.content), plainto_tsquery('english', $1)) as similarity_score
             FROM memories m
             WHERE m.status = 'active'
                 AND to_tsvector('english', m.content) @@ plainto_tsquery('english', $1)
             ORDER BY similarity_score DESC
-            LIMIT {limit} OFFSET {offset}
-            "#
-        );
+            LIMIT $2 OFFSET $3
+            "#;
 
-        let rows = sqlx::query(&query)
+        let rows = sqlx::query(query)
             .bind(query_text)
+            .bind(limit as i64)
+            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await?;
 

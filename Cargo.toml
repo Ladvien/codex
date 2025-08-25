@@ -1,6 +1,6 @@
 [package]
 name = "codex-memory"
-version = "0.1.52"
+version = "0.1.53"
 edition = "2021"
 authors = ["C. Thomas Brittain, aka, Ladvien <cthomasbrittain@hotmail.com>"]
 description = "An advanced hierarchical memory system for AI agents with MCP integration"

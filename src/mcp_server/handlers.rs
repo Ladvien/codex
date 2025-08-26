@@ -1120,7 +1120,44 @@ impl MCPHandlers {
                 // Get memories based on time period using same approach as what_did_you_remember
                 // Generate embedding first, then use semantic search with date filter (proven to work)
                 let memories = match time_period {
+                    "all" => {
+                        debug!("Searching all memories without date filter");
+                        let embedding = self
+                            .embedder
+                            .generate_embedding("context:conversation")
+                            .await?;
+                        self.repository
+                            .search_memories_simple(SearchRequest {
+                                query_text: Some("context:conversation".to_string()),
+                                query_embedding: Some(embedding),
+                                limit: Some(5000), // Higher limit for all memories
+                                offset: None,
+                                tier: None,
+                                tags: None,
+                                date_range: None, // No date filter - search all time
+                                importance_range: None,
+                                metadata_filters: None,
+                                similarity_threshold: Some(0.3),
+                                search_type: None,
+                                hybrid_weights: None,
+                                cursor: None,
+                                include_facets: None,
+                                include_metadata: Some(true),
+                                ranking_boost: None,
+                                explain_score: None,
+                            })
+                            .await
+                            .map(|results| SearchResponse {
+                                results,
+                                total_count: None,
+                                execution_time_ms: 0,
+                                facets: None,
+                                next_cursor: None,
+                                suggestions: None,
+                            })
+                    }
                     "last_hour" => {
+                        debug!("Searching memories from last hour");
                         let since = Utc::now() - ChronoDuration::hours(1);
                         let embedding = self
                             .embedder
@@ -1160,6 +1197,7 @@ impl MCPHandlers {
                             })
                     }
                     "last_day" => {
+                        debug!("Searching memories from last day");
                         let since = Utc::now() - ChronoDuration::days(1);
                         let embedding = self
                             .embedder
@@ -1199,6 +1237,7 @@ impl MCPHandlers {
                             })
                     }
                     "last_week" => {
+                        debug!("Searching memories from last week");
                         let since = Utc::now() - ChronoDuration::weeks(1);
                         let embedding = self
                             .embedder
@@ -1238,6 +1277,7 @@ impl MCPHandlers {
                             })
                     }
                     "last_month" => {
+                        debug!("Searching memories from last month");
                         let since = Utc::now() - ChronoDuration::days(30);
                         let embedding = self
                             .embedder
@@ -1277,6 +1317,8 @@ impl MCPHandlers {
                             })
                     }
                     _ => {
+                        warn!("Unknown time_period '{}', falling back to 'last_day'", time_period);
+                        debug!("Searching memories from last day (fallback for unknown time period)");
                         let since = Utc::now() - ChronoDuration::days(1);
                         let embedding = self
                             .embedder
@@ -1318,21 +1360,30 @@ impl MCPHandlers {
                 }?;
 
                 debug!(
-                    "Memory search completed: found {} results, execution_time={}ms",
+                    "Memory search completed for time_period '{}': found {} results, execution_time={}ms",
+                    time_period,
                     memories.results.len(),
                     memories.execution_time_ms
                 );
 
                 if memories.results.is_empty() {
+                    let suggestions = if time_period == "all" {
+                        "• Adding some memories first with store_memory\n\
+                        • Using harvest_conversation to process conversations\n\
+                        • Checking if memories exist with search_memory"
+                    } else {
+                        "• Using a longer time period (e.g., 'last_week' or 'all')\n\
+                        • Adding some memories first with store_memory\n\
+                        • Checking if memories exist with search_memory"
+                    };
                     let response_text = format!(
                         "★ Insights Generation\n\
                         📭 No memories found in the specified time period: {}\n\
                         \n\
                         💡 Try:\n\
-                        • Using a longer time period (e.g., 'last_week')\n\
-                        • Adding some memories first with store_memory\n\
-                        • Checking if memories exist with search_memories",
-                        time_period
+                        {}",
+                        time_period,
+                        suggestions
                     );
                     return Ok(format_tool_response(&response_text));
                 }
